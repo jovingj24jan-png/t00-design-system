@@ -1,4 +1,4 @@
-/* Shared toast: NexoraToast.show(title, text, icon). Uses the page's #toast-region, creating it if missing. */
+/* Shared toast: MontessoriToast.show(title, text, icon). Uses the page's #toast-region, creating it if missing. */
 (() => {
   'use strict';
 
@@ -43,5 +43,5 @@
     if (all.length > 3) all[0].remove();
   }
 
-  window.NexoraToast = { show };
+  window.MontessoriToast = { show };
 })();

@@ -3,7 +3,7 @@
 (() => {
   'use strict';
 
-  const store = window.NexoraStore;
+  const store = window.MontessoriStore;
   const { routes, session } = store;
   const dash = routes.dashboard;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -30,8 +30,8 @@
 
   const NAV = [
     ['Foundations', [['dna', '01', 'Design DNA'], ['type', '02', 'Typography']]],
-    ['Components', [['buttons', '03', 'Buttons'], ['forms', '04', 'Form elements'], ['cards', '05', 'Cards &amp; data'], ['tables', '06', 'Tables &amp; lists'], ['tabs', '07', 'Tabs &amp; filters'], ['overlays', '08', 'Modals &amp; drawers']]],
-    ['Systems', [['states', '09', 'States'], ['responsive', '10', 'Responsive blueprint'], ['playground', '11', 'Playground'], ['motion', '12', 'Motion system'], ['tokens', '13', 'Token inspector']]]
+    ['Components', [['buttons', '03', 'Buttons'], ['forms', '04', 'Form Elements'], ['cards', '05', 'Cards &amp; Data'], ['tables', '06', 'Tables &amp; Lists'], ['tabs', '07', 'Tabs &amp; Filters'], ['overlays', '08', 'Modals &amp; Drawers']]],
+    ['Systems', [['states', '09', 'States'], ['responsive', '10', 'Responsive Blueprint'], ['playground', '11', 'Interactive Playground'], ['motion', '12', 'Motion System'], ['tokens', '13', 'Token Inspector']]]
   ];
 
   // App pages, in sidebar order. Every page is listed; the guard decides what each role can open.
@@ -67,9 +67,8 @@
   const sidebarHtml = user => `
     <aside class="sidebar" id="sidebar" aria-label="Design system navigation">
       <div class="sidebar__head">
-        <a class="brand" href="${dash}">
-          <img class="brand__logo" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="40" height="40">
-          <span><span class="brand__name">Nexora</span><span class="brand__sub">Design system · v3.0</span></span>
+        <a class="brand" href="${dash}" aria-label="Montessori, learning with wonder: design system home">
+          <span data-logo="lockup"></span>
         </a>
         <button class="btn btn--icon-ghost sidebar__close" type="button" data-nav-close aria-label="Close navigation"><svg class="icon"><use href="#i-x"/></svg></button>
       </div>
@@ -90,13 +89,13 @@
   const mobilebarHtml = user => `
     <header class="mobilebar">
       <button class="btn btn--icon-ghost" type="button" id="nav-toggle" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"><svg class="icon"><use href="#i-menu"/></svg></button>
-      <a class="brand" href="${dash}"><img class="brand__logo brand__logo--compact" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="36" height="36"><span class="brand__name">Nexora</span></a>
+      <a class="brand" href="${dash}" aria-label="Montessori: design system home"><span data-logo="lockup" data-tagline="false"></span></a>
       <span class="avatar avatar--sm avatar--neutral" role="img" aria-label="${esc(user.name)}, ${esc(user.role)}">${esc(initials(user.name))}</span>
     </header>`;
 
   const brandbarHtml = () => `
     <header class="nf-brandbar">
-      <a class="brand" href="${dash}"><img class="brand__logo nf-brandbar__logo" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="56" height="56"><span class="brand__name">Nexora</span></a>
+      <a class="brand nf-brandbar__brand" href="${dash}" aria-label="Montessori, learning with wonder: design system home"><span data-logo="lockup"></span></a>
     </header>`;
 
   // Same drawer behaviour as the design-system page below 1024px.
@@ -152,6 +151,8 @@
       main.insertAdjacentHTML('afterbegin', brandbarHtml());
     }
 
+    window.MontessoriLogo?.render();
+
     // Prototype session switch (there is no real sign-in).
     document.addEventListener('click', e => {
       const b = e.target.closest('[data-session]');
@@ -162,5 +163,5 @@
     return signedIn;
   }
 
-  window.NexoraShell = { mount, initials };
+  window.MontessoriShell = { mount, initials };
 })();

@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const { byId, routes } = window.NexoraStore;
+  const { byId, routes } = window.MontessoriStore;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const STATUS_CLASS = { Present: 'badge--success', Absent: 'badge--error badge--absent', Late: 'badge--warning badge--late', Active: 'badge--success', Pending: 'badge--warning badge--late', Archived: '' };
   const row = (label, value) => `<div><dt>${label}</dt><dd>${value}</dd></div>`;
@@ -50,18 +50,18 @@
       </article>`;
   }
 
-  window.NexoraShell.mount();
+  window.MontessoriShell.mount();
   const main = document.getElementById('content');
   const id = new URLSearchParams(location.search).get('id');
   const record = id ? byId(id) : null;
 
   if (!record) {
-    window.NexoraNotFound.render(main);
+    window.MontessoriNotFound.render(main);
     return;
   }
   main.classList.add('record-page');
   main.innerHTML = record.type === 'student' ? studentView(record.data) : lessonView(record.data);
-  document.title = `${record.title} · Nexora`;
+  document.title = `${record.title} · Montessori`;
   main.querySelector('[data-back]').addEventListener('click', () => {
     if (history.length > 1) history.back(); else location.href = routes.dashboard;
   });

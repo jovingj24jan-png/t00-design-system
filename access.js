@@ -3,7 +3,7 @@
 (() => {
   'use strict';
 
-  const store = window.NexoraStore;
+  const store = window.MontessoriStore;
   const { routes } = store;
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -15,8 +15,8 @@
 
   // Unknown pages stay a not-found state, never "access denied".
   if (!page) {
-    window.NexoraShell.mount();
-    window.NexoraNotFound.render(main);
+    window.MontessoriShell.mount();
+    window.MontessoriNotFound.render(main);
     return;
   }
   // Only signed-in users who really lack permission belong here.
@@ -25,9 +25,9 @@
     return;
   }
 
-  window.NexoraShell.mount();
+  window.MontessoriShell.mount();
   const user = store.currentUser();
-  document.title = `No access to ${page.name} · Nexora`;
+  document.title = `No access to ${page.name} · Montessori`;
   main.classList.add('record-page');
 
   main.innerHTML = `
@@ -123,6 +123,6 @@
     opener = null;
     close();
     showSent();
-    window.NexoraToast.show('Request sent to your director');
+    window.MontessoriToast.show('Request sent to your director');
   });
 })();

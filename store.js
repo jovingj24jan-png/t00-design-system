@@ -1,4 +1,4 @@
-/* Nexora store — the records shown in the design system, plus routes and a prototype session.
+/* Montessori store — the records shown in the design system, plus routes and a prototype session.
    Records mirror the student table (section 06) and lesson plans (section 07) in design-system.js. */
 (() => {
   'use strict';
@@ -38,7 +38,7 @@
   };
 
   // Prototype only: there is no real sign-in. A localStorage flag stands in for a session.
-  const SESSION_KEY = 'nexora-session';
+  const SESSION_KEY = 'montessori-session';
   const session = {
     isSignedIn() {
       try { return localStorage.getItem(SESSION_KEY) === 'signed-in'; } catch { return false; }
@@ -70,9 +70,9 @@
     notifications: { name: 'Notifications', roles: roles.slice(), summary: 'Updates and requests sent to you.' }
   };
 
-  const ROLE_KEY = 'nexora-demo-role';
-  const REQUESTS_KEY = 'nexora-access-requests';
-  const NOTIFICATIONS_KEY = 'nexora-notifications';
+  const ROLE_KEY = 'montessori-demo-role';
+  const REQUESTS_KEY = 'montessori-access-requests';
+  const NOTIFICATIONS_KEY = 'montessori-notifications';
 
   const read = (key, fallback) => {
     try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch { return fallback; }
@@ -151,7 +151,7 @@
       .map(x => x.r);
   }
 
-  window.NexoraStore = {
+  window.MontessoriStore = {
     students,
     lessons,
     records,

@@ -3,18 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Nexora Design System</title>
-  <meta name="description" content="Nexora Design System: colours, type, components, states, responsive rules, motion and tokens. One system. Every screen. Same experience.">
+  <title>Montessori Design System</title>
+  <meta name="description" content="Montessori Design System v1.0: colours, type, components, states, responsive rules, motion and tokens. One system. Every learning experience.">
+  <link rel="icon" href="assets/logos/montessori-mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
   <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
 
-<div class="backdrop" aria-hidden="true" data-backdrop>
-  <svg class="wave wave--back" data-wave="back" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
-  <svg class="wave wave--front" data-wave="front" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
-  <svg class="wave wave--sheen" data-wave="sheen" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
-</div>
+<div class="backdrop" aria-hidden="true" data-backdrop><canvas data-constellation="page"></canvas></div>
 
 <svg xmlns="http://www.w3.org/2000/svg" hidden aria-hidden="true">
   <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></symbol>
@@ -52,13 +49,14 @@
 
 <aside class="sidebar" id="sidebar" aria-label="Design system navigation">
   <div class="sidebar__head sidebar-enter">
-    <a class="brand" href="design-system.html">
-      <img class="brand__logo" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="40" height="40">
-      <span><span class="brand__name">Nexora</span><span class="brand__sub">Design system · v3.0</span></span>
+    <a class="brand" href="design-system.html" aria-label="Montessori, learning with wonder: design system home">
+      <span data-logo="lockup"></span>
     </a>
     <button class="btn btn--icon-ghost sidebar__close" type="button" data-nav-close aria-label="Close navigation"><svg class="icon"><use href="#i-x"/></svg></button>
   </div>
   <nav class="sidebar__scroll sidebar-enter" aria-label="Sections">
+    <p class="sidebar__version"><span>Design system</span><b>v1.0</b></p>
+    <span class="nav-pill" aria-hidden="true"></span>
     <div class="sidebar__group">
       <p class="sidebar__label">Foundations</p>
       <ul>
@@ -70,21 +68,21 @@
       <p class="sidebar__label">Components</p>
       <ul>
         <li><a class="nav-link" href="#buttons"><span class="nav-link__num">03</span>Buttons</a></li>
-        <li><a class="nav-link" href="#forms"><span class="nav-link__num">04</span>Form elements</a></li>
-        <li><a class="nav-link" href="#cards"><span class="nav-link__num">05</span>Cards &amp; data</a></li>
-        <li><a class="nav-link" href="#tables"><span class="nav-link__num">06</span>Tables &amp; lists</a></li>
-        <li><a class="nav-link" href="#tabs"><span class="nav-link__num">07</span>Tabs &amp; filters</a></li>
-        <li><a class="nav-link" href="#overlays"><span class="nav-link__num">08</span>Modals &amp; drawers</a></li>
+        <li><a class="nav-link" href="#forms"><span class="nav-link__num">04</span>Form Elements</a></li>
+        <li><a class="nav-link" href="#cards"><span class="nav-link__num">05</span>Cards &amp; Data</a></li>
+        <li><a class="nav-link" href="#tables"><span class="nav-link__num">06</span>Tables &amp; Lists</a></li>
+        <li><a class="nav-link" href="#tabs"><span class="nav-link__num">07</span>Tabs &amp; Filters</a></li>
+        <li><a class="nav-link" href="#overlays"><span class="nav-link__num">08</span>Modals &amp; Drawers</a></li>
       </ul>
     </div>
     <div class="sidebar__group">
       <p class="sidebar__label">Systems</p>
       <ul>
         <li><a class="nav-link" href="#states"><span class="nav-link__num">09</span>States</a></li>
-        <li><a class="nav-link" href="#responsive"><span class="nav-link__num">10</span>Responsive blueprint</a></li>
-        <li><a class="nav-link" href="#playground"><span class="nav-link__num">11</span>Playground</a></li>
-        <li><a class="nav-link" href="#motion"><span class="nav-link__num">12</span>Motion system</a></li>
-        <li><a class="nav-link" href="#tokens"><span class="nav-link__num">13</span>Token inspector</a></li>
+        <li><a class="nav-link" href="#responsive"><span class="nav-link__num">10</span>Responsive Blueprint</a></li>
+        <li><a class="nav-link" href="#playground"><span class="nav-link__num">11</span>Interactive Playground</a></li>
+        <li><a class="nav-link" href="#motion"><span class="nav-link__num">12</span>Motion System</a></li>
+        <li><a class="nav-link" href="#tokens"><span class="nav-link__num">13</span>Token Inspector</a></li>
       </ul>
     </div>
   </nav>
@@ -100,7 +98,7 @@
 <div class="main" id="main">
   <header class="mobilebar">
     <button class="btn btn--icon-ghost" type="button" id="nav-toggle" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"><svg class="icon"><use href="#i-menu"/></svg></button>
-    <a class="brand" href="design-system.html"><img class="brand__logo brand__logo--compact" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="36" height="36"><span class="brand__name">Nexora</span></a>
+    <a class="brand" href="design-system.html" aria-label="Montessori: design system home"><span data-logo="lockup" data-tagline="false"></span></a>
     <button class="btn btn--icon-ghost inspect-toggle" type="button" aria-pressed="false" aria-label="Inspect mode" data-inspect-toggle><svg class="icon"><use href="#i-target"/></svg></button>
     <span class="avatar avatar--sm avatar--neutral" aria-hidden="true">JV</span>
   </header>
@@ -110,7 +108,7 @@
       <div class="masthead__top">
         <div class="masthead__meta enter" style="--i:0">
           <span class="status-live"><span class="status-live__dot" aria-hidden="true"></span>SYSTEM ACTIVE</span>
-          <span class="tech-label">Source of truth / v3.0</span>
+          <span class="tech-label">Source of truth / v1.0</span>
         </div>
         <div class="masthead__user enter" style="--i:1">
           <p class="masthead__message">Built for Montessori schools. Every screen in English and தமிழ்.</p>
@@ -118,20 +116,45 @@
         </div>
       </div>
 
-      <h1 class="masthead__title enter" style="--i:2">Nexora<i>.</i> <span>Design System</span></h1>
-      <span class="masthead__rule" aria-hidden="true"></span>
-      <nav aria-label="System areas" class="enter" style="--i:3">
-        <ul class="masthead__pills">
-          <li><a href="#dna">Colours</a></li>
-          <li><a href="#type">Type</a></li>
-          <li><a href="#buttons">Components</a></li>
-          <li><a href="#states">States</a></li>
-          <li><a href="#responsive">Responsive</a></li>
-          <li><a href="#motion">Motion</a></li>
-          <li><a href="#tokens">Tokens</a></li>
-        </ul>
-      </nav>
-      <p class="masthead__tagline enter" style="--i:4">One system. Every screen. <em>Same experience.</em></p>
+      <section class="hero enter" style="--i:2" aria-labelledby="hero-title">
+        <canvas class="hero__sky" data-constellation="hero" aria-hidden="true"></canvas>
+        <div class="hero__copy">
+          <div class="hero__brand">
+            <span class="hero__lockup" data-logo="lockup"></span>
+            <p class="hero__chip"><span>Design system</span><b>v1.0</b></p>
+          </div>
+          <h1 class="hero__title" id="hero-title">One system. <span>Every learning experience.</span></h1>
+          <p class="hero__lede">A thoughtful interface system designed around curiosity, independence and meaningful learning.</p>
+          <nav aria-label="System areas">
+            <ul class="hero__pills">
+              <li><a href="#dna">Colours</a></li>
+              <li><a href="#type">Type</a></li>
+              <li><a href="#buttons">Components</a></li>
+              <li><a href="#states">States</a></li>
+              <li><a href="#responsive">Responsive</a></li>
+              <li><a href="#motion">Motion</a></li>
+              <li><a href="#tokens">Tokens</a></li>
+            </ul>
+          </nav>
+        </div>
+        <div class="hero__art" aria-hidden="true">
+          <div class="hero__orbit"><span class="hero__orbit-mark" data-logo="mark"></span></div>
+          <div class="hero__float hero__float--class">
+            <p class="hero__float-label">Casa 1 · Today</p>
+            <p class="hero__float-big">24<span>/24</span></p>
+            <p class="hero__float-sub">children present</p>
+            <span class="hero__bar"><i style="--w:100%"></i></span>
+          </div>
+          <div class="hero__float hero__float--path">
+            <p class="hero__float-label">Curiosity path</p>
+            <ol class="path"><li class="is-done">1</li><li class="is-done">2</li><li class="is-now">3</li><li>4</li></ol>
+            <p class="hero__float-sub">Number rods → Golden beads</p>
+          </div>
+          <div class="hero__float hero__float--swatch">
+            <span class="dot dot--teal"></span><span class="dot dot--mint"></span><span class="dot dot--ivory"></span><span class="dot dot--coral"></span><span class="dot dot--gold"></span>
+          </div>
+        </div>
+      </section>
 
       <div class="metrics" role="group" aria-label="System status">
         <div class="metric enter" style="--i:5"><p class="metric__value" data-count="24" data-pad="2">24</p><p class="metric__label"><span>Components</span><span class="tech-label tech-label--plain">Live</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:.8"></span></div></div>
@@ -155,10 +178,10 @@
         <div class="dna-extra">
           <div class="well">
             <div class="subhead"><h3>Colour balance</h3><span class="tech-label tech-label--plain">60 · 30 · 10</span></div>
-            <div class="ratio" role="img" aria-label="Background 60 percent, surfaces 30 percent, orange accent 10 percent">
+            <div class="ratio" role="img" aria-label="Ivory background 60 percent, white and mint surfaces 30 percent, teal, coral and gold accents 10 percent">
               <span class="ratio__bg" style="--w:60%">BG 60</span><span class="ratio__surface" style="--w:30%">SURF 30</span><span class="ratio__accent" style="--w:10%">10</span>
             </div>
-            <p class="card__meta" style="margin-top:var(--space-3)">Orange marks the next action. If a screen looks orange, it has too many.</p>
+            <p class="card__meta" style="margin-top:var(--space-3)">Teal anchors the page; coral and gold are small moments of delight. If a screen looks coral, it has too many.</p>
           </div>
           <div class="well">
             <div class="subhead"><h3>Contrast pairs</h3><span class="tech-label tech-label--plain">Measured live</span></div>
@@ -289,7 +312,7 @@
           </div>
           <div class="field" data-inspect="input">
             <label class="field__label" for="f-email">Focused</label>
-            <input class="input is-focus" id="f-email" type="email" value="parent@nexora.school">
+            <input class="input is-focus" id="f-email" type="email" value="parent@montessori.school">
           </div>
           <div class="field" data-inspect="input-success">
             <label class="field__label" for="f-adm">Admission number</label>
@@ -548,6 +571,7 @@
         <div class="states">
           <article class="state-tile" data-inspect="skeleton">
             <div class="state-tile__label"><span class="tech-label">State / Loading</span></div>
+            <div class="logo-loader" role="status"><span class="logo-loader__mark" data-logo="mark"></span><span>Preparing Casa 1…</span></div>
             <div class="state-tile__body" aria-busy="true" aria-label="Loading student list">
               <div class="sk-row"><span class="skeleton sk-circle"></span><div class="sk-stack"><span class="skeleton sk-line w-70"></span><span class="skeleton sk-line w-40"></span></div></div>
               <span class="skeleton sk-block"></span>
@@ -612,24 +636,25 @@
         </header>
         <p class="bp__now" aria-live="polite"><span class="tech-label">Breakpoint / Now</span>You're viewing <strong data-vp-name>Desktop</strong><span class="mono" data-vp-width></span></p>
         <div class="blueprint">
+          <svg class="bp-flow" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path class="bp-flow__line" d="M2 2H98"/><path class="bp-flow__dash" d="M2 2H98"/></svg>
           <article class="bp" data-bp="desktop">
             <div class="bp__head"><h3>Desktop</h3><span class="tech-label tech-label--plain">1440px</span></div>
-            <div class="bp__screen" aria-hidden="true"><div class="wf wf--desktop"><div class="wf__side"><i></i><i></i><i></i><i></i><i></i></div><div class="wf__bar"><i></i></div><div class="wf__body"><i class="hero"></i><i></i><i></i><i></i><i class="row"></i><i class="row"></i></div></div></div>
+            <div class="bp__screen" aria-hidden="true"><div class="wf wf--desktop"><div class="wf__side"><i></i><i></i><i></i><i></i><i></i></div><div class="wf__bar"><i></i></div><div class="wf__body"><i class="wf-hero"></i><i></i><i></i><i></i><i class="row"></i><i class="row"></i></div></div></div>
             <ul><li>Sidebar always visible</li><li>Three-column cards</li><li>Full table</li><li>Centred modal</li></ul>
           </article>
           <article class="bp" data-bp="tablet">
             <div class="bp__head"><h3>Tablet</h3><span class="tech-label tech-label--plain">768px</span></div>
-            <div class="bp__screen" aria-hidden="true"><div class="wf wf--tablet"><div class="wf__bar"><b></b><i></i></div><div class="wf__body"><i class="hero"></i><i></i><i></i><i class="row"></i><i class="row"></i></div></div></div>
+            <div class="bp__screen" aria-hidden="true"><div class="wf wf--tablet"><div class="wf__bar"><b></b><i></i></div><div class="wf__body"><i class="wf-hero"></i><i></i><i></i><i class="row"></i><i class="row"></i></div></div></div>
             <ul><li>Sidebar hidden</li><li>Hamburger opens an overlay drawer</li><li>Two-column cards</li><li>Centred modal</li></ul>
           </article>
           <article class="bp" data-bp="mobile">
             <div class="bp__head"><h3>Mobile</h3><span class="tech-label tech-label--plain">360px</span></div>
-            <div class="bp__screen" aria-hidden="true"><div class="wf wf--mobile"><div class="wf__bar"><b></b><i></i></div><div class="wf__body"><i class="hero"></i><i></i><i></i><i></i></div><div class="wf__tabs"><i></i><i></i><i></i><i></i></div><span class="wf__fab"></span></div></div>
+            <div class="bp__screen" aria-hidden="true"><div class="wf wf--mobile"><div class="wf__bar"><b></b><i></i></div><div class="wf__body"><i class="wf-hero"></i><i></i><i></i><i></i></div><div class="wf__tabs"><i></i><i></i><i></i><i></i></div><span class="wf__fab"></span></div></div>
             <ul><li>Bottom navigation</li><li>56px round action, bottom-right</li><li>Table rows become cards</li><li>Full-screen modal sheet</li></ul>
           </article>
           <article class="bp" data-bp="drawer">
             <div class="bp__head"><h3>Mobile drawer</h3><span class="tech-label tech-label--plain">360px</span></div>
-            <div class="bp__screen" aria-hidden="true"><div class="wf wf--mobile"><div class="wf__bar"><b></b><i></i></div><div class="wf__body"><i class="hero"></i><i></i><i></i></div><div class="wf__tabs"><i></i><i></i><i></i><i></i></div><span class="wf__scrim"></span><div class="wf__drawer"><i></i><i></i><i></i><i></i><i></i></div></div></div>
+            <div class="bp__screen" aria-hidden="true"><div class="wf wf--mobile"><div class="wf__bar"><b></b><i></i></div><div class="wf__body"><i class="wf-hero"></i><i></i><i></i></div><div class="wf__tabs"><i></i><i></i><i></i><i></i></div><span class="wf__scrim"></span><div class="wf__drawer"><i></i><i></i><i></i><i></i><i></i></div></div></div>
             <ul><li>Slides in from the left</li><li>Backdrop dims the page</li><li>Escape or tap outside closes</li><li>No horizontal scrolling</li></ul>
           </article>
         </div>
@@ -660,8 +685,8 @@
             </div>
             <div class="pg-control"><span id="pg-theme">Theme</span>
               <div class="segmented segmented--block" role="radiogroup" aria-labelledby="pg-theme" data-pg="theme">
-                <button type="button" role="radio" aria-checked="false" data-value="light">Light</button>
-                <button type="button" role="radio" aria-checked="true" data-value="dark">Dark</button>
+                <button type="button" role="radio" aria-checked="true" data-value="light">Light</button>
+                <button type="button" role="radio" aria-checked="false" data-value="dark">Dark</button>
               </div>
             </div>
             <div class="pg-control"><span id="pg-state">State</span>
@@ -683,7 +708,8 @@
           </div>
           <div class="pg-preview">
             <div class="pg-preview__bar"><span class="tech-label">Live preview</span><span class="tech-label tech-label--plain" data-pg-label>Button / Primary</span></div>
-            <div class="pg-stage" data-pg-stage data-theme-preview="dark">
+            <div class="pg-stage" data-pg-stage data-theme-preview="light">
+              <canvas class="pg-sky" data-constellation="preview" aria-hidden="true"></canvas>
               <button class="btn btn--primary r-medium" type="button" data-pg-button>Mark attendance</button>
             </div>
             <p class="pg-code" data-pg-code></p>
@@ -733,8 +759,17 @@
     </main>
 
     <footer class="site-foot">
-      <span>Nexora Design System · v3.0 · Works offline</span>
-      <span>One system. Every screen. <em>Same experience.</em></span>
+      <canvas class="site-foot__sky" data-constellation="footer" aria-hidden="true"></canvas>
+      <div class="site-foot__inner">
+        <div class="site-foot__brand">
+          <span class="site-foot__lockup" data-logo="lockup"></span>
+          <p class="site-foot__line">Designed for curious minds.</p>
+        </div>
+        <nav class="site-foot__nav" aria-label="Footer">
+          <a href="#dna">Design DNA</a><a href="#buttons">Components</a><a href="#states">States</a><a href="#motion">Motion</a><a href="#tokens">Tokens</a>
+        </nav>
+        <p class="site-foot__meta"><span>Design system · v1.0</span><span>Works offline · No external dependencies</span></p>
+      </div>
     </footer>
   </div>
 </div>
@@ -804,6 +839,7 @@
 
 <div class="toast-region" id="toast-region" aria-live="polite"></div>
 
+<script src="logo.js"></script>
 <script src="backdrop.js"></script>
 <script src="toast.js"></script>
 <script src="design-system.js"></script>
