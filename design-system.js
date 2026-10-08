@@ -39,7 +39,7 @@
 
   /* ---------------------------------------------------------------- Toasts */
 
-  const toast = (title, text, kind) => window.MontessoriToast.show(title, text, kind);
+  const toast = (title, text, kind) => window.NexoraToast.show(title, text, kind);
 
   document.addEventListener('click', e => {
     const t = e.target.closest('[data-toast]');
@@ -153,15 +153,7 @@
     isDesktop.addEventListener('change', e => { if (e.matches) setOpen(false, false); });
 
     const links = new Map($$('.nav-link', sidebar).map(a => [a.hash.slice(1), a]));
-    const pill = $('.nav-pill', sidebar);
     let current = null;
-    // One pill slides between links instead of each link painting its own highlight.
-    const placePill = () => {
-      if (!pill || !current) return;
-      pill.style.transform = `translateY(${current.offsetTop}px)`;
-      pill.style.height = `${current.offsetHeight}px`;
-      pill.classList.add('is-visible');
-    };
     const spy = new IntersectionObserver(entries => {
       entries.forEach(entry => {
         if (!entry.isIntersecting) return;
@@ -172,11 +164,9 @@
         link.classList.add('is-current');
         link.setAttribute('aria-current', 'location');
         current = link;
-        placePill();
       });
     }, { rootMargin: '-30% 0px -60% 0px' });
     $$('.panel').forEach(p => spy.observe(p));
-    addEventListener('resize', placePill);
   }
 
   /* ------------------------------------------------------- Token inspector */
@@ -288,28 +278,27 @@
   /* ------------------------------------------------------------- Colours */
 
   const SWATCHES = [
-    ['Deep Teal · primary', 'primary', 'Actions, navigation, anchors'],
-    ['Teal hover', 'primary-hover', 'Hover on primary'],
-    ['Soft Mint', 'primary-light', 'Selected rows, tints'],
-    ['Deep Navy · secondary', 'secondary', 'Headings, body text'],
-    ['Accent Gold', 'accent', 'Stars, highlights'],
-    ['Accent Coral', 'coral', 'Warmth, the second learner'],
-    ['Warm Ivory · background', 'bg', 'Page canvas, 60%'],
-    ['Pale Aqua', 'aqua', 'Soft washes, wells'],
-    ['White · surface', 'surface', 'Panels and cards'],
+    ['Primary', 'primary', 'Actions, focus, highlights'],
+    ['Primary hover', 'primary-hover', 'Hover on primary'],
+    ['Primary light', 'primary-light', 'Selected rows, tints'],
+    ['Secondary', 'secondary', 'Steel accents, icons'],
+    ['Accent', 'accent', 'Locks, highlights'],
+    ['Background', 'bg', 'Page canvas'],
+    ['Surface', 'surface', 'Panels and cards'],
     ['Border', 'border', 'Dividers, outlines'],
     ['Success', 'success', 'Present, saved'],
     ['Warning', 'warning', 'Late, due soon'],
     ['Error', 'error', 'Absent, failed'],
     ['Info', 'info', 'Neutral news'],
-    ['Soft Text', 'text-muted', 'Meta and captions']
+    ['Text', 'text', 'Headings, values'],
+    ['Text muted', 'text-muted', 'Meta and captions']
   ];
 
   const PAIRS = [
-    ['Navy text on ivory', 'text', 'bg'],
-    ['Secondary text on white', 'text-secondary', 'surface'],
-    ['Soft text on white', 'text-muted', 'surface'],
-    ['White text on teal', 'on-primary', 'primary'],
+    ['Text on surface', 'text', 'surface'],
+    ['Secondary text on surface', 'text-secondary', 'surface'],
+    ['Muted text on surface', 'text-muted', 'surface'],
+    ['Dark text on primary', 'on-primary', 'primary'],
     ['Success on its tint', 'success', 'success-light'],
     ['Error on its tint', 'error', 'error-light']
   ];
@@ -960,7 +949,7 @@
     const sheetWrap = $('#pg-sheet');
     const sheet = $('[data-pg-sheet]', root);
     const buildBtn = $('[data-pg-build]', root);
-    const s = { variant: 'primary', size: 'md', theme: 'light', state: 'default', radius: 'medium' };
+    const s = { variant: 'primary', size: 'md', theme: 'dark', state: 'default', radius: 'medium' };
     const cap = v => v[0].toUpperCase() + v.slice(1);
 
     function spec() {
@@ -1022,12 +1011,12 @@
 
   /* --------------------------------------------------------------- Motion */
 
-  function animate(el, frames, dur = '--duration-normal', { delay = 0, easing = '--ease-emphasized', fill = 'both', iterations = 1 } = {}) {
+  function animate(el, frames, dur = '--duration-normal', { delay = 0, easing = '--ease-emphasized', fill = 'both' } = {}) {
     if (!el.animate) return null;
     if (reduceMotion.matches) {
       return el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 120, fill });
     }
-    return el.animate(frames, { duration: ms(dur), delay, easing: token(easing) || 'ease-out', fill, iterations });
+    return el.animate(frames, { duration: ms(dur), delay, easing: token(easing) || 'ease-out', fill });
   }
 
   const MOTIONS = [
@@ -1041,9 +1030,7 @@
     { name: 'Toast', time: '300ms', stage: '<span class="m-toast"></span>', play: st => animate($('.m-toast', st), [{ opacity: 0, transform: 'translateY(30px)' }, { opacity: 1, transform: 'none' }]) },
     { name: 'Skeleton', time: '1.2s loop', stage: '<span class="m-sk"><span class="skeleton sk-line w-90"></span><span class="skeleton sk-line w-70"></span><span class="skeleton sk-line w-40"></span></span>', play: st => { const sk = $('.m-sk', st); sk.classList.remove('is-playing'); void sk.offsetWidth; sk.classList.add('is-playing'); } },
     { name: 'Progress', time: '600ms', stage: '<span class="m-progress"><span style="transform:scaleX(.72)"></span></span>', play: st => animate($('.m-progress span', st), [{ transform: 'scaleX(0)' }, { transform: 'scaleX(0.72)' }], '--duration-slow') },
-    { name: 'Blur reveal', time: '600ms', stage: '<span class="m-word">Wonder</span>', play: st => animate($('.m-word', st), [{ opacity: 0, filter: 'blur(8px)', transform: 'translateY(6px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], '--duration-slow') },
-    { name: 'Float', time: '600ms × 3', stage: '<span class="m-star" data-logo="mark"></span>', play: st => animate($('.m-star', st), [{ transform: 'translateY(0)' }, { transform: 'translateY(-10px)' }, { transform: 'translateY(0)' }], '--duration-slow', { easing: '--ease-standard', fill: 'none', iterations: 3 }) },
-    { name: 'Number reveal', time: '600ms', stage: '<span class="m-count">128</span>', play: st => { const el = $('.m-count', st); el.dataset.count = '128'; animate(el, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], '--duration-normal'); countUp(el); } },
+    { name: 'Number count', time: '600ms', stage: '<span class="m-count">128</span>', play: st => { const el = $('.m-count', st); el.dataset.count = '128'; countUp(el); } },
     { name: 'Tab indicator', time: '300ms', stage: '<span class="m-tabs"><span>All</span><span>Active</span><span>Done</span><i></i></span>', play: st => animate($('.m-tabs i', st), [{ transform: 'translateX(0)' }, { transform: 'translateX(100%)', offset: 0.45 }, { transform: 'translateX(200%)' }], '--duration-slow') },
     { name: 'Accordion', time: '300ms', stage: '<span class="m-acc"><span class="m-acc__head"><span>Term 1</span><span>+</span></span><span class="m-acc__body"><span><i></i><i></i></span></span></span>', play: st => $('.m-acc', st).classList.toggle('is-open') }
   ];
@@ -1058,7 +1045,6 @@
       </button>`).join('');
     // The accordion demo needs a block-level wrapper inside its body.
     $$('.m-acc__body > span', grid).forEach(s => { s.style.display = 'block'; s.style.overflow = 'hidden'; });
-    window.MontessoriLogo?.render(grid);
     grid.addEventListener('click', e => {
       const t = e.target.closest('[data-motion]');
       if (!t || document.body.classList.contains('is-inspecting')) return;

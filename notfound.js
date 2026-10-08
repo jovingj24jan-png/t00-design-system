@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const { routes, search, session } = window.MontessoriStore;
+  const { routes, search, session } = window.NexoraStore;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const initials = t => t.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
@@ -123,10 +123,10 @@
 
   function render(container) {
     container.innerHTML = markup();
-    document.title = 'Page not found · Montessori';
+    document.title = 'Page not found · Nexora';
     container.querySelector('[data-nf-back]').addEventListener('click', goBack);
     initSearch(container);
   }
 
-  window.MontessoriNotFound = { render };
+  window.NexoraNotFound = { render };
 })();

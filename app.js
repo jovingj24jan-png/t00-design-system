@@ -3,7 +3,7 @@
 (() => {
   'use strict';
 
-  const store = window.MontessoriStore;
+  const store = window.NexoraStore;
   const { routes } = store;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const key = new URLSearchParams(location.search).get('page');
@@ -11,13 +11,13 @@
   const main = document.getElementById('content');
 
   if (!page) {
-    window.MontessoriShell.mount();
-    window.MontessoriNotFound.render(main);
+    window.NexoraShell.mount();
+    window.NexoraNotFound.render(main);
     return;
   }
 
   if (!store.session.isSignedIn()) {
-    window.MontessoriShell.mount();
+    window.NexoraShell.mount();
     renderSignIn();
     return;
   }
@@ -29,8 +29,8 @@
     return;
   }
 
-  window.MontessoriShell.mount();
-  document.title = `${page.name} · Montessori`;
+  window.NexoraShell.mount();
+  document.title = `${page.name} · Nexora`;
   main.classList.add('record-page');
   if (key === 'notifications') renderNotifications(); else renderPage();
 
@@ -82,7 +82,7 @@
   }
 
   function renderSignIn() {
-    document.title = `Sign in · Montessori`;
+    document.title = `Sign in · Nexora`;
     main.innerHTML = `
       <article class="panel denied" aria-labelledby="signin-title">
         <span class="denied__icon" aria-hidden="true"><svg class="icon"><use href="#i-user"/></svg></span>

@@ -1,152 +1,67 @@
-/* Constellation background — "learning connections". One lightweight canvas engine used by the
-   page backdrop, hero, playground preview and footer. Colours come from CSS custom properties on
-   each canvas (--cn-node, --cn-line, --cn-glow, --cn-accent), which point at design tokens. */
+/* Shared page background: pure black with a flowing ribbon, drawn into the .backdrop SVGs. */
 (() => {
   'use strict';
 
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)');
-  const coarse = matchMedia('(pointer: coarse)');
+  /* ------------------------------------------------- Liquid-metal wave */
 
-  // Per-placement tuning: node density, line/node strength, glow and parallax.
-  const PRESETS = {
-    page: { density: 1, lineAlpha: 0.16, nodeAlpha: 0.32, glow: true, parallax: 14, link: 150 },
-    hero: { density: 0.9, lineAlpha: 0.28, nodeAlpha: 0.75, glow: true, parallax: 22, link: 140 },
-    footer: { density: 0.55, lineAlpha: 0.2, nodeAlpha: 0.55, glow: true, parallax: 10, link: 130 },
-    preview: { density: 0.45, lineAlpha: 0.14, nodeAlpha: 0.35, glow: false, parallax: 8, link: 110 }
-  };
+  // Ribbon edges in a 1600×900 box: gentle dip → deep central curve → rise → twist toward the right.
+  const WAVE_TOP = [[-200, 250], [150, 235], [320, 330], [600, 450], [830, 560], [990, 580], [1160, 420], [1300, 300], [1480, 300], [1800, 262]];
+  const WAVE_BOT = [[-200, 300], [150, 300], [340, 450], [640, 640], [860, 780], [1040, 740], [1190, 540], [1330, 340], [1480, 232], [1800, 282]];
 
-  function toRgb(value) {
-    const v = value.trim();
-    if (v.startsWith('#')) {
-      const h = v.length === 4 ? v.slice(1).split('').map(c => c + c).join('') : v.slice(1, 7);
-      return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
-    }
-    const m = v.match(/(\d+(\.\d+)?)/g);
-    return m ? m.slice(0, 3).map(Number) : [7, 94, 91];
-  }
-  const rgba = (rgb, a) => `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a})`;
+  function initWave() {
+    const NS = 'http://www.w3.org/2000/svg';
+    const el = (tag, attrs, parent) => {
+      const n = document.createElementNS(NS, tag);
+      Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v));
+      if (parent) parent.appendChild(n);
+      return n;
+    };
+    const f = n => Math.round(n * 10) / 10;
+    const pt = p => `${f(p[0])} ${f(p[1])}`;
+    const curve = P => `M${pt(P[0])} C${pt(P[1])} ${pt(P[2])} ${pt(P[3])} C${pt(P[4])} ${pt(P[5])} ${pt(P[6])} C${pt(P[7])} ${pt(P[8])} ${pt(P[9])}`;
+    const body = (A, B) => `${curve(A)} L${pt(B[9])} C${pt(B[8])} ${pt(B[7])} ${pt(B[6])} C${pt(B[5])} ${pt(B[4])} ${pt(B[3])} C${pt(B[2])} ${pt(B[1])} ${pt(B[0])} Z`;
+    const mix = (A, B, t) => A.map((p, i) => [p[0] + (B[i][0] - p[0]) * t, p[1] + (B[i][1] - p[1]) * t]);
+    const gradient = (defs, id, attrs, stops) => {
+      const g = el('linearGradient', { id, ...attrs }, defs);
+      stops.forEach(([offset, tone, alpha]) => el('stop', { offset, class: `ws-${tone}`, 'stop-opacity': alpha }, g));
+    };
 
-  function mount(canvas, preset) {
-    const o = { ...PRESETS.page, ...(PRESETS[preset] || {}) };
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    let w = 0, h = 0, nodes = [], raf = 0, visible = true, t0 = performance.now();
-    const pointer = { x: 0.5, y: 0.5, sx: 0.5, sy: 0.5 };
-    let colors;
+    function ribbon(svg, id, A, B, { strands, fill = 0.55, strength = 1, shadow = false, tMax = 1 }) {
+      const defs = el('defs', {}, svg);
+      gradient(defs, `${id}-body`, { x1: 0, y1: 0, x2: 0, y2: 1 }, [[0, 'white', 0.5], [0.14, 'silver', 0.42], [0.38, 'gray', 0.28], [0.72, 'dark', 0.55], [1, 'black', 0.85]]);
+      gradient(defs, `${id}-strand`, { gradientUnits: 'userSpaceOnUse', x1: -200, y1: 0, x2: 1800, y2: 0 }, [[0, 'silver', 0.35], [0.28, 'white', 1], [0.46, 'silver', 0.75], [0.6, 'white', 1], [0.8, 'gray', 0.65], [1, 'silver', 0.4]]);
+      gradient(defs, `${id}-fade`, { gradientUnits: 'userSpaceOnUse', x1: -200, y1: 0, x2: 1800, y2: 0 }, [[0, 'mask', 0], [0.16, 'mask', 1], [0.84, 'mask', 1], [1, 'mask', 0]]);
+      const mask = el('mask', { id: `${id}-mask`, maskUnits: 'userSpaceOnUse', x: -400, y: -400, width: 2600, height: 1800 }, defs);
+      el('rect', { x: -400, y: -400, width: 2600, height: 1800, fill: `url(#${id}-fade)` }, mask);
+      const g = el('g', { mask: `url(#${id}-mask)` }, svg);
 
-    function readColors() {
-      const cs = getComputedStyle(canvas);
-      colors = {
-        node: toRgb(cs.getPropertyValue('--cn-node')),
-        line: toRgb(cs.getPropertyValue('--cn-line')),
-        glow: toRgb(cs.getPropertyValue('--cn-glow')),
-        accent: toRgb(cs.getPropertyValue('--cn-accent'))
-      };
-    }
-
-    function build() {
-      const rect = canvas.getBoundingClientRect();
-      w = Math.max(1, rect.width); h = Math.max(1, rect.height);
-      const dpr = Math.min(devicePixelRatio || 1, 2);
-      canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const vw = innerWidth;
-      const base = vw >= 1024 ? 52 : vw >= 768 ? 32 : 20;
-      const areaFactor = Math.min(1, (w * h) / (vw * innerHeight));
-      const count = Math.max(10, Math.round(base * o.density * (0.55 + 0.45 * areaFactor)));
-      // Small clusters read as "groups of ideas"; the rest drift freely.
-      const clusters = Array.from({ length: 4 }, () => ({ x: Math.random() * w, y: Math.random() * h }));
-      nodes = Array.from({ length: count }, (_, i) => {
-        const c = clusters[i % clusters.length];
-        const inCluster = Math.random() < 0.55;
-        const z = 0.35 + Math.random() * 0.65;
-        return {
-          x: inCluster ? c.x + (Math.random() - 0.5) * w * 0.22 : Math.random() * w,
-          y: inCluster ? c.y + (Math.random() - 0.5) * h * 0.3 : Math.random() * h,
-          vx: (Math.random() - 0.5) * 0.12 * z, vy: (Math.random() - 0.5) * 0.12 * z,
-          z, r: 0.7 + z * 1.3,
-          kind: Math.random() < 0.12 ? 'glow' : Math.random() < 0.06 ? 'accent' : 'node',
-          phase: Math.random() * Math.PI * 2
-        };
-      });
-    }
-
-    function draw(now, still) {
-      const cheap = coarse.matches || innerWidth < 768;
-      ctx.clearRect(0, 0, w, h);
-      pointer.sx += (pointer.x - pointer.sx) * 0.05;
-      pointer.sy += (pointer.y - pointer.sy) * 0.05;
-      const par = cheap || still ? 0 : o.parallax;
-      const pts = nodes.map(n => {
-        if (!still) {
-          n.x += n.vx; n.y += n.vy;
-          if (n.x < -30) n.x = w + 30; else if (n.x > w + 30) n.x = -30;
-          if (n.y < -30) n.y = h + 30; else if (n.y > h + 30) n.y = -30;
-        }
-        return { n, x: n.x + (pointer.sx - 0.5) * par * n.z, y: n.y + (pointer.sy - 0.5) * par * n.z };
-      });
-      const link = Math.min(o.link, Math.max(w, h) * 0.22);
-      ctx.lineWidth = 1;
-      for (let i = 0; i < pts.length; i++) {
-        for (let j = i + 1; j < pts.length; j++) {
-          const dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d > link) continue;
-          const a = Math.pow(1 - d / link, 1.6) * o.lineAlpha * Math.min(pts[i].n.z, pts[j].n.z);
-          ctx.strokeStyle = rgba(colors.line, a);
-          ctx.beginPath(); ctx.moveTo(pts[i].x, pts[i].y); ctx.lineTo(pts[j].x, pts[j].y); ctx.stroke();
-        }
+      if (shadow) {
+        const blur = el('filter', { id: `${id}-blur`, x: '-20%', y: '-40%', width: '140%', height: '180%' }, defs);
+        el('feGaussianBlur', { stdDeviation: 24 }, blur);
+        el('path', { d: body(A, B), class: 'wave__shadow', filter: `url(#${id}-blur)`, transform: 'translate(0 38)', opacity: 0.9 }, g);
       }
-      const time = (now - t0) / 1000;
-      for (const p of pts) {
-        const { n } = p;
-        if (n.kind !== 'node' && o.glow && !cheap) {
-          const pulse = still ? 0.7 : 0.55 + 0.45 * Math.sin(time * 0.9 + n.phase);
-          const col = n.kind === 'accent' ? colors.accent : colors.glow;
-          const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, n.r * 7);
-          g.addColorStop(0, rgba(col, 0.32 * pulse * o.nodeAlpha * 1.4));
-          g.addColorStop(1, rgba(col, 0));
-          ctx.fillStyle = g;
-          ctx.beginPath(); ctx.arc(p.x, p.y, n.r * 7, 0, Math.PI * 2); ctx.fill();
-        }
-        const col = n.kind === 'glow' ? colors.glow : n.kind === 'accent' ? colors.accent : colors.node;
-        ctx.fillStyle = rgba(col, o.nodeAlpha * (0.45 + 0.55 * n.z));
-        ctx.beginPath(); ctx.arc(p.x, p.y, n.kind === 'node' ? n.r : n.r + 0.6, 0, Math.PI * 2); ctx.fill();
+      if (fill > 0) el('path', { d: body(A, B), fill: `url(#${id}-body)`, opacity: fill }, g);
+
+      for (let i = 0; i < strands; i++) {
+        const t = (i / (strands - 1)) * tMax;
+        const edge = Math.exp(-(((t - 0.07) / 0.08) ** 2));
+        const crest = 0.55 * Math.exp(-(((t - 0.42) / 0.15) ** 2));
+        const alpha = Math.min(1, (0.1 + edge + crest) * (1 - 0.6 * t)) * strength;
+        el('path', { d: curve(mix(A, B, t)), class: 'wave__strand', stroke: `url(#${id}-strand)`, 'stroke-width': f(0.6 + edge * 0.8), opacity: alpha.toFixed(3) }, g);
       }
     }
 
-    let frame = 0;
-    function loop(now) {
-      // Re-read colours about once a second so theme switches (e.g. the playground) recolour it.
-      if (++frame % 60 === 0) readColors();
-      draw(now, false);
-      raf = requestAnimationFrame(loop);
-    }
-    function start() {
-      cancelAnimationFrame(raf);
-      if (reduce.matches) { draw(performance.now(), true); return; }
-      if (visible && !document.hidden) raf = requestAnimationFrame(loop);
-    }
+    const back = document.querySelector('[data-wave="back"]');
+    const front = document.querySelector('[data-wave="front"]');
+    const sheen = document.querySelector('[data-wave="sheen"]');
+    if (!back || !front || !sheen) return;
 
-    readColors();
-    build();
-    start();
-
-    new ResizeObserver(() => { build(); if (reduce.matches || !visible) draw(performance.now(), true); }).observe(canvas);
-    new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible) start(); else cancelAnimationFrame(raf); }).observe(canvas);
-    document.addEventListener('visibilitychange', () => { if (document.hidden) cancelAnimationFrame(raf); else start(); });
-    reduce.addEventListener('change', start);
-    addEventListener('pointermove', e => {
-      if (e.pointerType !== 'mouse') return;
-      pointer.x = e.clientX / innerWidth; pointer.y = e.clientY / innerHeight;
-    }, { passive: true });
+    // Two quieter ribbons behind: one higher and flatter, one lower and fainter.
+    ribbon(back, 'wb1', WAVE_TOP.map(([x, y]) => [x + 80, y * 0.7 - 40]), WAVE_BOT.map(([x, y]) => [x + 80, y * 0.66 - 10]), { strands: 34, fill: 0.45, strength: 0.8 });
+    ribbon(back, 'wb2', WAVE_TOP.map(([x, y]) => [x - 60, y * 0.85 + 250]), WAVE_BOT.map(([x, y]) => [x - 60, y * 0.8 + 300]), { strands: 22, fill: 0.3, strength: 0.45 });
+    ribbon(front, 'wf', WAVE_TOP, WAVE_BOT, { strands: 60, fill: 0.55, shadow: true });
+    ribbon(sheen, 'wsh', WAVE_TOP, WAVE_BOT, { strands: 26, fill: 0, strength: 1, tMax: 0.5 });
   }
 
-  // Older pages still carry the previous wave SVGs in .backdrop — swap them for a canvas.
-  document.querySelectorAll('.backdrop').forEach(b => {
-    if (!b.querySelector('canvas[data-constellation]')) b.innerHTML = '<canvas data-constellation="page"></canvas>';
-  });
-  document.querySelectorAll('canvas[data-constellation]').forEach(c => mount(c, c.dataset.constellation));
-
-  window.MontessoriConstellation = { mount };
+  initWave();
 })();
