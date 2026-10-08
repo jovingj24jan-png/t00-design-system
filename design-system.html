@@ -3,1596 +3,827 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>T00 Design System</title>
-  <meta name="description" content="The T00 Design System — tokens, components, states and responsive patterns that every product screen is built from.">
+  <title>Nexora Design System</title>
+  <meta name="description" content="Nexora Design System: colours, type, components, states, responsive rules, motion and tokens. One system. Every screen. Same experience.">
   <link rel="stylesheet" href="styles.css">
+  <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
 
+<div class="backdrop" aria-hidden="true" data-backdrop>
+  <div class="backdrop__orb backdrop__orb--a"></div>
+  <div class="backdrop__orb backdrop__orb--b"></div>
+  <div class="backdrop__orb backdrop__orb--c"></div>
+  <div class="backdrop__grid"></div>
+  <div class="backdrop__beam"></div>
+  <div class="backdrop__spot"></div>
+  <div class="backdrop__noise"></div>
+</div>
+
 <svg xmlns="http://www.w3.org/2000/svg" hidden aria-hidden="true">
-  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
-  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
   <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
-  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
   <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
   <symbol id="i-sort" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
-  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
-  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
-  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17v4M17 19h4"/></symbol>
-  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
-  <symbol id="i-droplet" viewBox="0 0 24 24"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/></symbol>
-  <symbol id="i-type" viewBox="0 0 24 24"><path d="M4 7V5h16v2M9 19h6M12 5v14"/></symbol>
-  <symbol id="i-shapes" viewBox="0 0 24 24"><circle cx="7.5" cy="7.5" r="3.5"/><rect x="13.5" y="4" width="7" height="7" rx="1.5"/><path d="m7.5 13.5 4 7h-8z"/><rect x="13.5" y="13.5" width="7" height="7" rx="3.5"/></symbol>
-  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
-  <symbol id="i-table" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/></symbol>
-  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
-  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></symbol>
-  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 20h18M7 16v-5M12 16V7M17 16v-3"/></symbol>
-  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
-  <symbol id="i-alert-triangle" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
-  <symbol id="i-alert-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></symbol>
-  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol>
-  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 5-5"/></symbol>
-  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
-  <symbol id="i-devices" viewBox="0 0 24 24"><rect x="2" y="4" width="14" height="11" rx="1.5"/><path d="M6 19h6"/><rect x="17" y="9" width="5" height="11" rx="1"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><path d="M12 5h.01M12 12h.01M12 19h.01" stroke-width="3.2"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v5M14 11v5"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
-  <symbol id="i-more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></symbol>
-  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8.5V19l-4 2v-7.5z"/></symbol>
-  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></symbol>
-  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></symbol>
-  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7 9l5-5 5 5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
-  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
-  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
-  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
-  <symbol id="i-share" viewBox="0 0 24 24"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4M12 2v13"/></symbol>
-  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
-  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
-  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
-  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></symbol>
-  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
-  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1 1"/><path d="M14 10a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1-1"/></symbol>
-  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="i-alert-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></symbol>
+  <symbol id="i-alert-triangle" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 5-5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l11-7z"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-user-plus" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6M16 11h6"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8.5V19l-4 2v-7.5z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7"/></symbol>
 </svg>
 
 <a class="skip-link" href="#content">Skip to content</a>
 
-<!-- Sidebar: permanent on desktop, overlay drawer below 1024px -->
-<aside class="sidebar" id="sidebar" aria-label="Primary">
-  <div class="sidebar__head">
-    <a class="brand" href="#overview">
-      <span class="brand__mark" aria-hidden="true">T0</span>
-      <span><span class="brand__name">T00</span><span class="brand__sub">Product workspace</span></span>
+<aside class="sidebar" id="sidebar" aria-label="Design system navigation">
+  <div class="sidebar__head sidebar-enter">
+    <a class="brand" href="#top">
+      <span class="brand__mark" aria-hidden="true">N</span>
+      <span><span class="brand__name">Nexora</span><span class="brand__sub">Design system · v3.0</span></span>
     </a>
-    <button class="btn btn--icon-ghost sidebar__close" type="button" data-nav-close aria-label="Close navigation">
-      <svg class="icon"><use href="#i-x"/></svg>
-    </button>
+    <button class="btn btn--icon-ghost sidebar__close" type="button" data-nav-close aria-label="Close navigation"><svg class="icon"><use href="#i-x"/></svg></button>
   </div>
-
-  <nav class="sidebar__scroll" aria-label="Main navigation">
-    <div class="nav-group">
-      <p class="nav-group__title" id="ng-workspace">Workspace</p>
-      <ul aria-labelledby="ng-workspace">
-        <li><a class="nav-link" href="#overview"><svg class="icon"><use href="#i-home"/></svg>Overview</a></li>
-        <li><a class="nav-link" href="design-system.html" aria-current="page"><svg class="icon"><use href="#i-sparkle"/></svg>Design System<span class="nav-link__badge">v2.4</span></a></li>
+  <nav class="sidebar__scroll sidebar-enter" aria-label="Sections">
+    <div class="sidebar__group">
+      <p class="sidebar__label">Foundations</p>
+      <ul>
+        <li><a class="nav-link" href="#dna"><span class="nav-link__num">01</span>Design DNA</a></li>
+        <li><a class="nav-link" href="#type"><span class="nav-link__num">02</span>Typography</a></li>
       </ul>
     </div>
-    <div class="nav-group">
-      <p class="nav-group__title" id="ng-library">Library</p>
-      <ul aria-labelledby="ng-library">
-        <li><a class="nav-link" href="#buttons"><svg class="icon"><use href="#i-grid"/></svg>Components<span class="nav-link__badge">32</span></a></li>
-        <li><a class="nav-link" href="#colors"><svg class="icon"><use href="#i-droplet"/></svg>Colors</a></li>
-        <li><a class="nav-link" href="#typography"><svg class="icon"><use href="#i-type"/></svg>Typography</a></li>
-        <li><a class="nav-link" href="#icons"><svg class="icon"><use href="#i-shapes"/></svg>Icons</a></li>
-        <li><a class="nav-link" href="#inputs"><svg class="icon"><use href="#i-pencil"/></svg>Forms</a></li>
-        <li><a class="nav-link" href="#tables"><svg class="icon"><use href="#i-table"/></svg>Tables</a></li>
-        <li><a class="nav-link" href="#notifications"><svg class="icon"><use href="#i-bell"/></svg>Notifications</a></li>
-        <li><a class="nav-link" href="#modals"><svg class="icon"><use href="#i-layers"/></svg>Modals &amp; Drawers</a></li>
-        <li><a class="nav-link" href="#charts"><svg class="icon"><use href="#i-chart"/></svg>Charts</a></li>
+    <div class="sidebar__group">
+      <p class="sidebar__label">Components</p>
+      <ul>
+        <li><a class="nav-link" href="#buttons"><span class="nav-link__num">03</span>Buttons</a></li>
+        <li><a class="nav-link" href="#forms"><span class="nav-link__num">04</span>Form elements</a></li>
+        <li><a class="nav-link" href="#cards"><span class="nav-link__num">05</span>Cards &amp; data</a></li>
+        <li><a class="nav-link" href="#tables"><span class="nav-link__num">06</span>Tables &amp; lists</a></li>
+        <li><a class="nav-link" href="#tabs"><span class="nav-link__num">07</span>Tabs &amp; filters</a></li>
+        <li><a class="nav-link" href="#overlays"><span class="nav-link__num">08</span>Modals &amp; drawers</a></li>
       </ul>
     </div>
-    <div class="nav-group">
-      <p class="nav-group__title" id="ng-states">States</p>
-      <ul aria-labelledby="ng-states">
-        <li><a class="nav-link" href="#empty"><svg class="icon"><use href="#i-inbox"/></svg>Empty States</a></li>
-        <li><a class="nav-link" href="#error"><svg class="icon"><use href="#i-alert-triangle"/></svg>Error States</a></li>
-        <li><a class="nav-link" href="#responsive"><svg class="icon"><use href="#i-devices"/></svg>Responsive</a></li>
+    <div class="sidebar__group">
+      <p class="sidebar__label">Systems</p>
+      <ul>
+        <li><a class="nav-link" href="#states"><span class="nav-link__num">09</span>States</a></li>
+        <li><a class="nav-link" href="#responsive"><span class="nav-link__num">10</span>Responsive blueprint</a></li>
+        <li><a class="nav-link" href="#playground"><span class="nav-link__num">11</span>Playground</a></li>
+        <li><a class="nav-link" href="#motion"><span class="nav-link__num">12</span>Motion system</a></li>
+        <li><a class="nav-link" href="#tokens"><span class="nav-link__num">13</span>Token inspector</a></li>
       </ul>
     </div>
   </nav>
-
-  <div class="sidebar__foot">
-    <div class="health">
-      <div class="health__row"><span>Token adoption</span><strong>94%</strong></div>
-      <div class="health__bar" role="progressbar" aria-label="Token adoption" aria-valuenow="94" aria-valuemin="0" aria-valuemax="100"><span></span></div>
-      <p>6 screens still use legacy colours.</p>
-    </div>
-    <div class="me">
-      <span class="avatar avatar--dark" aria-hidden="true">JV</span>
-      <div><p class="me__name">Joving</p><p class="me__role">Design lead</p></div>
-    </div>
+  <div class="sidebar__foot sidebar-enter">
+    <button class="btn btn--secondary btn--block inspect-toggle" type="button" aria-pressed="false" data-inspect-toggle>
+      <svg class="icon icon--sm" aria-hidden="true"><use href="#i-target"/></svg>Inspect mode
+    </button>
+    <p class="tech-label tech-label--plain">Click a component · see its tokens</p>
   </div>
 </aside>
 <div class="nav-backdrop" data-nav-close aria-hidden="true"></div>
 
 <div class="main" id="main">
-  <header class="topbar">
-    <button class="btn btn--icon-ghost nav-toggle" type="button" id="nav-toggle" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">
-      <svg class="icon"><use href="#i-menu"/></svg>
-    </button>
-    <a class="brand topbar__brand" href="#overview">
-      <span class="brand__mark" aria-hidden="true">T0</span>
-      <span class="brand__name">T00</span>
-    </a>
-
-    <div class="topbar__crumbs">
-      <nav class="crumbs" aria-label="Breadcrumb">
-        <a href="#overview">Workspace</a>
-        <svg class="icon icon--sm" aria-hidden="true"><use href="#i-chevron-right"/></svg>
-        <span aria-current="page">Design System</span>
-      </nav>
-      <span class="label-tag">Design System</span>
-    </div>
-
-    <form class="search topbar__search" role="search" data-search>
-      <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-      <label class="sr-only" for="global-search">Search components and tokens</label>
-      <input class="search__input" id="global-search" type="search" placeholder="Search components, tokens…" autocomplete="off">
-      <kbd class="search__kbd">/</kbd>
-    </form>
-
-    <div class="topbar__status">
-      <span class="status-pill"><span class="status-dot" aria-hidden="true"></span>v2.4 · Synced</span>
-      <button class="btn btn--secondary btn--sm" type="button" data-toast="info" data-toast-title="Share link copied" data-toast-text="Anyone in the workspace can view this system.">
-        <svg class="icon icon--sm" aria-hidden="true"><use href="#i-share"/></svg>Share
-      </button>
-    </div>
-
-    <div class="topbar__actions">
-      <button class="btn btn--icon-ghost mobile-search-btn" type="button" id="mobile-search-toggle" aria-label="Search" aria-controls="mobile-search" aria-expanded="false">
-        <svg class="icon"><use href="#i-search"/></svg>
-      </button>
-      <div class="has-popover">
-        <button class="btn btn--icon-ghost bell" type="button" id="notif-toggle" aria-label="Notifications, 3 unread" aria-controls="notif-panel" aria-expanded="false">
-          <svg class="icon"><use href="#i-bell"/></svg><span class="bell__dot" aria-hidden="true"></span>
-        </button>
-        <div class="popover" id="notif-panel" role="region" aria-labelledby="notif-title" hidden>
-          <div class="popover__head">
-            <h2 id="notif-title">Notifications</h2>
-            <span class="badge badge--primary badge--plain">3 new</span>
-          </div>
-          <ul class="popover__list">
-            <li><span class="avatar avatar--sm avatar--info" aria-hidden="true">AR</span><div><p><b>Aisha</b> commented on <b>Table / Mobile</b></p><span>12 min ago</span></div></li>
-            <li><span class="avatar avatar--sm avatar--success" aria-hidden="true">MK</span><div><p><b>Marcus</b> published <b>Button v2.4</b></p><span>1 hour ago</span></div></li>
-            <li><span class="avatar avatar--sm avatar--primary" aria-hidden="true">LP</span><div><p><b>Lina</b> requested access to <b>Audit log</b></p><span>Yesterday</span></div></li>
-          </ul>
-          <div class="popover__foot"><a class="t-link t-body-sm" href="#notifications">View all notifications</a></div>
-        </div>
-      </div>
-      <button class="profile-btn" type="button" aria-label="Account: Joving">
-        <span class="avatar" aria-hidden="true">JV</span>
-      </button>
-    </div>
+  <header class="mobilebar">
+    <button class="btn btn--icon-ghost" type="button" id="nav-toggle" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"><svg class="icon"><use href="#i-menu"/></svg></button>
+    <a class="brand" href="#top"><span class="brand__mark" aria-hidden="true">N</span><span class="brand__name">Nexora</span></a>
+    <button class="btn btn--icon-ghost inspect-toggle" type="button" aria-pressed="false" aria-label="Inspect mode" data-inspect-toggle><svg class="icon"><use href="#i-target"/></svg></button>
+    <span class="avatar avatar--sm avatar--neutral" aria-hidden="true">JV</span>
   </header>
 
-  <div class="mobile-search" id="mobile-search" hidden>
-    <form class="search" role="search" data-search>
-      <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-      <label class="sr-only" for="mobile-search-input">Search components and tokens</label>
-      <input class="search__input" id="mobile-search-input" type="search" placeholder="Search components, tokens…" autocomplete="off">
-    </form>
-  </div>
-
-  <nav class="section-nav" aria-label="On this page">
-    <ul class="section-nav__list" id="section-nav">
-      <li><a class="section-nav__link" href="#colors"><span>01</span>Colors</a></li>
-      <li><a class="section-nav__link" href="#typography"><span>02</span>Typography</a></li>
-      <li><a class="section-nav__link" href="#spacing"><span>03</span>Spacing</a></li>
-      <li><a class="section-nav__link" href="#buttons"><span>04</span>Buttons</a></li>
-      <li><a class="section-nav__link" href="#inputs"><span>05</span>Inputs</a></li>
-      <li><a class="section-nav__link" href="#selects"><span>06</span>Selects</a></li>
-      <li><a class="section-nav__link" href="#tabs"><span>07</span>Tabs</a></li>
-      <li><a class="section-nav__link" href="#chips"><span>08</span>Chips</a></li>
-      <li><a class="section-nav__link" href="#cards"><span>09</span>Cards</a></li>
-      <li><a class="section-nav__link" href="#tables"><span>10</span>Tables</a></li>
-      <li><a class="section-nav__link" href="#filters"><span>11</span>Filters</a></li>
-      <li><a class="section-nav__link" href="#modals"><span>12</span>Modals</a></li>
-      <li><a class="section-nav__link" href="#drawers"><span>13</span>Drawers</a></li>
-      <li><a class="section-nav__link" href="#notifications"><span>14</span>Notifications</a></li>
-      <li><a class="section-nav__link" href="#empty"><span>15</span>Empty</a></li>
-      <li><a class="section-nav__link" href="#loading"><span>16</span>Loading</a></li>
-      <li><a class="section-nav__link" href="#error"><span>17</span>Error</a></li>
-      <li><a class="section-nav__link" href="#success"><span>18</span>Success</a></li>
-      <li><a class="section-nav__link" href="#locked"><span>19</span>Locked</a></li>
-      <li><a class="section-nav__link" href="#icons"><span>20</span>Icons</a></li>
-      <li><a class="section-nav__link" href="#responsive"><span>21</span>Responsive</a></li>
-    </ul>
-  </nav>
-
-  <main class="content" id="content" tabindex="-1">
-
-    <!-- ============ HERO ============ -->
-    <section class="hero" id="overview" aria-labelledby="hero-title">
-      <div class="hero__copy">
-        <p class="hero__eyebrow"><b>v2.4</b> T00 Design System · Published 07 Oct 2026</p>
-        <h1 class="hero__title t-display" id="hero-title">One quiet system. <em>Every screen</em> built from it.</h1>
-        <p class="hero__lede t-body-lg">The tokens, components and interaction patterns behind the T00 product. If a screen needs a colour, a state or a layout rule, it comes from this page.</p>
-        <div class="hero__actions">
-          <a class="btn btn--primary btn--lg" href="#buttons">Explore components<svg class="icon" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
-          <a class="btn btn--secondary btn--lg" href="#colors">View tokens</a>
+  <div class="wrap" id="top">
+    <header class="masthead">
+      <div class="dial enter" style="--i:3" aria-hidden="true">
+        <svg viewBox="0 0 460 460">
+          <circle class="dial__ring" cx="230" cy="230" r="220"/>
+          <circle class="dial__ticks dial__ticks--fine" cx="230" cy="230" r="206"/>
+          <g class="dial__spin dial__spin--rev"><circle class="dial__ticks" cx="230" cy="230" r="186"/></g>
+          <circle class="dial__ring dial__ring--strong" cx="230" cy="230" r="150"/>
+          <g class="dial__spin"><circle class="dial__arc" cx="230" cy="230" r="150"/><circle class="dial__arc dial__arc--teal" cx="230" cy="230" r="150"/></g>
+          <circle class="dial__ring" cx="230" cy="230" r="96"/>
+          <path class="dial__cross" d="M230 0v460M0 230h460"/>
+          <g class="dial__spin dial__spin--fast"><circle class="dial__dot dial__dot--halo" cx="230" cy="134" r="9"/><circle class="dial__dot" cx="230" cy="134" r="4"/></g>
+          <circle class="dial__dot" cx="230" cy="230" r="3"/>
+          <text class="dial__label" x="244" y="24">GRID / 48</text>
+          <text class="dial__label" x="392" y="222">TOKENS</text>
+          <text class="dial__label" x="244" y="452">MOTION / 300MS</text>
+          <text class="dial__label" x="14" y="222">BREAKPOINTS</text>
+        </svg>
+      </div>
+      <div class="masthead__top">
+        <div class="masthead__meta enter" style="--i:0">
+          <span class="status-live"><span class="status-live__dot" aria-hidden="true"></span>SYSTEM ACTIVE</span>
+          <span class="tech-label">Source of truth / v3.0</span>
         </div>
-        <dl class="hero__stats">
-          <div><dt>Components</dt><dd>32</dd></div>
-          <div><dt>Colour tokens</dt><dd>14<small>core</small></dd></div>
-          <div><dt>Breakpoints</dt><dd>3</dd></div>
-          <div><dt>Contrast</dt><dd>AA<small>min.</small></dd></div>
-        </dl>
+        <div class="masthead__user enter" style="--i:1">
+          <p class="masthead__message">Built for Montessori schools. Every screen in English and தமிழ்.</p>
+          <span class="avatar avatar--neutral" role="img" aria-label="Joving, design lead">JV</span>
+        </div>
       </div>
 
-      <div class="hero__visual" aria-hidden="true" inert>
-        <div class="collage-card collage-card--buttons">
-          <p class="collage-card__label"><span>Button / Primary</span><span>04</span></p>
-          <div class="row">
-            <span class="btn btn--primary">Publish</span>
-            <span class="btn btn--secondary">Preview</span>
-            <span class="btn btn--primary is-loading"><span class="spinner spinner--sm btn__spinner"></span>Saving…</span>
+      <h1 class="masthead__title enter" style="--i:2">Nexora<i>.</i> <span>Design System</span></h1>
+      <span class="masthead__rule" aria-hidden="true"></span>
+      <nav aria-label="System areas" class="enter" style="--i:3">
+        <ul class="masthead__pills">
+          <li><a href="#dna">Colours</a></li>
+          <li><a href="#type">Type</a></li>
+          <li><a href="#buttons">Components</a></li>
+          <li><a href="#states">States</a></li>
+          <li><a href="#responsive">Responsive</a></li>
+          <li><a href="#motion">Motion</a></li>
+          <li><a href="#tokens">Tokens</a></li>
+        </ul>
+      </nav>
+      <p class="masthead__tagline enter" style="--i:4">One system. Every screen. <em>Same experience.</em></p>
+
+      <div class="metrics" role="group" aria-label="System status">
+        <div class="metric enter" style="--i:5"><p class="metric__value" data-count="24" data-pad="2">24</p><p class="metric__label"><span>Components</span><span class="tech-label tech-label--plain">Live</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:.8"></span></div></div>
+        <div class="metric enter" style="--i:6"><p class="metric__value" data-count="8" data-pad="2">08</p><p class="metric__label"><span>States</span><span class="tech-label tech-label--plain">Per comp.</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:.55"></span></div></div>
+        <div class="metric enter" style="--i:7"><p class="metric__value" data-count="4" data-pad="2">04</p><p class="metric__label"><span>Breakpoints</span><span class="tech-label tech-label--plain">360–1440</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:.4"></span></div></div>
+        <div class="metric enter" style="--i:8"><p class="metric__value" data-count="100" data-suffix="%">100%</p><p class="metric__label"><span>Token based</span><span class="tech-label tech-label--plain">No hex in HTML</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:1"></span></div></div>
+      </div>
+    </header>
+
+    <main class="board" id="content" tabindex="-1">
+
+      <!-- 01 DESIGN DNA -->
+      <section class="panel span-7 reveal" id="dna" aria-labelledby="dna-title">
+        <header class="panel__head">
+          <span class="panel__num">01<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="dna-title">Design DNA</h2><p class="panel__sub">The colour system. Click a swatch to copy its token.</p></div>
+          <span class="tech-label">Token / Colour</span>
+        </header>
+        <div class="swatches" data-swatches></div>
+        <p class="sr-only" role="status" data-swatch-status></p>
+        <div class="dna-extra">
+          <div class="well">
+            <div class="subhead"><h3>Colour balance</h3><span class="tech-label tech-label--plain">60 · 30 · 10</span></div>
+            <div class="ratio" role="img" aria-label="Background 60 percent, surfaces 30 percent, orange accent 10 percent">
+              <span class="ratio__bg" style="--w:60%">BG 60</span><span class="ratio__surface" style="--w:30%">SURF 30</span><span class="ratio__accent" style="--w:10%">10</span>
+            </div>
+            <p class="card__meta" style="margin-top:var(--space-3)">Orange marks the next action. If a screen looks orange, it has too many.</p>
+          </div>
+          <div class="well">
+            <div class="subhead"><h3>Contrast pairs</h3><span class="tech-label tech-label--plain">Measured live</span></div>
+            <ul class="pairs" data-contrast></ul>
           </div>
         </div>
-        <div class="collage-card collage-card--type">
-          <p class="collage-card__label"><span>Display</span><span>02</span></p>
-          <p class="aa">A<em>a</em></p>
-          <p class="t-caption">Iowan Old Style · 500</p>
-        </div>
-        <div class="collage-card collage-card--swatches">
-          <p class="collage-card__label"><span>Colour</span><span>01</span></p>
-          <div class="swatch-strip">
-            <span class="bg-primary"></span><span class="bg-accent"></span><span class="bg-nav"></span>
-            <span class="bg-success"></span><span class="bg-info"></span><span class="bg-bg"></span>
+      </section>
+
+      <!-- 02 TYPOGRAPHY -->
+      <section class="panel span-5 reveal" id="type" aria-labelledby="type-title">
+        <header class="panel__head">
+          <span class="panel__num">02<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="type-title">Typography</h2><p class="panel__sub">One hierarchy for English and Tamil.</p></div>
+          <span class="tech-label">Token / Type</span>
+        </header>
+        <div class="subhead">
+          <h3 id="size-label">Preview size</h3>
+          <div class="segmented" role="radiogroup" aria-labelledby="size-label" data-type-size>
+            <button type="button" role="radio" aria-checked="false" data-scale="0.85">Small</button>
+            <button type="button" role="radio" aria-checked="true" data-scale="1">Medium</button>
+            <button type="button" role="radio" aria-checked="false" data-scale="1.15">Large</button>
           </div>
         </div>
-        <div class="collage-card collage-card--toast">
-          <span class="alert__icon card__icon--success"><svg class="icon"><use href="#i-check-circle"/></svg></span>
-          <div><p class="t-label">Changes published</p><p class="t-caption">12 screens updated to v2.4</p></div>
+        <div class="type-preview" data-type-preview>
+          <div class="type-row"><span class="type-row__tag">H1</span><p class="type-row__sample ts-h1" data-type-sample>Learning, made visible</p><span class="type-row__meta"></span></div>
+          <div class="type-row"><span class="type-row__tag">H2</span><p class="type-row__sample ts-h2" data-type-sample>Today in Casa 1</p><span class="type-row__meta"></span></div>
+          <div class="type-row"><span class="type-row__tag">H3</span><p class="type-row__sample ts-h3" data-type-sample>Attendance overview</p><span class="type-row__meta"></span></div>
+          <div class="type-row"><span class="type-row__tag">H4</span><p class="type-row__sample ts-h4" data-type-sample>Recent observations</p><span class="type-row__meta"></span></div>
+          <div class="type-row"><span class="type-row__tag">H5</span><p class="type-row__sample ts-h5" data-type-sample>Fee reminders</p><span class="type-row__meta"></span></div>
+          <div class="type-row"><span class="type-row__tag">H6</span><p class="type-row__sample ts-h6" data-type-sample>Section label</p><span class="type-row__meta"></span></div>
+          <div class="type-row"><span class="type-row__tag">Body</span><p class="type-row__sample ts-body" data-type-sample>Aarav finished the pink tower on his own today.</p><span class="type-row__meta"></span></div>
+          <div class="type-row"><span class="type-row__tag">Small</span><p class="type-row__sample ts-small" data-type-sample>Updated by Ms. Lakshmi, 10 minutes ago</p><span class="type-row__meta"></span></div>
+          <div class="type-row"><span class="type-row__tag">Caption</span><p class="type-row__sample ts-caption" data-type-sample>08 Oct 2026 · Casa 1 · 24 students</p><span class="type-row__meta"></span></div>
+          <div class="type-row"><span class="type-row__tag">Label</span><p class="type-row__sample ts-label" data-type-sample>Parent phone number</p><span class="type-row__meta"></span></div>
+          <div class="type-row"><span class="type-row__tag">Button</span><p class="type-row__sample ts-button" data-type-sample>Mark attendance</p><span class="type-row__meta"></span></div>
+          <div class="type-row"><span class="type-row__tag">Numbers</span><p class="type-row__sample ts-number" data-type-sample>1,248 · 96.4%</p><span class="type-row__meta"></span></div>
         </div>
-      </div>
-    </section>
+        <div class="tamil-card" lang="ta">
+          <span class="tech-label">Language / Tamil</span>
+          <p class="ts-tamil" style="margin-top:var(--space-2)" data-type-tamil>கற்றல் என்பது ஒரு பயணம்</p>
+          <p class="ts-small" lang="en">"Learning is a journey." Tamil text uses a 1.75 line height so vowel signs never clip.</p>
+        </div>
+      </section>
 
-    <!-- ============ 01 COLORS ============ -->
-    <section class="ds-section" id="colors" aria-labelledby="colors-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">01</span>
-        <div>
-          <p class="eyebrow">Foundations</p>
-          <h2 class="ds-section__title" id="colors-title">Colors</h2>
-          <p class="ds-section__lede">A warm neutral base with one confident ember accent. Every value below is read live from the stylesheet, so this page can never drift from the code.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">--color-*</span><span class="token-tag">14 core tokens</span></div>
-      </header>
+      <!-- 03 BUTTONS -->
+      <section class="panel reveal" id="buttons" aria-labelledby="buttons-title">
+        <header class="panel__head">
+          <span class="panel__num">03<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="buttons-title">Buttons</h2><p class="panel__sub">Every variant in every state. Click a button in the Default column to run its loading state.</p></div>
+          <span class="tech-label">Component / Button</span>
+        </header>
+        <div class="matrix" data-button-lab>
+          <div class="matrix__head" aria-hidden="true"><span>Variant</span><span>Default</span><span>Hover</span><span>Focus</span><span>Active</span><span>Disabled</span><span>Loading</span></div>
 
-      <div class="swatches" data-swatches>
-        <p class="swatch-group-title">Brand</p>
-      </div>
-    </section>
-
-    <!-- ============ 02 TYPOGRAPHY ============ -->
-    <section class="ds-section" id="typography" aria-labelledby="type-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">02</span>
-        <div>
-          <p class="eyebrow">Foundations</p>
-          <h2 class="ds-section__title" id="type-title">Typography</h2>
-          <p class="ds-section__lede">An editorial serif for moments that set the tone, a neutral sans for everything people read and act on. Metrics are measured from the rendered text.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">--text-*</span><span class="token-tag">--font-*</span></div>
-      </header>
-
-      <div class="font-cards">
-        <div class="font-card font-card--dark">
-          <p class="font-card__aa font-card__aa--display" aria-hidden="true">Aa</p>
-          <h3>Display serif</h3>
-          <p class="mono">--font-display</p>
-          <p>Hero, page and section titles. Never below 24px.</p>
-        </div>
-        <div class="font-card">
-          <p class="font-card__aa" aria-hidden="true">Aa</p>
-          <h3>Interface sans</h3>
-          <p class="mono">--font-sans</p>
-          <p>Body, labels, controls and data. System stack, works offline.</p>
-        </div>
-        <div class="font-card">
-          <p class="font-card__aa font-card__aa--mono" aria-hidden="true">{}</p>
-          <h3>Mono</h3>
-          <p class="mono">--font-mono</p>
-          <p>Tokens, codes, IDs and section numbers.</p>
-        </div>
-      </div>
-
-      <div class="type-list" data-type-list>
-        <div class="type-row"><span class="type-row__name">Display</span><p class="type-row__sample t-display" data-type-sample>Calm by default</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">H1</span><p class="type-row__sample t-h1" data-type-sample>Design that gets out of the way</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">H2</span><p class="type-row__sample t-h2" data-type-sample>Workspace settings</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">H3</span><p class="type-row__sample t-h3" data-type-sample>Billing and invoices</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">H4</span><p class="type-row__sample t-h4" data-type-sample>Recent activity</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">H5</span><p class="type-row__sample t-h5" data-type-sample>Notification preferences</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">Body Large</span><p class="type-row__sample t-body-lg" data-type-sample>Good interfaces feel inevitable. Every element earns its place.</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">Body</span><p class="type-row__sample t-body" data-type-sample>Invite teammates to collaborate on components, review changes and publish new versions.</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">Body Small</span><p class="type-row__sample t-body-sm" data-type-sample>Last edited by Aisha Rahman, 12 minutes ago.</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">Caption</span><p class="type-row__sample t-caption" data-type-sample>Updated 07 Oct 2026 · 4 contributors</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">Label</span><p class="type-row__sample t-label" data-type-sample>Email address</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">Button</span><p class="type-row__sample t-button" data-type-sample>Publish changes</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">Link</span><p class="type-row__sample"><a class="t-link" href="#typography" data-type-sample>Read the release notes</a></p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">Error</span><p class="type-row__sample t-error" data-type-sample>Enter an email address like name@company.com</p><div class="type-row__meta"></div></div>
-        <div class="type-row"><span class="type-row__name">Success</span><p class="type-row__sample t-success" data-type-sample>Your changes have been saved</p><div class="type-row__meta"></div></div>
-      </div>
-    </section>
-
-    <!-- ============ 03 SPACING ============ -->
-    <section class="ds-section" id="spacing" aria-labelledby="spacing-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">03</span>
-        <div>
-          <p class="eyebrow">Foundations</p>
-          <h2 class="ds-section__title" id="spacing-title">Spacing, shape &amp; elevation</h2>
-          <p class="ds-section__lede">A 4px rhythm, four radii and four soft shadows. Nothing in the product uses a value outside these scales.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">--space-*</span><span class="token-tag">--radius-*</span><span class="token-tag">--shadow-*</span></div>
-      </header>
-
-      <div class="grid grid--sidebar">
-        <div class="canvas">
-          <div class="row-label"><h4>Spacing</h4><p>4px base</p></div>
-          <div class="space-scale">
-            <div class="space-row"><span>--space-1</span><span>4</span><span class="space-row__bar"></span></div>
-            <div class="space-row"><span>--space-2</span><span>8</span><span class="space-row__bar"></span></div>
-            <div class="space-row"><span>--space-3</span><span>12</span><span class="space-row__bar"></span></div>
-            <div class="space-row"><span>--space-4</span><span>16</span><span class="space-row__bar"></span></div>
-            <div class="space-row"><span>--space-5</span><span>20</span><span class="space-row__bar"></span></div>
-            <div class="space-row"><span>--space-6</span><span>24</span><span class="space-row__bar"></span></div>
-            <div class="space-row"><span>--space-8</span><span>32</span><span class="space-row__bar"></span></div>
-            <div class="space-row"><span>--space-10</span><span>40</span><span class="space-row__bar"></span></div>
-            <div class="space-row"><span>--space-12</span><span>48</span><span class="space-row__bar"></span></div>
-            <div class="space-row"><span>--space-16</span><span>64</span><span class="space-row__bar"></span></div>
-            <div class="space-row"><span>--space-20</span><span>80</span><span class="space-row__bar"></span></div>
-          </div>
-        </div>
-        <div class="grid">
-          <div class="canvas">
-            <div class="row-label"><h4>Radius</h4><p>Controls → containers</p></div>
-            <div class="shape-grid">
-              <div class="shape"><span class="shape__tile shape__tile--sm"></span>sm · 6</div>
-              <div class="shape"><span class="shape__tile shape__tile--md"></span>md · 10</div>
-              <div class="shape"><span class="shape__tile shape__tile--lg"></span>lg · 14</div>
-              <div class="shape"><span class="shape__tile shape__tile--xl"></span>xl · 20</div>
+          <div class="matrix__row">
+            <div class="matrix__name"><strong>Primary</strong><span class="tech-label tech-label--plain">One per view</span></div>
+            <div class="matrix__cells">
+              <div class="matrix__cell"><span class="matrix__state">Default</span><button class="btn btn--primary" type="button" data-run-loading data-inspect="button-primary">Save</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Hover</span><button class="btn btn--primary is-hover" type="button" data-inspect="button-primary">Save</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Focus</span><button class="btn btn--primary is-focus" type="button" data-inspect="button-primary">Save</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Active</span><button class="btn btn--primary is-active" type="button" data-inspect="button-primary">Save</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Disabled</span><button class="btn btn--primary" type="button" disabled>Save</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Loading</span><button class="btn btn--primary is-loading" type="button" aria-disabled="true" data-inspect="button-primary"><span class="spinner" aria-hidden="true"></span>Loading…</button></div>
             </div>
           </div>
-          <div class="canvas canvas--dotted">
-            <div class="row-label"><h4>Elevation</h4><p>Warm, low-contrast</p></div>
-            <div class="shape-grid">
-              <div class="shape"><span class="shape__tile shape__tile--shadow shape__tile--xs"></span>xs · rest</div>
-              <div class="shape"><span class="shape__tile shape__tile--shadow shape__tile--s"></span>sm · raised</div>
-              <div class="shape"><span class="shape__tile shape__tile--shadow shape__tile--m"></span>md · hover</div>
-              <div class="shape"><span class="shape__tile shape__tile--shadow shape__tile--l"></span>lg · overlay</div>
+
+          <div class="matrix__row">
+            <div class="matrix__name"><strong>Secondary</strong><span class="tech-label tech-label--plain">Alternatives</span></div>
+            <div class="matrix__cells">
+              <div class="matrix__cell"><span class="matrix__state">Default</span><button class="btn btn--secondary" type="button" data-run-loading data-inspect="button-secondary">Preview</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Hover</span><button class="btn btn--secondary is-hover" type="button" data-inspect="button-secondary">Preview</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Focus</span><button class="btn btn--secondary is-focus" type="button" data-inspect="button-secondary">Preview</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Active</span><button class="btn btn--secondary is-active" type="button" data-inspect="button-secondary">Preview</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Disabled</span><button class="btn btn--secondary" type="button" disabled>Preview</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Loading</span><button class="btn btn--secondary is-loading" type="button" aria-disabled="true" data-inspect="button-secondary"><span class="spinner" aria-hidden="true"></span>Loading…</button></div>
+            </div>
+          </div>
+
+          <div class="matrix__row">
+            <div class="matrix__name"><strong>Tertiary</strong><span class="tech-label tech-label--plain">Low emphasis</span></div>
+            <div class="matrix__cells">
+              <div class="matrix__cell"><span class="matrix__state">Default</span><button class="btn btn--tertiary" type="button" data-run-loading data-inspect="button-tertiary">View all</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Hover</span><button class="btn btn--tertiary is-hover" type="button" data-inspect="button-tertiary">View all</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Focus</span><button class="btn btn--tertiary is-focus" type="button" data-inspect="button-tertiary">View all</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Active</span><button class="btn btn--tertiary is-active" type="button" data-inspect="button-tertiary">View all</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Disabled</span><button class="btn btn--tertiary" type="button" disabled>View all</button></div>
+              <div class="matrix__cell"><span class="matrix__state">Loading</span><button class="btn btn--tertiary is-loading" type="button" aria-disabled="true" data-inspect="button-tertiary"><span class="spinner" aria-hidden="true"></span>Loading…</button></div>
+            </div>
+          </div>
+
+          <div class="matrix__row">
+            <div class="matrix__name"><strong>Icon button</strong><span class="tech-label tech-label--plain">Always labelled</span></div>
+            <div class="matrix__cells">
+              <div class="matrix__cell"><span class="matrix__state">Default</span><button class="btn btn--icon" type="button" aria-label="Notifications" data-run-loading data-inspect="button-icon"><svg class="icon"><use href="#i-bell"/></svg></button></div>
+              <div class="matrix__cell"><span class="matrix__state">Hover</span><button class="btn btn--icon is-hover" type="button" aria-label="Notifications" data-inspect="button-icon"><svg class="icon"><use href="#i-bell"/></svg></button></div>
+              <div class="matrix__cell"><span class="matrix__state">Focus</span><button class="btn btn--icon is-focus" type="button" aria-label="Notifications" data-inspect="button-icon"><svg class="icon"><use href="#i-bell"/></svg></button></div>
+              <div class="matrix__cell"><span class="matrix__state">Active</span><button class="btn btn--icon is-active" type="button" aria-label="Notifications" data-inspect="button-icon"><svg class="icon"><use href="#i-bell"/></svg></button></div>
+              <div class="matrix__cell"><span class="matrix__state">Disabled</span><button class="btn btn--icon" type="button" aria-label="Notifications" disabled><svg class="icon"><use href="#i-bell"/></svg></button></div>
+              <div class="matrix__cell"><span class="matrix__state">Loading</span><button class="btn btn--icon is-loading" type="button" aria-label="Loading notifications" aria-disabled="true" data-inspect="button-icon"><span class="spinner" aria-hidden="true"></span></button></div>
+            </div>
+          </div>
+
+          <div class="matrix__row">
+            <div class="matrix__name"><strong>Floating action</strong><span class="tech-label tech-label--plain">Mobile · 56px</span></div>
+            <div class="matrix__cells">
+              <div class="matrix__cell"><span class="matrix__state">Default</span><button class="fab" type="button" aria-label="Add student" data-run-loading data-inspect="fab"><svg class="icon"><use href="#i-plus"/></svg></button></div>
+              <div class="matrix__cell"><span class="matrix__state">Hover</span><button class="fab is-hover" type="button" aria-label="Add student" data-inspect="fab"><svg class="icon"><use href="#i-plus"/></svg></button></div>
+              <div class="matrix__cell"><span class="matrix__state">Focus</span><button class="fab is-focus" type="button" aria-label="Add student" data-inspect="fab"><svg class="icon"><use href="#i-plus"/></svg></button></div>
+              <div class="matrix__cell"><span class="matrix__state">Active</span><button class="fab is-active" type="button" aria-label="Add student" data-inspect="fab"><svg class="icon"><use href="#i-plus"/></svg></button></div>
+              <div class="matrix__cell"><span class="matrix__state">Disabled</span><button class="fab" type="button" aria-label="Add student" disabled><svg class="icon"><use href="#i-plus"/></svg></button></div>
+              <div class="matrix__cell"><span class="matrix__state">Loading</span><button class="fab is-loading" type="button" aria-label="Adding student" aria-disabled="true" data-inspect="fab"><span class="spinner" aria-hidden="true"></span></button></div>
             </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- ============ 04 BUTTONS ============ -->
-    <section class="ds-section" id="buttons" aria-labelledby="buttons-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">04</span>
-        <div>
-          <p class="eyebrow">Components</p>
-          <h2 class="ds-section__title" id="buttons-title">Buttons</h2>
-          <p class="ds-section__lede">One primary action per view. Secondary for alternatives, tertiary for low-emphasis actions, icon buttons only with a label for screen readers.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">.btn</span><span class="token-tag">40px · 44px touch</span></div>
-      </header>
-
-      <div class="canvas canvas--dotted">
-        <div class="row-label"><h4>Try it</h4><p>Click to see loading → success</p></div>
-        <div class="btn-row">
-          <button class="btn btn--primary" type="button" data-async-btn data-loading-label="Publishing…" data-success-label="Published">
-            <span class="spinner spinner--sm btn__spinner" aria-hidden="true"></span>
-            <svg class="icon icon--sm" aria-hidden="true"><use href="#i-upload"/></svg>
-            <span class="btn__label">Publish changes</span>
-          </button>
-          <button class="btn btn--secondary" type="button" data-async-btn data-loading-label="Exporting…" data-success-label="Exported">
-            <span class="spinner spinner--sm btn__spinner" aria-hidden="true"></span>
-            <svg class="icon icon--sm" aria-hidden="true"><use href="#i-download"/></svg>
-            <span class="btn__label">Export tokens</span>
-          </button>
-          <button class="btn btn--tertiary" type="button" data-toast="info" data-toast-title="Draft saved" data-toast-text="You can return to it from your workspace.">Save as draft</button>
-          <button class="btn btn--icon" type="button" aria-label="Copy link" data-toast="success" data-toast-title="Link copied" data-toast-text="Paste it anywhere to share this page."><svg class="icon"><use href="#i-link"/></svg></button>
-        </div>
-      </div>
-
-      <div class="canvas">
-        <div class="row-label"><h4>Primary</h4><p>Main action of the view</p></div>
-        <div class="state-grid">
-          <div class="state"><span class="state__label">Default</span><button class="btn btn--primary" type="button">Continue</button></div>
-          <div class="state"><span class="state__label">Hover</span><button class="btn btn--primary is-hover" type="button">Continue</button></div>
-          <div class="state"><span class="state__label">Focus</span><button class="btn btn--primary is-focus" type="button">Continue</button></div>
-          <div class="state"><span class="state__label">Active</span><button class="btn btn--primary is-active" type="button">Continue</button></div>
-          <div class="state"><span class="state__label">Disabled</span><button class="btn btn--primary" type="button" disabled>Continue</button></div>
-          <div class="state"><span class="state__label">Loading</span><button class="btn btn--primary is-loading" type="button" aria-busy="true" aria-disabled="true"><span class="spinner spinner--sm btn__spinner" aria-hidden="true"></span>Saving…</button></div>
-          <div class="state"><span class="state__label">Success</span><button class="btn btn--primary is-success" type="button"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-check"/></svg>Saved</button></div>
-        </div>
-      </div>
-
-      <div class="grid canvas-grid">
-        <div class="canvas">
-          <div class="row-label"><h4>Secondary</h4><p>Alternatives</p></div>
-          <div class="state-grid state-grid--3 btn-states-2">
-            <div class="state"><span class="state__label">Default</span><button class="btn btn--secondary" type="button">Preview</button></div>
-            <div class="state"><span class="state__label">Hover</span><button class="btn btn--secondary is-hover" type="button">Preview</button></div>
-            <div class="state"><span class="state__label">Focus</span><button class="btn btn--secondary is-focus" type="button">Preview</button></div>
-            <div class="state"><span class="state__label">Disabled</span><button class="btn btn--secondary" type="button" disabled>Preview</button></div>
+      <!-- 04 FORMS -->
+      <section class="panel span-6 reveal" id="forms" aria-labelledby="forms-title">
+        <header class="panel__head">
+          <span class="panel__num">04<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="forms-title">Form elements</h2><p class="panel__sub">Labels above, errors that say how to fix the problem.</p></div>
+          <span class="tech-label">Component / Input</span>
+        </header>
+        <div class="form-grid in-half">
+          <div class="field" data-inspect="input">
+            <label class="field__label" for="f-name">Student name <span class="field__req" aria-hidden="true">*</span></label>
+            <input class="input" id="f-name" type="text" placeholder="e.g. Aarav Sharma" required>
           </div>
-        </div>
-        <div class="canvas">
-          <div class="row-label"><h4>Tertiary</h4><p>Low emphasis</p></div>
-          <div class="state-grid state-grid--3 btn-states-2">
-            <div class="state"><span class="state__label">Default</span><button class="btn btn--tertiary" type="button">Learn more</button></div>
-            <div class="state"><span class="state__label">Hover</span><button class="btn btn--tertiary is-hover" type="button">Learn more</button></div>
-            <div class="state"><span class="state__label">Focus</span><button class="btn btn--tertiary is-focus" type="button">Learn more</button></div>
-            <div class="state"><span class="state__label">Disabled</span><button class="btn btn--tertiary" type="button" disabled>Learn more</button></div>
+          <div class="field" data-inspect="input">
+            <label class="field__label" for="f-email">Focused</label>
+            <input class="input is-focus" id="f-email" type="email" value="parent@nexora.school">
           </div>
-        </div>
-        <div class="canvas">
-          <div class="row-label"><h4>Icon button</h4><p>Always labelled</p></div>
-          <div class="state-grid state-grid--3 btn-states-2">
-            <div class="state"><span class="state__label">Default</span><button class="btn btn--icon" type="button" aria-label="Settings"><svg class="icon"><use href="#i-settings"/></svg></button></div>
-            <div class="state"><span class="state__label">Hover</span><button class="btn btn--icon is-hover" type="button" aria-label="Settings"><svg class="icon"><use href="#i-settings"/></svg></button></div>
-            <div class="state"><span class="state__label">Focus</span><button class="btn btn--icon is-focus" type="button" aria-label="Settings"><svg class="icon"><use href="#i-settings"/></svg></button></div>
-            <div class="state"><span class="state__label">Disabled</span><button class="btn btn--icon" type="button" aria-label="Settings" disabled><svg class="icon"><use href="#i-settings"/></svg></button></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="canvas canvas--dotted">
-        <div class="row-label"><h4>Floating action button</h4><p>Mobile only · 56 × 56 · bottom-right</p></div>
-        <div class="state-grid">
-          <div class="state"><span class="state__label">Default</span><button class="fab" type="button" aria-label="Create component"><svg class="icon"><use href="#i-plus"/></svg></button></div>
-          <div class="state"><span class="state__label">Hover</span><button class="fab is-hover" type="button" aria-label="Create component"><svg class="icon"><use href="#i-plus"/></svg></button></div>
-          <div class="state"><span class="state__label">Focus</span><button class="fab is-focus" type="button" aria-label="Create component"><svg class="icon"><use href="#i-plus"/></svg></button></div>
-          <div class="state"><span class="state__label">Pressed</span><button class="fab is-active" type="button" aria-label="Create component"><svg class="icon"><use href="#i-plus"/></svg></button></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 05 INPUTS ============ -->
-    <section class="ds-section" id="inputs" aria-labelledby="inputs-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">05</span>
-        <div>
-          <p class="eyebrow">Forms</p>
-          <h2 class="ds-section__title" id="inputs-title">Inputs</h2>
-          <p class="ds-section__lede">Labels always sit above the field. Placeholders are examples, never instructions. Errors say what happened and how to fix it.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">.input</span><span class="token-tag">44px height</span></div>
-      </header>
-
-      <div class="canvas">
-        <div class="form-grid form-grid--3">
-          <div class="field">
-            <label class="field__label" for="in-default">Workspace name</label>
-            <input class="input" id="in-default" type="text" placeholder="e.g. Northwind Studio" aria-describedby="in-default-hint">
-            <p class="field__hint" id="in-default-hint">Shown on invoices and invites.</p>
-          </div>
-          <div class="field">
-            <label class="field__label" for="in-focus">Focus</label>
-            <input class="input is-focus" id="in-focus" type="text" placeholder="Start typing…" aria-describedby="in-focus-hint">
-            <p class="field__hint" id="in-focus-hint">3px ember ring on focus.</p>
-          </div>
-          <div class="field">
-            <label class="field__label" for="in-filled">Website</label>
-            <div class="input-wrap input-wrap--lead">
-              <svg class="icon" aria-hidden="true"><use href="#i-link"/></svg>
-              <input class="input" id="in-filled" type="text" value="northwind.studio">
-            </div>
-          </div>
-          <div class="field">
-            <label class="field__label" for="in-error">Email address <span class="field__req" aria-hidden="true">*</span></label>
+          <div class="field" data-inspect="input-success">
+            <label class="field__label" for="f-adm">Admission number</label>
             <div class="input-wrap input-wrap--trail">
-              <input class="input" id="in-error" type="email" value="joving@" aria-invalid="true" aria-describedby="in-error-msg" required>
-              <svg class="icon icon--error input-status" aria-hidden="true"><use href="#i-alert-circle"/></svg>
-            </div>
-            <p class="field__hint field__hint--error" id="in-error-msg"><svg class="icon" aria-hidden="true"><use href="#i-alert-circle"/></svg>Enter a full email, like name@company.com</p>
-          </div>
-          <div class="field">
-            <label class="field__label" for="in-success">Username</label>
-            <div class="input-wrap input-wrap--trail">
-              <input class="input is-success" id="in-success" type="text" value="joving" aria-describedby="in-success-msg">
+              <input class="input is-success" id="f-adm" type="text" value="NX-2041" aria-describedby="f-adm-hint">
               <svg class="icon icon--success input-status" aria-hidden="true"><use href="#i-check-circle"/></svg>
             </div>
-            <p class="field__hint field__hint--success" id="in-success-msg"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>This username is available</p>
+            <p class="field__hint field__hint--success" id="f-adm-hint"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Number is available</p>
           </div>
-          <div class="field">
-            <label class="field__label" for="in-disabled">Plan</label>
-            <input class="input" id="in-disabled" type="text" value="Business" disabled aria-describedby="in-disabled-hint">
-            <p class="field__hint" id="in-disabled-hint">Change your plan in Billing.</p>
-          </div>
-          <div class="field">
-            <label class="field__label" for="in-readonly">Workspace ID <span class="field__optional">Read-only</span></label>
-            <input class="input mono" id="in-readonly" type="text" value="ws_8F2K19QX" readonly aria-describedby="in-readonly-hint">
-            <p class="field__hint" id="in-readonly-hint">Use this ID when contacting support.</p>
-          </div>
-          <div class="field">
-            <label class="field__label" for="in-required">Full name <span class="field__req" aria-hidden="true">*</span><span class="sr-only">(required)</span></label>
-            <input class="input" id="in-required" type="text" placeholder="e.g. Aisha Rahman" required aria-required="true">
-            <p class="field__hint">Required fields are marked with *</p>
-          </div>
-          <div class="field">
-            <label class="field__label" for="in-textarea">Release notes <span class="field__optional">Optional</span></label>
-            <textarea class="input" id="in-textarea" placeholder="What changed in this version?"></textarea>
-          </div>
-        </div>
-      </div>
-
-      <div class="canvas canvas--dotted">
-        <div class="row-label"><h4>Try it — validation</h4><p>Submit empty or invalid to see errors</p></div>
-        <form class="form-grid" id="invite-form" novalidate>
-          <div class="field">
-            <label class="field__label" for="invite-name">Name <span class="field__req" aria-hidden="true">*</span></label>
-            <input class="input" id="invite-name" name="name" type="text" placeholder="e.g. Marcus Kim" required aria-describedby="invite-name-msg">
-            <p class="field__hint" id="invite-name-msg">Their name as it appears in the workspace.</p>
-          </div>
-          <div class="field">
-            <label class="field__label" for="invite-email">Work email <span class="field__req" aria-hidden="true">*</span></label>
-            <input class="input" id="invite-email" name="email" type="email" placeholder="name@company.com" required aria-describedby="invite-email-msg">
-            <p class="field__hint" id="invite-email-msg">We'll send the invite here.</p>
-          </div>
-          <div class="btn-row">
-            <button class="btn btn--primary" type="submit"><span class="spinner spinner--sm btn__spinner" aria-hidden="true"></span><span class="btn__label">Send invite</span></button>
-            <button class="btn btn--tertiary" type="reset">Reset</button>
-          </div>
-          <p class="sr-only" id="invite-status" role="status" aria-live="polite"></p>
-        </form>
-      </div>
-    </section>
-
-    <!-- ============ 06 SELECTS ============ -->
-    <section class="ds-section" id="selects" aria-labelledby="selects-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">06</span>
-        <div>
-          <p class="eyebrow">Forms</p>
-          <h2 class="ds-section__title" id="selects-title">Select &amp; dropdown</h2>
-          <p class="ds-section__lede">A listbox you can drive by mouse, touch or keyboard. Arrow keys move, Enter selects, Escape or a click outside closes.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">role="listbox"</span><span class="token-tag">↑ ↓ Enter Esc</span></div>
-      </header>
-
-      <div class="canvas">
-        <div class="state-grid state-grid--3">
-          <div class="state state--stretch">
-            <span class="state__label">Closed</span>
-            <div class="field">
-              <span class="field__label" id="sel-role-label">Role</span>
-              <div class="select" data-select data-placeholder="Choose a role">
-                <button class="select__trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="sel-role-label sel-role-value">
-                  <span class="select__value is-placeholder" id="sel-role-value">Choose a role</span>
-                  <svg class="icon select__chev" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-                </button>
-                <ul class="select__menu" role="listbox" tabindex="-1" aria-labelledby="sel-role-label">
-                  <li class="select__option" role="option" id="role-owner" data-value="Owner" aria-selected="false">Owner<span class="select__option-meta">Full access</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                  <li class="select__option" role="option" id="role-admin" data-value="Admin" aria-selected="false">Admin<span class="select__option-meta">Manage members</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                  <li class="select__option" role="option" id="role-editor" data-value="Editor" aria-selected="false">Editor<span class="select__option-meta">Edit files</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                  <li class="select__option" role="option" id="role-viewer" data-value="Viewer" aria-selected="false">Viewer<span class="select__option-meta">Read only</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <div class="state state--stretch">
-            <span class="state__label">Focus</span>
-            <div class="field">
-              <span class="field__label" id="sel-focus-label">Time zone</span>
-              <div class="select" data-select>
-                <button class="select__trigger is-focus" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="sel-focus-label sel-focus-value">
-                  <span class="select__value" id="sel-focus-value">Asia / Kolkata (GMT+5:30)</span>
-                  <svg class="icon select__chev" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-                </button>
-                <ul class="select__menu" role="listbox" tabindex="-1" aria-labelledby="sel-focus-label">
-                  <li class="select__option" role="option" id="tz-1" data-value="Europe / London (GMT+1)" aria-selected="false">Europe / London (GMT+1)<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                  <li class="select__option" role="option" id="tz-2" data-value="Asia / Kolkata (GMT+5:30)" aria-selected="true">Asia / Kolkata (GMT+5:30)<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                  <li class="select__option" role="option" id="tz-3" data-value="Asia / Singapore (GMT+8)" aria-selected="false">Asia / Singapore (GMT+8)<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <div class="state state--stretch">
-            <span class="state__label">Selected</span>
-            <div class="field">
-              <span class="field__label" id="sel-status-label">Status</span>
-              <div class="select" data-select>
-                <button class="select__trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="sel-status-label sel-status-value">
-                  <span class="select__swatch bg-success" aria-hidden="true" data-swatch></span>
-                  <span class="select__value" id="sel-status-value">Active</span>
-                  <svg class="icon select__chev" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-                </button>
-                <ul class="select__menu" role="listbox" tabindex="-1" aria-labelledby="sel-status-label">
-                  <li class="select__option" role="option" id="st-active" data-value="Active" data-swatch="bg-success" aria-selected="true"><span class="select__swatch bg-success" aria-hidden="true"></span>Active<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                  <li class="select__option" role="option" id="st-trial" data-value="Trial" data-swatch="bg-info" aria-selected="false"><span class="select__swatch bg-info" aria-hidden="true"></span>Trial<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                  <li class="select__option" role="option" id="st-overdue" data-value="Overdue" data-swatch="bg-warning" aria-selected="false"><span class="select__swatch bg-warning" aria-hidden="true"></span>Overdue<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                  <li class="select__option" role="option" id="st-paused" data-value="Paused" data-swatch="bg-text-muted" aria-selected="false"><span class="select__swatch bg-text-muted" aria-hidden="true"></span>Paused<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <div class="state state--stretch select-stage">
-            <span class="state__label">Open</span>
-            <div class="field" inert aria-hidden="true">
-              <span class="field__label">Region</span>
-              <div class="select is-open">
-                <span class="select__trigger"><span class="select__value">Europe</span><svg class="icon select__chev"><use href="#i-chevron-down"/></svg></span>
-                <ul class="select__menu">
-                  <li class="select__group">Data residency</li>
-                  <li class="select__option">North America</li>
-                  <li class="select__option is-active" aria-selected="true">Europe<svg class="icon"><use href="#i-check"/></svg></li>
-                  <li class="select__option">Asia Pacific</li>
-                  <li class="select__option" aria-disabled="true">Middle East<span class="select__option-meta">Soon</span></li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <div class="state state--stretch">
-            <span class="state__label">Disabled</span>
-            <div class="field">
-              <span class="field__label" id="sel-dis-label">Billing currency</span>
-              <div class="select">
-                <button class="select__trigger" type="button" disabled aria-labelledby="sel-dis-label sel-dis-value">
-                  <span class="select__value" id="sel-dis-value">INR — Indian Rupee</span>
-                  <svg class="icon select__chev" aria-hidden="true"><use href="#i-lock"/></svg>
-                </button>
-              </div>
-              <p class="field__hint">Locked after the first invoice.</p>
-            </div>
-          </div>
-
-          <div class="state state--stretch">
-            <span class="state__label">Error</span>
-            <div class="field">
-              <span class="field__label" id="sel-err-label">Team <span class="field__req" aria-hidden="true">*</span></span>
-              <div class="select is-error" data-select data-placeholder="Select a team">
-                <button class="select__trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="sel-err-label sel-err-value" aria-invalid="true" aria-describedby="sel-err-msg">
-                  <span class="select__value is-placeholder" id="sel-err-value">Select a team</span>
-                  <svg class="icon select__chev" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-                </button>
-                <ul class="select__menu" role="listbox" tabindex="-1" aria-labelledby="sel-err-label">
-                  <li class="select__option" role="option" id="team-1" data-value="Product" aria-selected="false">Product<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                  <li class="select__option" role="option" id="team-2" data-value="Engineering" aria-selected="false">Engineering<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                  <li class="select__option" role="option" id="team-3" data-value="Marketing" aria-selected="false">Marketing<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                </ul>
-              </div>
-              <p class="field__hint field__hint--error" id="sel-err-msg" data-select-error><svg class="icon" aria-hidden="true"><use href="#i-alert-circle"/></svg>Choose a team to continue</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 07 TABS ============ -->
-    <section class="ds-section" id="tabs" aria-labelledby="tabs-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">07</span>
-        <div>
-          <p class="eyebrow">Navigation</p>
-          <h2 class="ds-section__title" id="tabs-title">Tabs</h2>
-          <p class="ds-section__lede">Switch between views of the same object. Arrow keys move between tabs; disabled tabs explain themselves on hover.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">role="tablist"</span><span class="token-tag">← → Home End</span></div>
-      </header>
-
-      <div class="canvas">
-        <div class="row-label"><h4>States</h4><p>Underline tabs</p></div>
-        <div class="tabs__list" inert aria-hidden="true">
-          <span class="tab is-active">Active</span>
-          <span class="tab">Inactive</span>
-          <span class="tab is-hover">Hover</span>
-          <span class="tab is-focus">Focus</span>
-          <span class="tab is-disabled">Disabled</span>
-        </div>
-      </div>
-
-      <div class="grid grid--sidebar">
-        <div class="canvas">
-          <div class="row-label"><h4>Try it</h4><p>Click or use arrow keys</p></div>
-          <div class="tabs" data-tabs>
-            <div class="tabs__list" role="tablist" aria-label="Project views">
-              <button class="tab" role="tab" type="button" id="tab-overview" aria-selected="true" aria-controls="panel-overview">Overview</button>
-              <button class="tab" role="tab" type="button" id="tab-activity" aria-selected="false" aria-controls="panel-activity" tabindex="-1">Activity <span class="tab__count">12</span></button>
-              <button class="tab" role="tab" type="button" id="tab-members" aria-selected="false" aria-controls="panel-members" tabindex="-1">Members</button>
-              <button class="tab" role="tab" type="button" id="tab-audit" aria-selected="false" aria-disabled="true" aria-controls="panel-audit" tabindex="-1" title="Audit log is available on the Business plan">Audit log</button>
-            </div>
-            <div class="tabs__panel" role="tabpanel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0">
-              <dl class="mini-stats">
-                <div class="mini-stat"><dt>Screens on v2.4</dt><dd>48<small>+12</small></dd></div>
-                <div class="mini-stat"><dt>Open reviews</dt><dd>5</dd></div>
-              </dl>
-            </div>
-            <div class="tabs__panel" role="tabpanel" id="panel-activity" aria-labelledby="tab-activity" tabindex="0" hidden>
-              <ul class="timeline">
-                <li>Marcus published <b>Button v2.4</b><span>1 hour ago</span></li>
-                <li>Aisha commented on <b>Table / Mobile</b><span>12 min ago</span></li>
-                <li>Lina requested access to <b>Audit log</b><span>Yesterday</span></li>
-              </ul>
-            </div>
-            <div class="tabs__panel" role="tabpanel" id="panel-members" aria-labelledby="tab-members" tabindex="0" hidden>
-              <ul class="dl-list">
-                <li class="person"><span class="avatar avatar--sm avatar--info" aria-hidden="true">AR</span><div><p class="person__name">Aisha Rahman</p><p class="person__mail">Owner</p></div></li>
-                <li class="person"><span class="avatar avatar--sm avatar--success" aria-hidden="true">MK</span><div><p class="person__name">Marcus Kim</p><p class="person__mail">Editor</p></div></li>
-              </ul>
-            </div>
-            <div class="tabs__panel" role="tabpanel" id="panel-audit" aria-labelledby="tab-audit" tabindex="0" hidden></div>
-          </div>
-        </div>
-        <div class="canvas">
-          <div class="row-label"><h4>Segmented</h4><p>For 2–4 short options</p></div>
-          <div class="tabs" data-tabs>
-            <div class="segmented" role="tablist" aria-label="Billing period">
-              <button class="tab" role="tab" type="button" id="seg-month" aria-selected="true" aria-controls="seg-panel-month">Monthly</button>
-              <button class="tab" role="tab" type="button" id="seg-year" aria-selected="false" aria-controls="seg-panel-year" tabindex="-1">Yearly</button>
-            </div>
-            <div class="tabs__panel" role="tabpanel" id="seg-panel-month" aria-labelledby="seg-month" tabindex="0">
-              <p class="kpi"><strong>₹1,200</strong><span class="t-body-sm">per seat / month</span></p>
-            </div>
-            <div class="tabs__panel" role="tabpanel" id="seg-panel-year" aria-labelledby="seg-year" tabindex="0" hidden>
-              <p class="kpi"><strong>₹12,000</strong><span class="t-body-sm">per seat / year</span></p>
-              <p class="t-success">2 months free</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 08 CHIPS ============ -->
-    <section class="ds-section" id="chips" aria-labelledby="chips-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">08</span>
-        <div>
-          <p class="eyebrow">Components</p>
-          <h2 class="ds-section__title" id="chips-title">Chips</h2>
-          <p class="ds-section__lede">Compact, toggleable choices. Selected chips gain a check so the state never relies on colour alone.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">.chip</span><span class="token-tag">aria-pressed</span></div>
-      </header>
-
-      <div class="canvas">
-        <div class="state-grid state-grid--3">
-          <div class="state"><span class="state__label">Default</span><button class="chip" type="button">Design</button></div>
-          <div class="state"><span class="state__label">Active</span><button class="chip chip--active" type="button" aria-current="true">All files</button></div>
-          <div class="state"><span class="state__label">Selected</span><button class="chip" type="button" aria-pressed="true"><svg class="icon chip__check" aria-hidden="true"><use href="#i-check"/></svg>Components</button></div>
-          <div class="state"><span class="state__label">Disabled</span><button class="chip" type="button" disabled>Archived</button></div>
-          <div class="state"><span class="state__label">Removable</span><span class="chip chip--removable">Owner: Aisha<button class="chip__remove" type="button" aria-label="Remove filter Owner: Aisha" data-chip-remove><svg class="icon"><use href="#i-x"/></svg></button></span></div>
-          <div class="state"><span class="state__label">Filter</span><button class="chip" type="button" aria-pressed="false" data-chip-toggle><svg class="icon" aria-hidden="true"><use href="#i-filter"/></svg>Status<span class="chip__count" hidden>2</span><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg></button></div>
-        </div>
-      </div>
-      <div class="canvas canvas--dotted">
-        <div class="row-label"><h4>Try it</h4><p>Toggle topics</p></div>
-        <div class="chip-row" role="group" aria-label="Topics">
-          <button class="chip" type="button" aria-pressed="true" data-chip-toggle><svg class="icon chip__check" aria-hidden="true"><use href="#i-check"/></svg>Accessibility</button>
-          <button class="chip" type="button" aria-pressed="false" data-chip-toggle><svg class="icon chip__check" aria-hidden="true"><use href="#i-check"/></svg>Motion</button>
-          <button class="chip" type="button" aria-pressed="true" data-chip-toggle><svg class="icon chip__check" aria-hidden="true"><use href="#i-check"/></svg>Tokens</button>
-          <button class="chip" type="button" aria-pressed="false" data-chip-toggle><svg class="icon chip__check" aria-hidden="true"><use href="#i-check"/></svg>Data viz</button>
-          <button class="chip" type="button" aria-pressed="false" data-chip-toggle><svg class="icon chip__check" aria-hidden="true"><use href="#i-check"/></svg>Content</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 09 CARDS ============ -->
-    <section class="ds-section" id="cards" aria-labelledby="cards-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">09</span>
-        <div>
-          <p class="eyebrow">Components</p>
-          <h2 class="ds-section__title" id="cards-title">Cards</h2>
-          <p class="ds-section__lede">One radius, one border, one shadow, one padding. What changes is the content and the state, never the frame.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">.card</span><span class="token-tag">radius-lg · space-5</span></div>
-      </header>
-
-      <div class="card-grid">
-        <article class="card">
-          <p class="card__kicker">Basic</p>
-          <h3 class="card__title">Naming conventions</h3>
-          <p class="card__text">Components are named by role, then variant, then state — for example Button / Primary / Hover.</p>
-          <div class="card__foot"><span>Guideline</span><span>3 min read</span></div>
-        </article>
-
-        <article class="card card--image">
-          <div class="cover">
-            <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-              <rect class="art-sky" width="320" height="180"/>
-              <circle class="art-sun" cx="236" cy="62" r="34"/>
-              <path class="art-line" d="M0 60 Q80 40 160 60 T320 56"/>
-              <path class="art-hill-3" d="M0 150 Q70 96 150 128 T320 112 V180 H0z"/>
-              <path class="art-hill" d="M0 168 Q90 120 190 150 T320 140 V180 H0z"/>
-              <path class="art-hill-2" d="M120 180 Q200 150 320 162 V180z"/>
-            </svg>
-            <span class="badge badge--accent badge--plain cover__tag">New</span>
-          </div>
-          <div class="card__body">
-            <p class="card__kicker">Image</p>
-            <h3 class="card__title">Autumn campaign kit</h3>
-            <p class="card__text">Illustrations, cover art and social templates.</p>
-          </div>
-        </article>
-
-        <article class="card" id="charts">
-          <div class="card__kicker"><span>Information · Chart</span><span class="badge badge--success badge--plain">+18%</span></div>
-          <div class="kpi"><strong>2,481</strong><span class="t-body-sm">component uses this week</span></div>
-          <div class="bars" role="img" aria-label="Component uses per day this week: Monday 210, Tuesday 320, Wednesday 290, Thursday 460, Friday 520, Saturday 300, Sunday 381">
-            <div class="bars__col"><span class="bars__bar" style="--h:40%"></span><span>M</span></div>
-            <div class="bars__col"><span class="bars__bar" style="--h:62%"></span><span>T</span></div>
-            <div class="bars__col"><span class="bars__bar" style="--h:56%"></span><span>W</span></div>
-            <div class="bars__col"><span class="bars__bar" style="--h:88%"></span><span>T</span></div>
-            <div class="bars__col is-peak"><span class="bars__bar" style="--h:100%"></span><span>F</span></div>
-            <div class="bars__col"><span class="bars__bar" style="--h:58%"></span><span>S</span></div>
-            <div class="bars__col"><span class="bars__bar" style="--h:73%"></span><span>S</span></div>
-          </div>
-        </article>
-
-        <article class="card card--interactive">
-          <span class="card__icon" aria-hidden="true"><svg class="icon"><use href="#i-grid"/></svg></span>
-          <h3 class="card__title"><a class="card__link" href="#tables">Data table</a></h3>
-          <p class="card__text">Sortable, selectable and paginated. Turns into cards on mobile.</p>
-          <div class="card__foot"><span>Interactive</span><svg class="icon card__arrow" aria-hidden="true"><use href="#i-arrow-right"/></svg></div>
-        </article>
-
-        <article class="card card--status">
-          <div class="card__kicker"><span>Status</span><span class="badge badge--warning">In review</span></div>
-          <h3 class="card__title">Migrate billing screens</h3>
-          <div class="progress" role="progressbar" aria-label="Migration progress" aria-valuenow="68" aria-valuemin="0" aria-valuemax="100"><span style="--value:68%"></span></div>
-          <div class="progress-meta"><span>17 of 25 screens</span><span>68%</span></div>
-          <div class="card__foot"><span>Due 14 Oct 2026</span><span class="avatar avatar--sm avatar--info" aria-hidden="true">AR</span></div>
-        </article>
-
-        <article class="card card--locked">
-          <span class="card__icon" aria-hidden="true"><svg class="icon"><use href="#i-lock"/></svg></span>
-          <p class="card__kicker">Locked</p>
-          <h3 class="card__title">Usage analytics</h3>
-          <p class="card__text">Needs the <b>Business</b> plan. Your Team plan includes 30 days of history; analytics keeps 12 months.</p>
-          <div class="card__foot"><span>Ask an owner to upgrade</span><a class="t-link t-body-sm" href="#locked">Why?</a></div>
-        </article>
-
-        <article class="card card--empty">
-          <span class="empty__icon" aria-hidden="true"><svg class="icon"><use href="#i-folder"/></svg></span>
-          <h3 class="card__title">No saved views yet</h3>
-          <p class="card__text">Save a filter to reach it in one click.</p>
-          <button class="btn btn--secondary btn--sm" type="button"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-plus"/></svg>Save a view</button>
-        </article>
-
-        <article class="card" aria-busy="true" aria-label="Loading card">
-          <div class="sk-row"><span class="skeleton skeleton--circle" style="width:40px;height:40px"></span><div class="sk-stack" style="flex:1"><span class="skeleton skeleton--line w-60"></span><span class="skeleton skeleton--line w-40"></span></div></div>
-          <span class="skeleton skeleton--block"></span>
-          <div class="sk-stack"><span class="skeleton skeleton--line w-90"></span><span class="skeleton skeleton--line w-70"></span></div>
-        </article>
-
-        <article class="card card--error" data-retry-card>
-          <div data-retry-body>
-            <span class="card__icon card__icon--error" aria-hidden="true"><svg class="icon"><use href="#i-alert-triangle"/></svg></span>
-            <h3 class="card__title">Couldn't load invoices</h3>
-            <p class="card__text">The billing service didn't respond in time. Your data is safe.</p>
-          </div>
-          <div class="card__foot"><span class="mono">ERR_TIMEOUT</span><button class="btn btn--secondary btn--sm" type="button" data-retry><svg class="icon icon--sm" aria-hidden="true"><use href="#i-refresh"/></svg>Retry</button></div>
-        </article>
-      </div>
-    </section>
-
-    <!-- ============ 10 TABLES ============ -->
-    <section class="ds-section" id="tables" aria-labelledby="tables-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">10</span>
-        <div>
-          <p class="eyebrow">Data</p>
-          <h2 class="ds-section__title" id="tables-title">Tables</h2>
-          <p class="ds-section__lede">Sort by column, select rows, page through results. Below 768px every row becomes a card, so nothing scrolls sideways.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">.data-table</span><span class="token-tag">aria-sort</span></div>
-      </header>
-
-      <div class="table-card" data-table>
-        <div class="table-toolbar">
-          <div class="table-toolbar__title"><h3 id="customers-caption">Customers</h3><span class="badge badge--plain" data-table-count>12</span></div>
-          <div class="table-toolbar__actions">
-            <label class="sr-only" for="mobile-sort">Sort customers</label>
-            <select class="input table-mobile-sort" id="mobile-sort" data-mobile-sort>
-              <option value="created:desc">Newest first</option>
-              <option value="created:asc">Oldest first</option>
-              <option value="name:asc">Name A–Z</option>
-              <option value="name:desc">Name Z–A</option>
-              <option value="status:asc">Status</option>
-            </select>
-            <div class="segmented" role="group" aria-label="Preview table state">
-              <button class="tab" type="button" aria-pressed="true" data-table-state="default">Data</button>
-              <button class="tab" type="button" aria-pressed="false" data-table-state="loading">Loading</button>
-              <button class="tab" type="button" aria-pressed="false" data-table-state="empty">Empty</button>
-            </div>
-          </div>
-        </div>
-        <div class="bulk-bar" data-bulk hidden>
-          <span><b data-bulk-count>0</b> selected</span>
-          <div class="btn-row">
-            <button class="btn btn--sm" type="button" data-toast="success" data-toast-title="Export started" data-toast-text="We'll email you the CSV in a minute."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-download"/></svg>Export</button>
-            <button class="btn btn--sm" type="button" data-bulk-clear>Clear</button>
-          </div>
-        </div>
-        <div class="table-scroll">
-        <table class="data-table" aria-labelledby="customers-caption">
-          <thead>
-            <tr>
-              <th class="cell-check" scope="col"><label class="check check--touch"><input type="checkbox" data-select-all aria-label="Select all rows on this page"></label></th>
-              <th scope="col" data-sort-key="name" aria-sort="none"><button class="sort-btn" type="button">Customer<svg class="icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
-              <th scope="col" class="col-plan">Plan</th>
-              <th scope="col" data-sort-key="status" aria-sort="none"><button class="sort-btn" type="button">Status<svg class="icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
-              <th scope="col" data-sort-key="created" aria-sort="descending"><button class="sort-btn" type="button">Created<svg class="icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
-              <th scope="col" class="cell-actions"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody data-table-body></tbody>
-        </table>
-        </div>
-        <div class="table-foot" data-table-foot>
-          <span class="table-foot__range" data-table-range aria-live="polite"></span>
-          <nav class="pager" aria-label="Table pagination" data-pager></nav>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 11 FILTERS ============ -->
-    <section class="ds-section" id="filters" aria-labelledby="filters-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">11</span>
-        <div>
-          <p class="eyebrow">Data</p>
-          <h2 class="ds-section__title" id="filters-title">Filters</h2>
-          <p class="ds-section__lede">Search applies as you type. Dropdown changes wait for Apply, so people can set several at once. Active filters stay visible and can be removed one by one.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">.filter-bar</span><span class="token-tag">Apply · Clear</span></div>
-      </header>
-
-      <div class="filter-panel" data-filters>
-        <div class="filter-bar">
-          <div class="field filter-bar__search">
-            <label class="field__label" for="filter-q">Search</label>
-            <div class="input-wrap input-wrap--lead">
-              <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-              <input class="input" id="filter-q" type="search" placeholder="Name or email" data-filter-q>
-            </div>
-          </div>
-          <div class="field">
-            <span class="field__label" id="f-status-label">Status</span>
-            <div class="select" data-select data-filter="status" data-placeholder="Any status">
-              <button class="select__trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="f-status-label f-status-value">
-                <span class="select__value is-placeholder" id="f-status-value">Any status</span>
-                <svg class="icon select__chev" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-              </button>
-              <ul class="select__menu" role="listbox" tabindex="-1" aria-labelledby="f-status-label">
-                <li class="select__option" role="option" id="fs-any" data-value="" aria-selected="true">Any status<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                <li class="select__option" role="option" id="fs-active" data-value="Active" aria-selected="false"><span class="select__swatch bg-success" aria-hidden="true"></span>Active<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                <li class="select__option" role="option" id="fs-trial" data-value="Trial" aria-selected="false"><span class="select__swatch bg-info" aria-hidden="true"></span>Trial<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                <li class="select__option" role="option" id="fs-overdue" data-value="Overdue" aria-selected="false"><span class="select__swatch bg-warning" aria-hidden="true"></span>Overdue<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                <li class="select__option" role="option" id="fs-paused" data-value="Paused" aria-selected="false"><span class="select__swatch bg-text-muted" aria-hidden="true"></span>Paused<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-              </ul>
-            </div>
-          </div>
-          <div class="field">
-            <span class="field__label" id="f-plan-label">Plan</span>
-            <div class="select" data-select data-filter="plan" data-placeholder="Any plan">
-              <button class="select__trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="f-plan-label f-plan-value">
-                <span class="select__value is-placeholder" id="f-plan-value">Any plan</span>
-                <svg class="icon select__chev" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-              </button>
-              <ul class="select__menu" role="listbox" tabindex="-1" aria-labelledby="f-plan-label">
-                <li class="select__option" role="option" id="fp-any" data-value="" aria-selected="true">Any plan<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                <li class="select__option" role="option" id="fp-starter" data-value="Starter" aria-selected="false">Starter<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                <li class="select__option" role="option" id="fp-team" data-value="Team" aria-selected="false">Team<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                <li class="select__option" role="option" id="fp-business" data-value="Business" aria-selected="false">Business<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-              </ul>
-            </div>
-          </div>
-          <div class="field">
-            <span class="field__label" id="f-date-label">Created</span>
-            <div class="select" data-select data-filter="date" data-placeholder="Any time">
-              <button class="select__trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="f-date-label f-date-value">
-                <svg class="icon icon--sm icon--muted" aria-hidden="true"><use href="#i-calendar"/></svg>
-                <span class="select__value is-placeholder" id="f-date-value">Any time</span>
-                <svg class="icon select__chev" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-              </button>
-              <ul class="select__menu" role="listbox" tabindex="-1" aria-labelledby="f-date-label">
-                <li class="select__option" role="option" id="fd-any" data-value="" aria-selected="true">Any time<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                <li class="select__option" role="option" id="fd-7" data-value="7" aria-selected="false">Last 7 days<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                <li class="select__option" role="option" id="fd-30" data-value="30" aria-selected="false">Last 30 days<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-                <li class="select__option" role="option" id="fd-90" data-value="90" aria-selected="false">Last 90 days<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
-              </ul>
-            </div>
-          </div>
-          <div class="filter-bar__actions">
-            <button class="btn btn--tertiary" type="button" data-filter-clear>Clear</button>
-            <button class="btn btn--primary" type="button" data-filter-apply><span class="apply-dot" data-apply-dot hidden aria-hidden="true"></span>Apply<span class="sr-only" data-apply-pending></span></button>
-          </div>
-        </div>
-        <div class="filter-active" aria-label="Active filters" role="group">
-          <span class="filter-active__label">Active filters</span>
-          <div class="chip-row" data-filter-chips></div>
-        </div>
-        <div class="filter-results">
-          <div class="filter-results__head"><p aria-live="polite"><strong data-filter-count>12</strong> customers match</p><a class="t-link t-body-sm" href="#tables">Open in table</a></div>
-          <ul class="result-list" data-filter-results></ul>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 12 MODALS ============ -->
-    <section class="ds-section" id="modals" aria-labelledby="modals-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">12</span>
-        <div>
-          <p class="eyebrow">Overlays</p>
-          <h2 class="ds-section__title" id="modals-title">Modals</h2>
-          <p class="ds-section__lede">Centred on desktop, a full-screen sheet that slides up on mobile. Focus moves in, stays in, and returns to the button that opened it.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">&lt;dialog&gt;</span><span class="token-tag">Esc · backdrop</span></div>
-      </header>
-
-      <div class="overlay-grid">
-        <div class="overlay-card">
-          <div class="overlay-card__stage" aria-hidden="true"><div class="mini-modal"><span class="mini-modal__icon card__icon"><svg class="icon"><use href="#i-pencil"/></svg></span><i></i><i></i><div class="mini-modal__btns"><b></b><b></b></div></div></div>
-          <div class="overlay-card__body"><h4>Default</h4><p>A small task without leaving the page.</p></div>
-          <button class="btn btn--secondary btn--sm" type="button" data-modal="default">Open default</button>
-        </div>
-        <div class="overlay-card">
-          <div class="overlay-card__stage" aria-hidden="true"><div class="mini-modal"><span class="mini-modal__icon card__icon--info"><svg class="icon"><use href="#i-info"/></svg></span><i></i><i></i><div class="mini-modal__btns"><b></b><b></b></div></div></div>
-          <div class="overlay-card__body"><h4>Confirmation</h4><p>Check intent before an important change.</p></div>
-          <button class="btn btn--secondary btn--sm" type="button" data-modal="confirm">Open confirmation</button>
-        </div>
-        <div class="overlay-card">
-          <div class="overlay-card__stage" aria-hidden="true"><div class="mini-modal mini-modal--error"><span class="mini-modal__icon card__icon--error"><svg class="icon"><use href="#i-alert-triangle"/></svg></span><i></i><i></i><div class="mini-modal__btns"><b></b><b></b></div></div></div>
-          <div class="overlay-card__body"><h4>Error</h4><p>Explain what failed and offer a way forward.</p></div>
-          <button class="btn btn--secondary btn--sm" type="button" data-modal="error">Open error</button>
-        </div>
-        <div class="overlay-card">
-          <div class="overlay-card__stage" aria-hidden="true"><div class="mini-modal mini-modal--success"><span class="mini-modal__icon card__icon--success"><svg class="icon"><use href="#i-check"/></svg></span><i></i><i></i><div class="mini-modal__btns"><b></b><b></b></div></div></div>
-          <div class="overlay-card__body"><h4>Success</h4><p>Confirm a finished task and suggest the next step.</p></div>
-          <button class="btn btn--secondary btn--sm" type="button" data-modal="success">Open success</button>
-        </div>
-        <div class="overlay-card">
-          <div class="overlay-card__stage" aria-hidden="true"><div class="mini-modal mini-modal--danger"><span class="mini-modal__icon card__icon--error"><svg class="icon"><use href="#i-trash"/></svg></span><i></i><i></i><div class="mini-modal__btns"><b></b><b></b></div></div></div>
-          <div class="overlay-card__body"><h4>Destructive</h4><p>Irreversible actions need an explicit check.</p></div>
-          <button class="btn btn--secondary btn--sm" type="button" data-modal="destructive">Open destructive</button>
-        </div>
-        <div class="overlay-card">
-          <div class="overlay-card__body"><h4>Rules</h4><p>What every modal in the product does.</p></div>
-          <ul class="locked__why">
-            <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Escape and backdrop click close it</li>
-            <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Focus stays inside, then returns</li>
-            <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Destructive modals focus Cancel first</li>
-            <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>One primary action, on the right</li>
-          </ul>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 13 DRAWERS ============ -->
-    <section class="ds-section" id="drawers" aria-labelledby="drawers-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">13</span>
-        <div>
-          <p class="eyebrow">Overlays</p>
-          <h2 class="ds-section__title" id="drawers-title">Drawers</h2>
-          <p class="ds-section__lede">Right drawers show detail without losing your place. Left drawers hold navigation and filters on smaller screens.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">.drawer</span><span class="token-tag">250ms ease-out</span></div>
-      </header>
-
-      <div class="grid grid--sidebar grid--top">
-        <div class="canvas">
-          <div class="row-label"><h4>States</h4><p>Closed → opening → open</p></div>
-          <div class="drawer-states" aria-hidden="true">
-            <figure class="drawer-state"><div class="drawer-state__frame"><i></i><i></i><i></i><i></i></div><figcaption>Closed</figcaption></figure>
-            <figure class="drawer-state"><div class="drawer-state__frame"><i></i><i></i><i></i><i></i><span class="drawer-state__scrim" style="opacity:.45"></span><span class="drawer-state__sheet drawer-state__sheet--partial"></span></div><figcaption>Backdrop</figcaption></figure>
-            <figure class="drawer-state"><div class="drawer-state__frame"><i></i><i></i><i></i><i></i><span class="drawer-state__scrim"></span><span class="drawer-state__sheet"></span></div><figcaption>Open</figcaption></figure>
-          </div>
-        </div>
-        <div class="canvas canvas--dotted">
-          <div class="row-label"><h4>Try it</h4><p>Esc or backdrop to close</p></div>
-          <div class="btn-row">
-            <button class="btn btn--primary" type="button" data-drawer="drawer-right"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-panel"/></svg>Open right drawer</button>
-            <button class="btn btn--secondary" type="button" data-drawer="drawer-left"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-sliders"/></svg>Open left drawer</button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 14 NOTIFICATIONS ============ -->
-    <section class="ds-section" id="notifications" aria-labelledby="notifications-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">14</span>
-        <div>
-          <p class="eyebrow">Feedback</p>
-          <h2 class="ds-section__title" id="notifications-title">Notifications</h2>
-          <p class="ds-section__lede">Inline alerts for things that need attention on the page. Toasts for quick confirmation that fades after five seconds — paused while you hover.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">.alert</span><span class="token-tag">.toast · aria-live</span></div>
-      </header>
-
-      <div class="grid grid--sidebar grid--top">
-        <div class="alert-stack" data-alerts>
-          <div class="alert alert--success" role="status">
-            <span class="alert__icon" aria-hidden="true"><svg class="icon"><use href="#i-check-circle"/></svg></span>
-            <div class="alert__body"><p class="alert__title">Version 2.4 is live</p><p class="alert__text">48 screens now use the new tokens.</p></div>
-            <button class="btn btn--icon-ghost alert__close" type="button" aria-label="Dismiss: Version 2.4 is live" data-dismiss><svg class="icon"><use href="#i-x"/></svg></button>
-          </div>
-          <div class="alert alert--warning" role="status">
-            <span class="alert__icon" aria-hidden="true"><svg class="icon"><use href="#i-alert-triangle"/></svg></span>
-            <div class="alert__body"><p class="alert__title">6 screens use legacy colours</p><p class="alert__text">They'll stop matching after 31 Oct 2026.</p><div class="alert__actions"><a class="t-link t-body-sm" href="#colors">Review screens</a></div></div>
-            <button class="btn btn--icon-ghost alert__close" type="button" aria-label="Dismiss: 6 screens use legacy colours" data-dismiss><svg class="icon"><use href="#i-x"/></svg></button>
-          </div>
-          <div class="alert alert--error" role="alert">
-            <span class="alert__icon" aria-hidden="true"><svg class="icon"><use href="#i-alert-circle"/></svg></span>
-            <div class="alert__body"><p class="alert__title">Sync failed</p><p class="alert__text">We couldn't reach the token server. Changes are saved locally.</p></div>
-            <button class="btn btn--icon-ghost alert__close" type="button" aria-label="Dismiss: Sync failed" data-dismiss><svg class="icon"><use href="#i-x"/></svg></button>
-          </div>
-          <div class="alert alert--info" role="status">
-            <span class="alert__icon" aria-hidden="true"><svg class="icon"><use href="#i-info"/></svg></span>
-            <div class="alert__body"><p class="alert__title">Office hours on Thursday</p><p class="alert__text">Bring questions about the new table patterns.</p></div>
-            <button class="btn btn--icon-ghost alert__close" type="button" aria-label="Dismiss: Office hours on Thursday" data-dismiss><svg class="icon"><use href="#i-x"/></svg></button>
-          </div>
-          <div class="alert-restore" data-alerts-restore hidden><span>Dismissed alerts are hidden.</span><button class="btn btn--tertiary btn--sm" type="button" data-restore-alerts>Show again</button></div>
-        </div>
-        <div class="canvas canvas--dotted">
-          <div class="row-label"><h4>Toasts</h4><p>Click to show</p></div>
-          <div class="grid grid--2">
-            <button class="btn btn--secondary" type="button" data-toast="success" data-toast-title="Component saved" data-toast-text="Button / Primary was updated."><svg class="icon icon--sm icon--success" aria-hidden="true"><use href="#i-check-circle"/></svg>Success</button>
-            <button class="btn btn--secondary" type="button" data-toast="warning" data-toast-title="Storage almost full" data-toast-text="You've used 92% of your asset storage."><svg class="icon icon--sm icon--warning" aria-hidden="true"><use href="#i-alert-triangle"/></svg>Warning</button>
-            <button class="btn btn--secondary" type="button" data-toast="error" data-toast-title="Couldn't publish" data-toast-text="Check your connection and try again."><svg class="icon icon--sm icon--error" aria-hidden="true"><use href="#i-alert-circle"/></svg>Error</button>
-            <button class="btn btn--secondary" type="button" data-toast="info" data-toast-title="New comment" data-toast-text="Aisha replied on Table / Mobile."><svg class="icon icon--sm icon--info" aria-hidden="true"><use href="#i-info"/></svg>Info</button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 15 EMPTY ============ -->
-    <section class="ds-section" id="empty" aria-labelledby="empty-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">15</span>
-        <div>
-          <p class="eyebrow">States</p>
-          <h2 class="ds-section__title" id="empty-title">Empty states</h2>
-          <p class="ds-section__lede">An empty page is the start of a task. Say what will appear here, why it's empty, and give one clear way to begin.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">.empty</span></div>
-      </header>
-
-      <div class="grid grid--sidebar">
-        <div class="empty">
-          <svg class="empty__art" viewBox="0 0 180 132" aria-hidden="true">
-            <ellipse class="art-sunken" cx="90" cy="120" rx="70" ry="8"/>
-            <rect class="art-border" x="34" y="30" width="112" height="82" rx="12"/>
-            <rect class="art-surface" x="30" y="24" width="112" height="82" rx="12"/>
-            <rect class="art-soft" x="42" y="38" width="44" height="8" rx="4"/>
-            <rect class="art-sunken" x="42" y="54" width="88" height="6" rx="3"/>
-            <rect class="art-sunken" x="42" y="66" width="70" height="6" rx="3"/>
-            <rect class="art-sunken" x="42" y="84" width="34" height="12" rx="4"/>
-            <circle class="art-sun" cx="140" cy="28" r="16"/>
-            <path class="art-line" d="M133 28h14M140 21v14"/>
-            <circle class="art-hill" cx="22" cy="92" r="6"/>
-            <rect class="art-ink" x="152" y="84" width="10" height="10" rx="3"/>
-          </svg>
-          <h3 class="empty__title">Start your first component</h3>
-          <p class="empty__text">Components you create or import will appear here, ready to drop into any screen.</p>
-          <div class="empty__actions">
-            <button class="btn btn--primary" type="button" data-modal="default"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-plus"/></svg>Create component</button>
-            <button class="btn btn--secondary" type="button" data-toast="info" data-toast-title="Import is a prototype" data-toast-text="No files are uploaded from this page."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-upload"/></svg>Import from file</button>
-          </div>
-          <p class="empty__hint">Or press <kbd class="mono">C</kbd> anywhere in the workspace.</p>
-        </div>
-        <div class="empty empty--compact">
-          <span class="empty__icon" aria-hidden="true"><svg class="icon"><use href="#i-search"/></svg></span>
-          <h3 class="empty__title">No results for "tooltip"</h3>
-          <p class="empty__text">Check the spelling or try a broader term like "overlay".</p>
-          <div class="empty__actions"><button class="btn btn--secondary btn--sm" type="button" data-focus-search>Clear search</button></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 16 LOADING ============ -->
-    <section class="ds-section" id="loading" aria-labelledby="loading-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">16</span>
-        <div>
-          <p class="eyebrow">States</p>
-          <h2 class="ds-section__title" id="loading-title">Loading</h2>
-          <p class="ds-section__lede">Skeletons for content we know the shape of, spinners for short waits. Shimmer stops when reduced motion is on.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">.skeleton</span><span class="token-tag">.spinner</span></div>
-      </header>
-
-      <div class="grid grid--3">
-        <div class="loading-tile">
-          <div class="loading-tile__stage" role="status" aria-label="Loading">
-            <span class="spinner spinner--sm"></span><span class="spinner"></span><span class="spinner spinner--lg spinner--track"></span><span class="spinner spinner--xl spinner--track"></span>
-          </div>
-          <div><h4>Spinner</h4><p>Under 3 seconds, unknown shape.</p></div>
-        </div>
-        <div class="loading-tile">
-          <div class="loading-tile__stage sk-stack" aria-hidden="true">
-            <span class="skeleton skeleton--title"></span>
-            <span class="skeleton skeleton--line w-100"></span>
-            <span class="skeleton skeleton--line w-90"></span>
-            <span class="skeleton skeleton--line w-60"></span>
-          </div>
-          <div><h4>Skeleton</h4><p>Mirrors the text it replaces.</p></div>
-        </div>
-        <div class="loading-tile">
-          <div class="loading-tile__stage">
-            <button class="btn btn--primary is-loading" type="button" aria-busy="true" aria-disabled="true"><span class="spinner spinner--sm btn__spinner" aria-hidden="true"></span>Uploading…</button>
-          </div>
-          <div><h4>Button loading</h4><p>Label changes, width holds steady.</p></div>
-        </div>
-        <div class="loading-tile">
-          <div class="card" aria-hidden="true">
-            <div class="sk-row"><span class="skeleton skeleton--circle" style="width:36px;height:36px"></span><div class="sk-stack" style="flex:1"><span class="skeleton skeleton--line w-70"></span><span class="skeleton skeleton--line w-40"></span></div></div>
-            <span class="skeleton skeleton--line w-90"></span>
-          </div>
-          <div><h4>Card loading</h4><p>Same frame as the real card.</p></div>
-        </div>
-        <div class="loading-tile">
-          <div class="sk-stack" aria-hidden="true">
-            <div class="sk-row"><span class="skeleton" style="width:18px;height:18px"></span><span class="skeleton skeleton--line w-40"></span><span class="skeleton skeleton--line w-30"></span></div>
-            <div class="sk-row"><span class="skeleton" style="width:18px;height:18px"></span><span class="skeleton skeleton--line w-50"></span><span class="skeleton skeleton--line w-30"></span></div>
-            <div class="sk-row"><span class="skeleton" style="width:18px;height:18px"></span><span class="skeleton skeleton--line w-40"></span><span class="skeleton skeleton--line w-30"></span></div>
-          </div>
-          <div><h4>Table loading</h4><p>Row skeletons keep the columns.</p></div>
-        </div>
-        <div class="loading-tile">
-          <div class="sk-stack">
-            <div class="progress" role="progressbar" aria-label="Upload progress" aria-valuenow="45" aria-valuemin="0" aria-valuemax="100" data-progress><span style="--value:45%"></span></div>
-            <div class="progress-meta"><span>Uploading tokens.json</span><span data-progress-label>45%</span></div>
-          </div>
-          <div><h4>Progress</h4><p>When we know how far along it is.</p></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 17 ERROR ============ -->
-    <section class="ds-section" id="error" aria-labelledby="error-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">17</span>
-        <div>
-          <p class="eyebrow">States</p>
-          <h2 class="ds-section__title" id="error-title">Error states</h2>
-          <p class="ds-section__lede">Say what went wrong in plain words, reassure about data, and always offer a next step.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">--color-error</span><span class="token-tag">Retry</span></div>
-      </header>
-
-      <div class="grid grid--sidebar">
-        <div class="canvas">
-          <div class="row-label"><h4>Inline error</h4><p>Next to the field</p></div>
-          <div class="field">
-            <label class="field__label" for="err-card">Card number</label>
+          <div class="field" data-inspect="input-error">
+            <label class="field__label" for="f-phone">Parent phone</label>
             <div class="input-wrap input-wrap--trail">
-              <input class="input mono" id="err-card" type="text" value="4242 4242 4242" aria-invalid="true" aria-describedby="err-card-msg" inputmode="numeric">
+              <input class="input" id="f-phone" type="tel" value="98765 4321" aria-invalid="true" aria-describedby="f-phone-hint" data-error-input>
               <svg class="icon icon--error input-status" aria-hidden="true"><use href="#i-alert-circle"/></svg>
             </div>
-            <p class="field__hint field__hint--error" id="err-card-msg"><svg class="icon" aria-hidden="true"><use href="#i-alert-circle"/></svg>Card number is 4 digits short</p>
+            <p class="field__hint" id="f-phone-hint" data-error-hint>Click the field to see what's wrong</p>
           </div>
-        </div>
-        <article class="card card--error" data-retry-card>
-          <div data-retry-body>
-            <span class="card__icon card__icon--error" aria-hidden="true"><svg class="icon"><use href="#i-alert-triangle"/></svg></span>
-            <h3 class="card__title">Chart didn't load</h3>
-            <p class="card__text">We couldn't fetch this week's usage. Try again in a moment.</p>
-          </div>
-          <div class="card__foot"><span class="mono">ERR_503</span><button class="btn btn--secondary btn--sm" type="button" data-retry><svg class="icon icon--sm" aria-hidden="true"><use href="#i-refresh"/></svg>Retry</button></div>
-        </article>
-      </div>
-
-      <div class="page-error" data-page-error>
-        <p class="page-error__code" aria-hidden="true">503</p>
-        <div data-page-error-body>
-          <p class="eyebrow">Page error</p>
-          <h3>Something went wrong on our side</h3>
-          <p>The workspace couldn't load. Nothing you've saved is lost — it's usually back within a minute.</p>
-          <div class="page-error__actions">
-            <button class="btn btn--primary" type="button" data-page-retry><span class="spinner spinner--sm btn__spinner" aria-hidden="true"></span><svg class="icon icon--sm" aria-hidden="true"><use href="#i-refresh"/></svg><span class="btn__label">Try again</span></button>
-            <button class="btn btn--secondary" type="button" data-toast="info" data-toast-title="Status page" data-toast-text="All other services are running normally."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-zap"/></svg>Check status</button>
-          </div>
-          <p class="page-error__ref">Reference <span class="mono">req_7Hc2-91XA</span> · 08 Oct 2026, 10:42</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 18 SUCCESS ============ -->
-    <section class="ds-section" id="success" aria-labelledby="success-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">18</span>
-        <div>
-          <p class="eyebrow">States</p>
-          <h2 class="ds-section__title" id="success-title">Success states</h2>
-          <p class="ds-section__lede">Confirm what happened, show the result, and point to what comes next.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">--color-success</span></div>
-      </header>
-
-      <div class="grid grid--sidebar">
-        <div class="grid">
-          <div class="alert alert--success" role="status">
-            <span class="alert__icon" aria-hidden="true"><svg class="icon"><use href="#i-check-circle"/></svg></span>
-            <div class="alert__body"><p class="alert__title">Invite sent to marcus@northwind.studio</p><p class="alert__text">They'll join as an Editor once they accept.</p></div>
-          </div>
-          <article class="card">
-            <div class="success-hero">
-              <span class="success-hero__ring" aria-hidden="true"><svg class="icon"><use href="#i-check"/></svg></span>
-              <h3 class="card__title">Payment received</h3>
-              <p class="card__text">Your Business plan is active until 08 Oct 2027.</p>
-            </div>
-            <dl class="receipt">
-              <div><dt>Invoice</dt><dd class="mono">INV-2041</dd></div>
-              <div><dt>Seats</dt><dd>12</dd></div>
-              <div><dt>Total</dt><dd>₹1,44,000</dd></div>
-            </dl>
-            <div class="btn-row"><button class="btn btn--primary" type="button" data-toast="success" data-toast-title="Receipt downloaded" data-toast-text="Prototype — no file was created."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-download"/></svg>Download receipt</button><a class="btn btn--tertiary" href="#overview">Back to workspace</a></div>
-          </article>
-        </div>
-        <article class="card">
-          <div class="card__kicker"><span>Completed</span><span class="badge badge--success">Done</span></div>
-          <h3 class="card__title">Workspace setup</h3>
-          <div class="progress progress--success" role="progressbar" aria-label="Setup progress" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"><span style="--value:100%"></span></div>
-          <ol class="steps">
-            <li class="step"><span class="step__mark" aria-hidden="true"><svg class="icon"><use href="#i-check"/></svg></span><span>Import brand colours</span><span>2 Oct</span></li>
-            <li class="step"><span class="step__mark" aria-hidden="true"><svg class="icon"><use href="#i-check"/></svg></span><span>Map typography</span><span>3 Oct</span></li>
-            <li class="step"><span class="step__mark" aria-hidden="true"><svg class="icon"><use href="#i-check"/></svg></span><span>Publish components</span><span>6 Oct</span></li>
-            <li class="step"><span class="step__mark" aria-hidden="true"><svg class="icon"><use href="#i-check"/></svg></span><span>Invite the team</span><span>7 Oct</span></li>
-          </ol>
-          <div class="card__foot"><span>All 4 steps complete</span><span class="t-success">100%</span></div>
-        </article>
-      </div>
-    </section>
-
-    <!-- ============ 19 LOCKED ============ -->
-    <section class="ds-section" id="locked" aria-labelledby="locked-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">19</span>
-        <div>
-          <p class="eyebrow">States</p>
-          <h2 class="ds-section__title" id="locked-title">Locked states</h2>
-          <p class="ds-section__lede">Never just fade a feature out. Show what it does, say exactly why it's locked, and who can unlock it.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">.locked</span></div>
-      </header>
-
-      <div class="grid grid--sidebar">
-        <div class="locked">
-          <div class="locked__preview" aria-hidden="true" inert>
-            <p class="card__title">Audit log</p>
-            <div class="row"><span class="avatar avatar--sm avatar--info">AR</span><span class="t-body-sm">Aisha changed the primary colour</span></div>
-            <div class="row"><span class="avatar avatar--sm avatar--success">MK</span><span class="t-body-sm">Marcus deleted Button / Legacy</span></div>
-            <div class="row"><span class="avatar avatar--sm avatar--primary">LP</span><span class="t-body-sm">Lina exported tokens.json</span></div>
-            <div class="row"><span class="avatar avatar--sm">JV</span><span class="t-body-sm">Joving invited 3 people</span></div>
-            <div class="row"><span class="avatar avatar--sm avatar--info">AR</span><span class="t-body-sm">Aisha published v2.4</span></div>
-          </div>
-          <div class="locked__scrim">
-            <div class="locked__card">
-              <span class="lock-badge"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Business plan</span>
-              <h3>See who changed what, and when</h3>
-              <p>The audit log isn't part of your <b>Team</b> plan. Only workspace owners can upgrade.</p>
-              <ul class="locked__why">
-                <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>12 months of history for every change</li>
-                <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Export to CSV for compliance reviews</li>
+          <div class="field" data-inspect="select">
+            <span class="field__label" id="f-class-label">Class</span>
+            <div class="select" data-select data-placeholder="Choose a class">
+              <button class="select__trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="f-class-label f-class-value">
+                <span class="select__value is-placeholder" id="f-class-value">Choose a class</span>
+                <svg class="icon select__chev" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+              </button>
+              <ul class="select__menu" role="listbox" tabindex="-1" aria-labelledby="f-class-label">
+                <li class="select__option" role="option" id="cls-1" data-value="Montessori" aria-selected="false">Montessori<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
+                <li class="select__option" role="option" id="cls-2" data-value="UKG" aria-selected="false">UKG<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
+                <li class="select__option" role="option" id="cls-3" data-value="LKG" aria-selected="false">LKG<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
+                <li class="select__option" role="option" id="cls-4" data-value="Nursery" aria-selected="false">Nursery<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></li>
               </ul>
-              <div class="locked__actions">
-                <button class="btn btn--primary" type="button" data-modal="upgrade">See Business plan</button>
-                <button class="btn btn--tertiary" type="button" data-toast="success" data-toast-title="Request sent" data-toast-text="Aisha (owner) will get an email.">Ask an owner</button>
-              </div>
             </div>
           </div>
+          <div class="field" data-inspect="input">
+            <label class="field__label" for="f-search">Search components</label>
+            <div class="input-wrap input-wrap--lead">
+              <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+              <input class="input" id="f-search" type="search" placeholder="Try “but” or “card”" autocomplete="off" aria-describedby="f-search-results" data-search-input>
+            </div>
+            <ul class="suggest" id="f-search-results" aria-live="polite" data-search-results></ul>
+          </div>
+          <div class="field span-all" data-inspect="input">
+            <label class="field__label" for="f-note">Observation note <span class="field__extra" data-char-count>0 / 200</span></label>
+            <textarea class="input" id="f-note" maxlength="200" placeholder="What did the child explore today?" data-char-input></textarea>
+          </div>
+          <fieldset class="choice-group" data-inspect="checkbox">
+            <legend>Notify parents by</legend>
+            <label class="check"><input type="checkbox" checked>SMS</label>
+            <label class="check"><input type="checkbox">Email</label>
+            <label class="check"><input type="checkbox" checked>WhatsApp</label>
+          </fieldset>
+          <fieldset class="choice-group" data-inspect="checkbox">
+            <legend>App language</legend>
+            <label class="radio"><input type="radio" name="lang" checked>English</label>
+            <label class="radio"><input type="radio" name="lang"><span lang="ta">தமிழ்</span></label>
+            <button class="switch" type="button" role="switch" aria-checked="true" data-switch data-inspect="toggle">
+              <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+              Attendance alerts <span class="switch__state" aria-hidden="true">ON</span>
+            </button>
+          </fieldset>
         </div>
-        <div class="grid">
-          <article class="card card--locked">
-            <span class="card__icon" aria-hidden="true"><svg class="icon"><use href="#i-lock"/></svg></span>
-            <h3 class="card__title">Custom domains</h3>
-            <p class="card__text">Locked while your domain is being verified. This usually takes up to 24 hours.</p>
-            <div class="card__foot"><span class="badge badge--warning">Verifying</span><span>Started 07 Oct</span></div>
+      </section>
+
+      <!-- 05 CARDS -->
+      <section class="panel span-6 reveal" id="cards" aria-labelledby="cards-title">
+        <header class="panel__head">
+          <span class="panel__num">05<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="cards-title">Cards &amp; data display</h2><p class="panel__sub">One frame, many kinds of content.</p></div>
+          <span class="tech-label">Component / Card</span>
+        </header>
+        <div class="card-grid in-half">
+          <article class="card card--live" data-inspect="card-student">
+            <div class="card__row"><span class="tech-label tech-label--plain">Student progress</span><span class="badge badge--success">On track</span></div>
+            <div class="person"><span class="avatar" aria-hidden="true">AS</span><div><p class="person__name">Aarav Sharma</p><p class="person__sub">Montessori A · Age 5</p></div></div>
+            <div class="progress" role="progressbar" aria-label="Term progress" aria-valuenow="78" aria-valuemin="0" aria-valuemax="100"><span style="--value:.78"></span></div>
+            <div class="progress-meta"><span>Term progress</span><span>78%</span></div>
           </article>
-          <div class="canvas">
-            <div class="field">
-              <label class="field__label" for="locked-sso">SSO login URL</label>
-              <div class="input-wrap locked-field">
-                <input class="input mono" id="locked-sso" type="text" value="sso.northwind.studio" readonly aria-describedby="locked-sso-hint">
-                <svg class="icon locked-field__lock" aria-hidden="true"><use href="#i-lock"/></svg>
+
+          <article class="card card--live" data-inspect="card-stat">
+            <div class="card__row"><span class="tech-label tech-label--plain">Total students</span><span class="card__delta">+12</span></div>
+            <p class="card__big" data-count="248">248</p>
+            <div class="spark" role="img" aria-label="Enrolment over 10 months, rising from 180 to 248">
+              <span style="--h:.42"></span><span style="--h:.48"></span><span style="--h:.45"></span><span style="--h:.56"></span><span style="--h:.6"></span><span style="--h:.58"></span><span style="--h:.7"></span><span style="--h:.76"></span><span style="--h:.84"></span><span style="--h:1"></span>
+            </div>
+            <p class="card__meta">12 joined this month</p>
+          </article>
+
+          <article class="card card--live card--image" data-inspect="card-image">
+            <div class="cover">
+              <svg viewBox="0 0 320 160" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                <rect class="art-e" width="320" height="160"/>
+                <circle class="art-b" cx="250" cy="48" r="26"/>
+                <path class="art-line" d="M0 52 Q80 30 160 52 T320 44"/>
+                <rect class="art-f" x="36" y="70" width="40" height="90" rx="4"/>
+                <rect class="art-a" x="86" y="96" width="40" height="64" rx="4"/>
+                <rect class="art-c" x="136" y="84" width="40" height="76" rx="4"/>
+                <rect class="art-d" x="186" y="112" width="40" height="48" rx="4"/>
+              </svg>
+            </div>
+            <div class="card__body">
+              <p class="card__title">Spring art week</p>
+              <p class="card__meta">42 photos · Casa 1 and Casa 2</p>
+            </div>
+          </article>
+
+          <article class="card card--live" data-inspect="card-stat">
+            <div class="card__row"><span class="tech-label tech-label--plain">Attendance today</span><span class="badge badge--info badge--plain">Live</span></div>
+            <p class="card__big">96.4<span class="card__meta">%</span></p>
+            <div class="progress progress--success" role="progressbar" aria-label="Present" aria-valuenow="96" aria-valuemin="0" aria-valuemax="100"><span style="--value:.964"></span></div>
+            <div class="progress-meta"><span>239 present</span><span>9 away</span></div>
+          </article>
+
+          <article class="card card--live" data-inspect="badge-status">
+            <span class="tech-label tech-label--plain">Status badges</span>
+            <div class="tag-row"><span class="badge badge--success">Present</span><span class="badge badge--error badge--absent">Absent</span><span class="badge badge--warning badge--late">Late</span></div>
+            <span class="tech-label tech-label--plain">Tags</span>
+            <div class="tag-row" data-inspect="tag"><span class="tag tag--primary">Montessori</span><span class="tag">UKG</span><span class="tag" lang="ta">தமிழ்</span></div>
+          </article>
+
+          <article class="card card--live" data-inspect="avatar">
+            <span class="tech-label tech-label--plain">Avatars</span>
+            <div class="avatar-stack" role="img" aria-label="5 teachers: AS, DP, RK, MS and 3 more">
+              <span class="avatar">AS</span><span class="avatar avatar--info">DP</span><span class="avatar avatar--success">RK</span><span class="avatar avatar--accent">MS</span><span class="avatar avatar--neutral">+3</span>
+            </div>
+            <div class="person"><span class="avatar avatar--lg avatar--accent" aria-hidden="true">ML</span><div><p class="person__name">Ms. Lakshmi</p><p class="person__sub">Lead guide · Casa 1</p></div></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- 06 TABLES -->
+      <section class="panel reveal" id="tables" aria-labelledby="tables-title">
+        <header class="panel__head">
+          <span class="panel__num">06<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="tables-title">Tables &amp; lists</h2><p class="panel__sub">Sort, filter, select and act. Below 768px each row becomes a card, with no sideways scrolling.</p></div>
+          <span class="tech-label">Component / Table</span>
+        </header>
+        <div class="toolbar">
+          <div class="toolbar__group">
+            <div class="segmented" role="radiogroup" aria-label="Filter by attendance" data-status-filter>
+              <button type="button" role="radio" aria-checked="true" data-status="">All</button>
+              <button type="button" role="radio" aria-checked="false" data-status="Present">Present</button>
+              <button type="button" role="radio" aria-checked="false" data-status="Absent">Absent</button>
+              <button type="button" role="radio" aria-checked="false" data-status="Late">Late</button>
+            </div>
+            <label class="sr-only" for="sort-select">Sort students</label>
+            <select class="input" id="sort-select" style="width:auto;height:40px" data-sort-select>
+              <option value="name:asc">Sort: Name A–Z</option>
+              <option value="name:desc">Sort: Name Z–A</option>
+              <option value="attendance:desc">Sort: Attendance high–low</option>
+              <option value="progress:desc">Sort: Progress high–low</option>
+            </select>
+          </div>
+          <button class="btn btn--primary" type="button" data-drawer="drawer-add" data-inspect="button-primary"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-user-plus"/></svg>Add student</button>
+        </div>
+        <div class="table-shell" data-table>
+          <div class="bulk-bar" data-bulk hidden>
+            <span><b data-bulk-count>0</b> selected</span>
+            <div class="toolbar__group">
+              <button class="btn btn--sm btn--secondary" type="button" data-bulk-present>Mark present</button>
+              <button class="btn btn--sm btn--ghost" type="button" data-bulk-clear>Clear</button>
+            </div>
+          </div>
+          <table class="data-table" aria-label="Students">
+            <thead>
+              <tr>
+                <th class="cell-check" scope="col"><label class="check"><input type="checkbox" data-select-all aria-label="Select all students on this page"></label></th>
+                <th scope="col" data-sort-key="name" aria-sort="ascending"><button class="sort-btn" type="button">Student<svg class="icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+                <th scope="col" class="col-class">Class</th>
+                <th scope="col">Status</th>
+                <th scope="col" data-sort-key="attendance" aria-sort="none"><button class="sort-btn" type="button">Attendance<svg class="icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+                <th scope="col" data-sort-key="progress" aria-sort="none"><button class="sort-btn" type="button">Progress<svg class="icon" aria-hidden="true"><use href="#i-sort"/></svg></button></th>
+                <th scope="col" class="cell-action"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody data-table-body></tbody>
+          </table>
+          <div class="table-foot">
+            <span data-table-range aria-live="polite"></span>
+            <nav class="pager" aria-label="Table pages" data-pager></nav>
+          </div>
+        </div>
+      </section>
+
+      <!-- 07 TABS & FILTERS -->
+      <section class="panel span-6 reveal" id="tabs" aria-labelledby="tabs-title">
+        <header class="panel__head">
+          <span class="panel__num">07<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="tabs-title">Tabs &amp; filters</h2><p class="panel__sub">Lesson plans. Tabs, class filters and search work together.</p></div>
+          <span class="tech-label">Component / Tabs</span>
+        </header>
+        <div class="tabs" role="tablist" aria-label="Lesson plan status" data-tabs>
+          <button class="tab" role="tab" type="button" aria-selected="true" aria-controls="lesson-panel" data-tab="all" data-inspect="tab">All <span class="tab__count" data-tab-count="all"></span></button>
+          <button class="tab" role="tab" type="button" aria-selected="false" aria-controls="lesson-panel" tabindex="-1" data-tab="Active" data-inspect="tab">Active <span class="tab__count" data-tab-count="Active"></span></button>
+          <button class="tab" role="tab" type="button" aria-selected="false" aria-controls="lesson-panel" tabindex="-1" data-tab="Pending" data-inspect="tab">Pending <span class="tab__count" data-tab-count="Pending"></span></button>
+          <button class="tab" role="tab" type="button" aria-selected="false" aria-controls="lesson-panel" tabindex="-1" data-tab="Archived" data-inspect="tab">Archived <span class="tab__count" data-tab-count="Archived"></span></button>
+          <span class="tabs__indicator" aria-hidden="true" data-tab-indicator></span>
+        </div>
+        <div style="display:grid;gap:var(--space-3);margin-top:var(--space-4)">
+          <div class="chip-row" role="group" aria-label="Filter by class" data-class-filters>
+            <button class="chip" type="button" aria-pressed="false" data-class="Montessori" data-inspect="filter-chip"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Montessori</button>
+            <button class="chip" type="button" aria-pressed="false" data-class="UKG" data-inspect="filter-chip"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>UKG</button>
+            <button class="chip" type="button" aria-pressed="false" data-class="LKG" data-inspect="filter-chip"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>LKG</button>
+            <button class="chip" type="button" aria-pressed="false" data-class="Nursery" data-inspect="filter-chip"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Nursery</button>
+            <button class="chip" type="button" aria-pressed="false" data-class="Tamil" data-inspect="filter-chip"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Tamil</button>
+          </div>
+          <div class="input-wrap input-wrap--lead">
+            <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+            <label class="sr-only" for="lesson-search">Search lesson plans</label>
+            <input class="input" id="lesson-search" type="search" placeholder="Search lesson plans" autocomplete="off" data-lesson-search>
+          </div>
+        </div>
+        <div id="lesson-panel" role="tabpanel" aria-labelledby="tabs-title" tabindex="0">
+          <div class="result-count"><p aria-live="polite"><strong data-lesson-count>0</strong> lesson plans</p><button class="btn btn--tertiary btn--sm" type="button" data-lesson-clear hidden>Clear filters</button></div>
+          <ul class="result-list" data-lesson-list></ul>
+        </div>
+      </section>
+
+      <!-- 08 MODALS & DRAWERS -->
+      <section class="panel span-6 reveal" id="overlays" aria-labelledby="overlays-title">
+        <header class="panel__head">
+          <span class="panel__num">08<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="overlays-title">Modals &amp; drawers</h2><p class="panel__sub">Escape and the backdrop close them. Focus returns to the button that opened them.</p></div>
+          <span class="tech-label">Component / Overlay</span>
+        </header>
+        <div class="overlay-demo">
+          <div class="overlay-card" data-inspect="modal">
+            <div class="mini-stage" aria-hidden="true"><div class="mini-dialog"><i></i><i></i><i></i><b></b></div></div>
+            <div><h3>Confirm action</h3><p>Centred with fade and scale on desktop and tablet. A full-screen sheet that slides up on mobile.</p></div>
+            <button class="btn btn--secondary" type="button" data-modal-open data-student="Meera Singh"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-trash"/></svg>Open confirm modal</button>
+          </div>
+          <div class="overlay-card" data-inspect="drawer">
+            <div class="mini-stage" aria-hidden="true"><div class="mini-drawer"><i></i><i></i><i></i><i></i></div></div>
+            <div><h3>Detail drawer</h3><p>Slides in from the right so you keep your place. Full width on mobile.</p></div>
+            <button class="btn btn--secondary" type="button" data-view-student="Diya Patel"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-eye"/></svg>Open drawer</button>
+          </div>
+        </div>
+        <div class="well" style="margin-top:var(--space-3)">
+          <div class="subhead"><h3>Behaviour by breakpoint</h3><span class="tech-label tech-label--plain">Overlay rules</span></div>
+          <dl class="token-sheet">
+            <div><dt>Desktop</dt><dd>Centred modal · fade + scale · 300ms</dd></div>
+            <div><dt>Tablet</dt><dd>Centred modal · 440px wide</dd></div>
+            <div><dt>Mobile</dt><dd>Full-screen sheet · translateY(100%) → 0</dd></div>
+            <div><dt>Drawer</dt><dd>translateX(100%) → 0 · full width under 768px</dd></div>
+            <div><dt>Backdrop</dt><dd>--color-backdrop · 6px blur</dd></div>
+            <div><dt>Keyboard</dt><dd>Esc closes · focus returns to the opener</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      <!-- 09 STATES -->
+      <section class="panel reveal" id="states" aria-labelledby="states-title">
+        <header class="panel__head">
+          <span class="panel__num">09<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="states-title">States</h2><p class="panel__sub">Every screen plans for waiting, nothing, failure, success and limits.</p></div>
+          <span class="tech-label">State / All</span>
+        </header>
+        <div class="states">
+          <article class="state-tile" data-inspect="skeleton">
+            <div class="state-tile__label"><span class="tech-label">State / Loading</span></div>
+            <div class="state-tile__body" aria-busy="true" aria-label="Loading student list">
+              <div class="sk-row"><span class="skeleton sk-circle"></span><div class="sk-stack"><span class="skeleton sk-line w-70"></span><span class="skeleton sk-line w-40"></span></div></div>
+              <span class="skeleton sk-block"></span>
+              <div class="sk-row"><span class="skeleton sk-circle"></span><div class="sk-stack"><span class="skeleton sk-line w-80"></span><span class="skeleton sk-line w-60"></span></div></div>
+            </div>
+          </article>
+          <article class="state-tile">
+            <div class="state-tile__label"><span class="tech-label">State / Empty</span></div>
+            <div class="state-tile__body state-tile__center">
+              <span class="state-icon" aria-hidden="true"><svg class="icon"><use href="#i-book"/></svg></span>
+              <h3>No observations yet</h3>
+              <p>Notes from teachers will appear here.</p>
+              <button class="btn btn--secondary btn--sm" type="button" data-toast="Observation started" data-toast-text="Prototype: nothing is saved.">Add observation</button>
+            </div>
+          </article>
+          <article class="state-tile" data-retry-tile>
+            <div class="state-tile__label"><span class="tech-label">State / Error</span></div>
+            <div class="state-tile__body state-tile__center" data-retry-body>
+              <span class="state-icon state-icon--error" aria-hidden="true"><svg class="icon"><use href="#i-alert-triangle"/></svg></span>
+              <h3>Couldn't load attendance</h3>
+              <p>The connection dropped. Nothing was lost.</p>
+              <button class="btn btn--primary btn--sm" type="button" data-retry><svg class="icon icon--sm" aria-hidden="true"><use href="#i-refresh"/></svg>Try again</button>
+            </div>
+          </article>
+          <article class="state-tile">
+            <div class="state-tile__label"><span class="tech-label">State / Success</span><button class="btn btn--ghost btn--sm" type="button" data-replay-success aria-label="Replay success animation"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-refresh"/></svg></button></div>
+            <div class="state-tile__body state-tile__center">
+              <svg class="check-draw" viewBox="0 0 64 64" aria-hidden="true" data-check-draw><circle cx="32" cy="32" r="29"/><path d="m20 33 8 8 16-17"/></svg>
+              <h3>Attendance saved</h3>
+              <p>24 of 24 students marked for Casa 1.</p>
+            </div>
+          </article>
+          <article class="state-tile state-tile--disabled">
+            <div class="state-tile__label"><span class="tech-label">State / Disabled</span></div>
+            <div class="state-tile__body">
+              <label class="field__label" for="st-disabled">Fee amount</label>
+              <input class="input" id="st-disabled" type="text" value="₹ 18,500" disabled aria-describedby="st-disabled-hint">
+              <button class="btn btn--primary btn--sm" type="button" disabled>Collect fee</button>
+              <p id="st-disabled-hint">Fees open on 1 Nov 2026.</p>
+            </div>
+          </article>
+          <article class="state-tile">
+            <div class="state-tile__label"><span class="tech-label">State / Locked</span></div>
+            <div class="state-tile__body state-tile__center">
+              <span class="state-icon state-icon--lock" aria-hidden="true"><svg class="icon"><use href="#i-lock"/></svg></span>
+              <h3>Reports are locked</h3>
+              <ul class="lock-why">
+                <li><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Only the principal can open term reports.</li>
+              </ul>
+              <button class="btn btn--tertiary btn--sm" type="button" data-toast="Access requested" data-toast-text="Prototype: the principal is not notified.">Request access</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- 10 RESPONSIVE -->
+      <section class="panel reveal" id="responsive" aria-labelledby="responsive-title">
+        <header class="panel__head">
+          <span class="panel__num">10<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="responsive-title">Responsive blueprint</h2><p class="panel__sub">The same components, rearranged for each screen size.</p></div>
+          <span class="tech-label">Breakpoint / All</span>
+        </header>
+        <p class="bp__now" aria-live="polite"><span class="tech-label">Breakpoint / Now</span>You're viewing <strong data-vp-name>Desktop</strong><span class="mono" data-vp-width></span></p>
+        <div class="blueprint">
+          <article class="bp" data-bp="desktop">
+            <div class="bp__head"><h3>Desktop</h3><span class="tech-label tech-label--plain">1440px</span></div>
+            <div class="bp__screen" aria-hidden="true"><div class="wf wf--desktop"><div class="wf__side"><i></i><i></i><i></i><i></i><i></i></div><div class="wf__bar"><i></i></div><div class="wf__body"><i class="hero"></i><i></i><i></i><i></i><i class="row"></i><i class="row"></i></div></div></div>
+            <ul><li>Sidebar always visible</li><li>Three-column cards</li><li>Full table</li><li>Centred modal</li></ul>
+          </article>
+          <article class="bp" data-bp="tablet">
+            <div class="bp__head"><h3>Tablet</h3><span class="tech-label tech-label--plain">768px</span></div>
+            <div class="bp__screen" aria-hidden="true"><div class="wf wf--tablet"><div class="wf__bar"><b></b><i></i></div><div class="wf__body"><i class="hero"></i><i></i><i></i><i class="row"></i><i class="row"></i></div></div></div>
+            <ul><li>Sidebar hidden</li><li>Hamburger opens an overlay drawer</li><li>Two-column cards</li><li>Centred modal</li></ul>
+          </article>
+          <article class="bp" data-bp="mobile">
+            <div class="bp__head"><h3>Mobile</h3><span class="tech-label tech-label--plain">360px</span></div>
+            <div class="bp__screen" aria-hidden="true"><div class="wf wf--mobile"><div class="wf__bar"><b></b><i></i></div><div class="wf__body"><i class="hero"></i><i></i><i></i><i></i></div><div class="wf__tabs"><i></i><i></i><i></i><i></i></div><span class="wf__fab"></span></div></div>
+            <ul><li>Bottom navigation</li><li>56px round action, bottom-right</li><li>Table rows become cards</li><li>Full-screen modal sheet</li></ul>
+          </article>
+          <article class="bp" data-bp="drawer">
+            <div class="bp__head"><h3>Mobile drawer</h3><span class="tech-label tech-label--plain">360px</span></div>
+            <div class="bp__screen" aria-hidden="true"><div class="wf wf--mobile"><div class="wf__bar"><b></b><i></i></div><div class="wf__body"><i class="hero"></i><i></i><i></i></div><div class="wf__tabs"><i></i><i></i><i></i><i></i></div><span class="wf__scrim"></span><div class="wf__drawer"><i></i><i></i><i></i><i></i><i></i></div></div></div>
+            <ul><li>Slides in from the left</li><li>Backdrop dims the page</li><li>Escape or tap outside closes</li><li>No horizontal scrolling</li></ul>
+          </article>
+        </div>
+      </section>
+
+      <!-- 11 PLAYGROUND -->
+      <section class="panel reveal" id="playground" aria-labelledby="playground-title">
+        <header class="panel__head">
+          <span class="panel__num">11<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="playground-title">Interactive playground</h2><p class="panel__sub">Change the controls and the preview updates immediately. Then see which tokens build it.</p></div>
+          <span class="tech-label">Tool / Playground</span>
+        </header>
+        <div class="playground" data-playground>
+          <div class="pg-controls">
+            <div class="pg-control"><span id="pg-variant">Component · Button</span>
+              <div class="segmented segmented--block" role="radiogroup" aria-labelledby="pg-variant" data-pg="variant">
+                <button type="button" role="radio" aria-checked="true" data-value="primary">Primary</button>
+                <button type="button" role="radio" aria-checked="false" data-value="secondary">Secondary</button>
+                <button type="button" role="radio" aria-checked="false" data-value="tertiary">Tertiary</button>
               </div>
-              <p class="field__hint" id="locked-sso-hint">Managed by your organisation's IT admin. Contact them to change it.</p>
+            </div>
+            <div class="pg-control"><span id="pg-size">Size</span>
+              <div class="segmented segmented--block" role="radiogroup" aria-labelledby="pg-size" data-pg="size">
+                <button type="button" role="radio" aria-checked="false" data-value="sm">Small</button>
+                <button type="button" role="radio" aria-checked="true" data-value="md">Medium</button>
+                <button type="button" role="radio" aria-checked="false" data-value="lg">Large</button>
+              </div>
+            </div>
+            <div class="pg-control"><span id="pg-theme">Theme</span>
+              <div class="segmented segmented--block" role="radiogroup" aria-labelledby="pg-theme" data-pg="theme">
+                <button type="button" role="radio" aria-checked="false" data-value="light">Light</button>
+                <button type="button" role="radio" aria-checked="true" data-value="dark">Dark</button>
+              </div>
+            </div>
+            <div class="pg-control"><span id="pg-state">State</span>
+              <div class="segmented segmented--block" role="radiogroup" aria-labelledby="pg-state" data-pg="state">
+                <button type="button" role="radio" aria-checked="true" data-value="default">Default</button>
+                <button type="button" role="radio" aria-checked="false" data-value="hover">Hover</button>
+                <button type="button" role="radio" aria-checked="false" data-value="active">Active</button>
+                <button type="button" role="radio" aria-checked="false" data-value="disabled">Off</button>
+                <button type="button" role="radio" aria-checked="false" data-value="loading">Load</button>
+              </div>
+            </div>
+            <div class="pg-control"><span id="pg-radius">Radius</span>
+              <div class="segmented segmented--block" role="radiogroup" aria-labelledby="pg-radius" data-pg="radius">
+                <button type="button" role="radio" aria-checked="false" data-value="sharp">Sharp</button>
+                <button type="button" role="radio" aria-checked="true" data-value="medium">Medium</button>
+                <button type="button" role="radio" aria-checked="false" data-value="round">Round</button>
+              </div>
+            </div>
+          </div>
+          <div class="pg-preview">
+            <div class="pg-preview__bar"><span class="tech-label">Live preview</span><span class="tech-label tech-label--plain" data-pg-label>Button / Primary</span></div>
+            <div class="pg-stage" data-pg-stage data-theme-preview="dark">
+              <button class="btn btn--primary r-medium" type="button" data-pg-button>Mark attendance</button>
+            </div>
+            <p class="pg-code" data-pg-code></p>
+            <div class="pg-build">
+              <span class="tech-label tech-label--plain">Hand this to engineering</span>
+              <button class="btn btn--primary btn--sm" type="button" data-pg-build aria-expanded="false" aria-controls="pg-sheet">Build from this<svg class="icon icon--sm" aria-hidden="true"><use href="#i-arrow-right"/></svg></button>
+            </div>
+            <div class="pg-sheet" id="pg-sheet" hidden><dl class="token-sheet" data-pg-sheet></dl></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 12 MOTION -->
+      <section class="panel span-7 reveal" id="motion" aria-labelledby="motion-title">
+        <header class="panel__head">
+          <span class="panel__num">12<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="motion-title">Motion system</h2><p class="panel__sub">Transform and opacity only. Click a tile to play it.</p></div>
+          <span class="tech-label">Token / Motion</span>
+        </header>
+        <div class="motion-head">
+          <div class="timing" aria-label="Duration tokens">
+            <span>Fast <b>180ms</b></span><span>Normal <b>300ms</b></span><span>Slow <b>600ms</b></span>
+          </div>
+          <button class="btn btn--secondary btn--sm" type="button" data-play-all><svg class="icon icon--sm" aria-hidden="true"><use href="#i-play"/></svg>Play all</button>
+        </div>
+        <div class="motion-grid" data-motion-grid></div>
+      </section>
+
+      <!-- 13 TOKEN INSPECTOR -->
+      <section class="panel span-5 reveal" id="tokens" aria-labelledby="tokens-title">
+        <header class="panel__head">
+          <span class="panel__num">13<i class="marker" aria-hidden="true"></i></span>
+          <div><h2 class="panel__title" id="tokens-title">Token inspector</h2><p class="panel__sub">Pick a component, or turn on Inspect mode and click anything on the page.</p></div>
+          <span class="tech-label">Tool / Inspect</span>
+        </header>
+        <div class="inspector-dock">
+          <div class="picker" role="group" aria-label="Components" data-picker></div>
+          <div class="well">
+            <dl class="token-sheet" data-dock-sheet></dl>
+            <div class="token-sheet__actions">
+              <button class="btn btn--primary btn--sm" type="button" data-copy-tokens="dock"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-copy"/></svg>Copy tokens</button>
+              <button class="btn btn--secondary btn--sm inspect-toggle" type="button" aria-pressed="false" data-inspect-toggle><svg class="icon icon--sm" aria-hidden="true"><use href="#i-target"/></svg>Inspect mode</button>
             </div>
           </div>
         </div>
-      </div>
-    </section>
-
-    <!-- ============ 20 ICONS ============ -->
-    <section class="ds-section" id="icons" aria-labelledby="icons-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">20</span>
-        <div>
-          <p class="eyebrow">Foundations</p>
-          <h2 class="ds-section__title" id="icons-title">Icons</h2>
-          <p class="ds-section__lede">24px grid, 1.75 stroke, round caps. Icons support labels — they never carry meaning alone. Click one to copy its name.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">&lt;use href="#i-*"&gt;</span><span class="token-tag">stroke 1.75</span></div>
-      </header>
-
-      <div class="canvas">
-        <div class="row-label"><h4>Sizes</h4><p>16 · 20 · 24 · 32</p></div>
-        <div class="icon-sizes" aria-hidden="true">
-          <div class="icon-size"><span class="icon-size__box"><svg class="icon" data-size="16"><use href="#i-sparkle"/></svg></span>16</div>
-          <div class="icon-size"><span class="icon-size__box"><svg class="icon" data-size="20"><use href="#i-sparkle"/></svg></span>20</div>
-          <div class="icon-size"><span class="icon-size__box"><svg class="icon" data-size="24"><use href="#i-sparkle"/></svg></span>24</div>
-          <div class="icon-size"><span class="icon-size__box"><svg class="icon" data-size="32"><use href="#i-sparkle"/></svg></span>32</div>
-        </div>
-      </div>
-      <div class="canvas">
-        <div class="row-label"><h4>Library</h4><p data-icon-count></p></div>
-        <div class="icon-grid" data-icon-grid></div>
-      </div>
-    </section>
-
-    <!-- ============ 21 RESPONSIVE ============ -->
-    <section class="ds-section" id="responsive" aria-labelledby="responsive-title">
-      <header class="ds-section__head">
-        <span class="ds-section__index">21</span>
-        <div>
-          <p class="eyebrow">Platform</p>
-          <h2 class="ds-section__title" id="responsive-title">Responsive</h2>
-          <p class="ds-section__lede">Three layouts, each designed on its own terms. Resize the window — the highlighted layout is the one you're looking at.</p>
-        </div>
-        <div class="ds-section__meta"><span class="token-tag token-tag--accent">768 · 1024</span></div>
-      </header>
-
-      <p class="viewport-now" aria-live="polite"><span class="status-dot" aria-hidden="true"></span>You're viewing <strong data-vp-name>Desktop</strong><span class="mono" data-vp-width></span></p>
-
-      <div class="devices">
-        <div class="device" data-device="desktop">
-          <div class="device__head"><h4>Desktop</h4><span class="token-tag">≥ 1024px</span></div>
-          <div class="device__screen" aria-hidden="true">
-            <div class="wf wf--desktop"><div class="wf__side"><i></i><i></i><i></i><i></i><i></i></div><div class="wf__bar"><i></i></div><div class="wf__body"><i class="wide"></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
-          </div>
-          <ul><li>Permanent dark sidebar</li><li>Three-column cards</li><li>Full table with sorting</li><li>Centred modals</li></ul>
-        </div>
-        <div class="device" data-device="tablet">
-          <div class="device__head"><h4>Tablet</h4><span class="token-tag">768–1023px</span></div>
-          <div class="device__screen" aria-hidden="true">
-            <div class="wf wf--tablet"><div class="wf__bar"><i class="wf__btn"></i><i></i></div><div class="wf__body"><i class="wide"></i><i></i><i></i><i></i><i></i></div></div>
-          </div>
-          <ul><li>Hamburger opens overlay drawer</li><li>Two-column layout</li><li>Touch-sized controls</li><li>Centred modals</li></ul>
-        </div>
-        <div class="device" data-device="mobile">
-          <div class="device__head"><h4>Mobile</h4><span class="token-tag">&lt; 768px</span></div>
-          <div class="device__screen" aria-hidden="true">
-            <div class="wf wf--mobile"><div class="wf__bar"><i class="wf__btn"></i><i></i></div><div class="wf__body"><i class="wide"></i><i></i><i></i><i></i></div><span class="wf__fab"></span></div>
-          </div>
-          <ul><li>Compact header and search</li><li>Table rows become cards</li><li>Full-screen modal sheets</li><li>56px floating action</li></ul>
-        </div>
-      </div>
-
-      <div class="table-card">
-        <table class="bp-table">
-          <caption class="sr-only">Breakpoint tokens</caption>
-          <thead><tr><th scope="col">Breakpoint</th><th scope="col">Range</th><th scope="col">Tested at</th></tr></thead>
-          <tbody>
-            <tr><td>Mobile</td><td class="mono">0 – 767px</td><td class="mono">360</td></tr>
-            <tr><td>Tablet</td><td class="mono">768 – 1023px</td><td class="mono">768</td></tr>
-            <tr><td>Desktop</td><td class="mono">≥ 1024px</td><td class="mono">1024 · 1440</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+      </section>
+    </main>
 
     <footer class="site-foot">
-      <span>T00 Design System · v2.4</span>
-      <span>Works offline · No external dependencies</span>
+      <span>Nexora Design System · v3.0 · Works offline</span>
+      <span>One system. Every screen. <em>Same experience.</em></span>
     </footer>
-  </main>
+  </div>
 </div>
 
-<button class="fab fab--fixed" type="button" aria-label="Create component" data-modal="default">
-  <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
-</button>
+<button class="fab fab--fixed" type="button" aria-label="Add student" data-drawer="drawer-add"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
 
-<!-- Modal: content is filled per variant by design-system.js -->
-<dialog class="modal" id="modal" aria-labelledby="modal-title" aria-describedby="modal-desc">
+<dialog class="modal" id="modal-confirm" aria-labelledby="modal-title" aria-describedby="modal-desc">
   <div class="modal__panel">
     <span class="modal__grabber" aria-hidden="true"></span>
     <div class="modal__top">
-      <span class="eyebrow" id="modal-eyebrow">Dialog</span>
-      <button class="btn btn--icon-ghost" type="button" aria-label="Close dialog" data-close><svg class="icon"><use href="#i-x"/></svg></button>
+      <span class="tech-label">Component / Modal</span>
+      <button class="btn btn--icon-ghost" type="button" aria-label="Close" data-close><svg class="icon"><use href="#i-x"/></svg></button>
     </div>
     <div class="modal__body">
-      <span class="modal__icon" id="modal-icon" aria-hidden="true"><svg class="icon"><use href="#i-pencil"/></svg></span>
-      <h2 class="modal__title" id="modal-title"></h2>
-      <p class="modal__desc" id="modal-desc"></p>
-      <div class="modal__extra" id="modal-extra"></div>
+      <span class="modal__icon" aria-hidden="true"><svg class="icon"><use href="#i-trash"/></svg></span>
+      <h2 class="modal__title" id="modal-title">Confirm action</h2>
+      <p class="modal__desc" id="modal-desc">Are you sure you want to delete this student? Their attendance and observations will be removed.</p>
+      <div class="modal__subject"><span class="avatar" aria-hidden="true" data-modal-initials>MS</span><div><p class="person__name" data-modal-name>Meera Singh</p><p class="person__sub" data-modal-class>Nursery</p></div></div>
     </div>
-    <div class="modal__foot" id="modal-foot"></div>
-  </div>
-</dialog>
-
-<dialog class="drawer" id="drawer-right" aria-labelledby="drawer-right-title">
-  <div class="drawer__panel">
-    <div class="drawer__head">
-      <h2 id="drawer-right-title">Customer details</h2>
-      <button class="btn btn--icon-ghost" type="button" aria-label="Close drawer" data-close><svg class="icon"><use href="#i-x"/></svg></button>
-    </div>
-    <div class="drawer__body" data-drawer-detail>
-      <div class="profile-head">
-        <span class="avatar avatar--lg avatar--primary" aria-hidden="true" data-d-initials>JV</span>
-        <div><h3 data-d-name>Joving</h3><p data-d-email>joving@northwind.studio</p></div>
-      </div>
-      <div class="drawer-section">
-        <h4>Account</h4>
-        <dl class="dl-list">
-          <div><dt>Status</dt><dd data-d-status><span class="badge badge--success">Active</span></dd></div>
-          <div><dt>Plan</dt><dd data-d-plan>Business</dd></div>
-          <div><dt>Created</dt><dd data-d-created>07 Oct 2026</dd></div>
-          <div><dt>Seats</dt><dd data-d-seats>12</dd></div>
-        </dl>
-      </div>
-      <div class="drawer-section">
-        <h4>Recent activity</h4>
-        <ul class="timeline">
-          <li>Upgraded to Business<span>2 days ago</span></li>
-          <li>Invited 3 teammates<span>Last week</span></li>
-          <li>Created workspace<span>07 Oct 2026</span></li>
-        </ul>
-      </div>
-    </div>
-    <div class="drawer__foot">
-      <button class="btn btn--secondary" type="button" data-close>Close</button>
-      <button class="btn btn--primary" type="button" data-toast="success" data-toast-title="Message drafted" data-toast-text="Prototype — nothing was sent." data-close-after><svg class="icon icon--sm" aria-hidden="true"><use href="#i-mail"/></svg>Message</button>
+    <div class="modal__foot">
+      <button class="btn btn--danger" type="button" data-confirm-delete>Delete</button>
+      <button class="btn btn--secondary" type="button" data-close autofocus>Cancel</button>
     </div>
   </div>
 </dialog>
 
-<dialog class="drawer drawer--left" id="drawer-left" aria-labelledby="drawer-left-title">
+<dialog class="drawer" id="drawer-student" aria-labelledby="drawer-student-title">
   <div class="drawer__panel">
-    <div class="drawer__head">
-      <h2 id="drawer-left-title">Filters</h2>
-      <button class="btn btn--icon-ghost" type="button" aria-label="Close drawer" data-close><svg class="icon"><use href="#i-x"/></svg></button>
-    </div>
+    <div class="drawer__head"><h2 id="drawer-student-title">Student details</h2><button class="btn btn--icon-ghost" type="button" aria-label="Close" data-close><svg class="icon"><use href="#i-x"/></svg></button></div>
     <div class="drawer__body">
-      <fieldset class="fieldset">
-        <legend>Component type</legend>
-        <label class="check"><input type="checkbox" checked>Buttons</label>
-        <label class="check"><input type="checkbox" checked>Forms</label>
-        <label class="check"><input type="checkbox">Overlays</label>
-        <label class="check"><input type="checkbox">Data display</label>
-      </fieldset>
-      <fieldset class="fieldset">
-        <legend>Status</legend>
-        <label class="check"><input type="checkbox" checked>Stable</label>
-        <label class="check"><input type="checkbox">In review</label>
-        <label class="check"><input type="checkbox">Deprecated</label>
-      </fieldset>
+      <div class="person"><span class="avatar avatar--lg" aria-hidden="true" data-d-initials></span><div><p class="card__title" data-d-name></p><p class="person__sub" data-d-class></p></div></div>
+      <dl class="token-sheet">
+        <div><dt>Status</dt><dd data-d-status></dd></div>
+        <div><dt>Attendance</dt><dd data-d-attendance></dd></div>
+        <div><dt>Progress</dt><dd data-d-progress></dd></div>
+        <div><dt>Guardian</dt><dd data-d-guardian></dd></div>
+      </dl>
+      <div class="well"><span class="tech-label">Latest observation</span><p class="ts-small" style="margin-top:var(--space-2)" data-d-note></p></div>
     </div>
-    <div class="drawer__foot">
-      <button class="btn btn--tertiary" type="button" data-close>Cancel</button>
-      <button class="btn btn--primary" type="button" data-toast="success" data-toast-title="Filters applied" data-toast-text="Showing stable buttons and forms." data-close-after>Apply filters</button>
-    </div>
+    <div class="drawer__foot"><button class="btn btn--secondary" type="button" data-close>Close</button><button class="btn btn--primary" type="button" data-toast="Message drafted" data-toast-text="Prototype: nothing was sent." data-close-after>Message parent</button></div>
   </div>
 </dialog>
 
-<div class="toast-region" id="toast-region" aria-live="polite" aria-relevant="additions"></div>
+<dialog class="drawer" id="drawer-add" aria-labelledby="drawer-add-title">
+  <form class="drawer__panel" data-add-form novalidate>
+    <div class="drawer__head"><h2 id="drawer-add-title">Add student</h2><button class="btn btn--icon-ghost" type="button" aria-label="Close" data-close><svg class="icon"><use href="#i-x"/></svg></button></div>
+    <div class="drawer__body">
+      <div class="field">
+        <label class="field__label" for="add-name">Full name <span class="field__req" aria-hidden="true">*</span></label>
+        <input class="input" id="add-name" name="name" type="text" placeholder="e.g. Ishaan Rao" required aria-describedby="add-name-hint">
+        <p class="field__hint" id="add-name-hint">As it appears on the birth certificate.</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="add-class">Class</label>
+        <select class="input" id="add-class" name="class"><option>Montessori A</option><option>UKG A</option><option>UKG B</option><option>LKG A</option><option>Nursery</option></select>
+      </div>
+    </div>
+    <div class="drawer__foot"><button class="btn btn--secondary" type="button" data-close>Cancel</button><button class="btn btn--primary" type="submit">Add student</button></div>
+  </form>
+</dialog>
+
+<aside class="inspector" id="inspector" aria-label="Token inspector" hidden>
+  <div class="inspector__head"><span class="tech-label">Token inspector</span><button class="btn btn--icon-ghost" type="button" aria-label="Close inspector" data-inspector-close><svg class="icon"><use href="#i-x"/></svg></button></div>
+  <dl class="token-sheet" data-float-sheet></dl>
+  <div class="token-sheet__actions"><button class="btn btn--primary btn--sm" type="button" data-copy-tokens="float"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-copy"/></svg>Copy tokens</button></div>
+</aside>
+
+<div class="toast-region" id="toast-region" aria-live="polite"></div>
 
 <script src="design-system.js"></script>
 </body>
