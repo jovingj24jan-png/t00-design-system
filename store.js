@@ -32,7 +32,9 @@
 
   const routes = {
     dashboard: 'design-system.html',
-    record: id => `record.html?id=${encodeURIComponent(id)}`
+    record: id => `record.html?id=${encodeURIComponent(id)}`,
+    page: key => `app.html?page=${encodeURIComponent(key)}`,
+    denied: key => `access-denied.html?page=${encodeURIComponent(key)}`
   };
 
   // Prototype only: there is no real sign-in. A localStorage flag stands in for a session.
@@ -45,6 +47,92 @@
       try { signedIn ? localStorage.setItem(SESSION_KEY, 'signed-in') : localStorage.removeItem(SESSION_KEY); } catch { /* storage blocked: stay signed out */ }
     }
   };
+
+  /* ---------------------------------------------------------------- Roles, pages, permissions */
+
+  // Prototype only: one demo user per role. The signed-in role is chosen in the sidebar.
+  const roles = ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'];
+  const users = [
+    { id: 'u-teacher', name: 'Ms. Lakshmi', role: 'Teacher' },
+    { id: 'u-director', name: 'Mrs. Rao', role: 'Director' },
+    { id: 'u-accountant', name: 'Mr. Iyer', role: 'Accountant' },
+    { id: 'u-admin', name: 'Ms. Fernandes', role: 'Admin' },
+    { id: 'u-super', name: 'Joving', role: 'Super Admin' }
+  ];
+
+  // Single source of truth for which roles may open each app page.
+  const pages = {
+    'classroom-tracker': { name: 'Classroom Tracker', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Daily work cycles, presentations and observations for each classroom.' },
+    reports: { name: 'Reports', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Term reports, attendance trends and enrolment numbers.' },
+    payroll: { name: 'Payroll', roles: ['Director', 'Accountant', 'Super Admin'], summary: 'Staff salaries, deductions and monthly payslips.' },
+    safeguarding: { name: 'Safeguarding', roles: ['Director', 'Super Admin'], summary: 'Confidential concerns, referrals and follow-up actions.' },
+    fees: { name: 'Fees', roles: ['Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Fee schedules, payments received and reminders.' },
+    notifications: { name: 'Notifications', roles: roles.slice(), summary: 'Updates and requests sent to you.' }
+  };
+
+  const ROLE_KEY = 'nexora-demo-role';
+  const REQUESTS_KEY = 'nexora-access-requests';
+  const NOTIFICATIONS_KEY = 'nexora-notifications';
+
+  const read = (key, fallback) => {
+    try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch { return fallback; }
+  };
+  const write = (key, value) => {
+    try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
+  };
+
+  function currentUser() {
+    let role = null;
+    try { role = localStorage.getItem(ROLE_KEY); } catch { /* storage blocked */ }
+    return users.find(u => u.role === role) || users[0];
+  }
+  function setRole(role) {
+    if (!roles.includes(role)) return;
+    try { localStorage.setItem(ROLE_KEY, role); } catch { /* storage blocked */ }
+  }
+  const pageByKey = key => (Object.prototype.hasOwnProperty.call(pages, key) ? { key, ...pages[key] } : null);
+  const canAccess = (user, key) => { const p = pageByKey(key); return Boolean(p && p.roles.includes(user.role)); };
+
+  /* ---------------------------------------------------------------- Access requests + notifications */
+
+  const requests = () => read(REQUESTS_KEY, []);
+  const findRequest = (user, key) => requests().find(r => r.userId === user.id && r.page === key) || null;
+
+  function notify(toRole, notification) {
+    const list = read(NOTIFICATIONS_KEY, []);
+    list.unshift({ id: `n-${Date.now().toString(36)}`, toRole, read: false, createdAt: new Date().toISOString(), ...notification });
+    write(NOTIFICATIONS_KEY, list);
+  }
+
+  // One request per user + page; repeat calls return the existing request.
+  function requestAccess(user, key, reason = '') {
+    const page = pageByKey(key);
+    if (!page) return { ok: false };
+    const existing = findRequest(user, key);
+    if (existing) return { ok: true, created: false, request: existing };
+    const request = {
+      id: `r-${Date.now().toString(36)}`,
+      userId: user.id, userName: user.name, role: user.role,
+      page: key, pageName: page.name,
+      reason: String(reason).trim().slice(0, 300),
+      createdAt: new Date().toISOString()
+    };
+    if (!write(REQUESTS_KEY, [...requests(), request])) return { ok: false };
+    notify('Director', {
+      kind: 'access-request',
+      title: `${request.role} requested access to ${request.pageName}.`,
+      body: `${request.userName} (${request.role}) asked for access to ${request.pageName}.`,
+      reason: request.reason,
+      requestId: request.id,
+      page: key
+    });
+    return { ok: true, created: true, request };
+  }
+
+  const notificationsFor = role => read(NOTIFICATIONS_KEY, []).filter(n => n.toRole === role);
+  function markAllRead(role) {
+    write(NOTIFICATIONS_KEY, read(NOTIFICATIONS_KEY, []).map(n => (n.toRole === role ? { ...n, read: true } : n)));
+  }
 
   function search(query, limit = 6) {
     const q = query.trim().toLowerCase();
@@ -70,6 +158,17 @@
     routes,
     session,
     search,
-    byId: id => records.find(r => r.id === id) || null
+    byId: id => records.find(r => r.id === id) || null,
+    roles,
+    users,
+    pages,
+    pageByKey,
+    currentUser,
+    setRole,
+    canAccess,
+    findRequest,
+    requestAccess,
+    notificationsFor,
+    markAllRead
   };
 })();

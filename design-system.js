@@ -39,30 +39,7 @@
 
   /* ---------------------------------------------------------------- Toasts */
 
-  const toastRegion = $('#toast-region');
-  function toast(title, text = '', kind = 'check-circle') {
-    const el = document.createElement('div');
-    el.className = 'toast';
-    el.innerHTML = `${icon(kind, kind === 'check-circle' ? 'icon--success' : 'icon--info')}
-      <div class="toast__body"><p class="toast__title">${esc(title)}</p>${text ? `<p class="toast__text">${esc(text)}</p>` : ''}</div>
-      <button class="btn btn--icon-ghost" type="button" aria-label="Dismiss">${icon('x')}</button>
-      <span class="toast__timer" aria-hidden="true"></span>`;
-    let remaining = 4500;
-    let started = Date.now();
-    let timer = setTimeout(dismiss, remaining);
-    function dismiss() {
-      clearTimeout(timer);
-      if (el.classList.contains('is-leaving')) return;
-      el.classList.add('is-leaving');
-      setTimeout(() => el.remove(), reduceMotion.matches ? 0 : 180);
-    }
-    el.addEventListener('mouseenter', () => { clearTimeout(timer); remaining -= Date.now() - started; });
-    el.addEventListener('mouseleave', () => { started = Date.now(); timer = setTimeout(dismiss, Math.max(remaining, 1000)); });
-    $('button', el).addEventListener('click', dismiss);
-    toastRegion.appendChild(el);
-    const all = $$('.toast:not(.is-leaving)', toastRegion);
-    if (all.length > 3) all[0].remove();
-  }
+  const toast = (title, text, kind) => window.NexoraToast.show(title, text, kind);
 
   document.addEventListener('click', e => {
     const t = e.target.closest('[data-toast]');
