@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <script>
+    // This page is served for any unknown path (e.g. /a/b/c.html), so pin relative links to the site root.
+    // GitHub project pages live under /<repo>/; local servers serve from /.
+    (function () {
+      if (location.protocol === 'file:') return;
+      var parts = location.pathname.split('/');
+      var root = /\.github\.io$/.test(location.hostname) && parts.length > 2 ? '/' + parts[1] + '/' : '/';
+      var base = document.createElement('base');
+      base.href = root;
+      document.head.appendChild(base);
+    })();
+  </script>
+  <title>Page not found · Nexora</title>
+  <meta name="robots" content="noindex">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="backdrop" aria-hidden="true" data-backdrop>
+  <svg class="wave wave--back" data-wave="back" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
+  <svg class="wave wave--front" data-wave="front" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
+  <svg class="wave wave--sheen" data-wave="sheen" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
+</div>
+
+<a class="skip-link" href="#content">Skip to content</a>
+
+<div class="main" id="main">
+  <main class="nf-page" id="content" tabindex="-1">
+    <noscript>
+      <h1>We couldn't find that page</h1>
+      <p>The link may be broken or the page may have moved.</p>
+      <p><a href="design-system.html">Go to dashboard</a></p>
+    </noscript>
+  </main>
+</div>
+
+<script src="store.js"></script>
+<script src="backdrop.js"></script>
+<script src="shell.js"></script>
+<script src="notfound.js"></script>
+<script>
+  window.NexoraShell.mount();
+  window.NexoraNotFound.render(document.getElementById('content'));
+</script>
+</body>
+</html>
