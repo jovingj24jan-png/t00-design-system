@@ -11,13 +11,9 @@
 <body>
 
 <div class="backdrop" aria-hidden="true" data-backdrop>
-  <div class="backdrop__orb backdrop__orb--a"></div>
-  <div class="backdrop__orb backdrop__orb--b"></div>
-  <div class="backdrop__orb backdrop__orb--c"></div>
-  <div class="backdrop__grid"></div>
-  <div class="backdrop__beam"></div>
-  <div class="backdrop__spot"></div>
-  <div class="backdrop__noise"></div>
+  <svg class="wave wave--back" data-wave="back" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
+  <svg class="wave wave--front" data-wave="front" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
+  <svg class="wave wave--sheen" data-wave="sheen" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
 </div>
 
 <svg xmlns="http://www.w3.org/2000/svg" hidden aria-hidden="true">
@@ -56,8 +52,8 @@
 
 <aside class="sidebar" id="sidebar" aria-label="Design system navigation">
   <div class="sidebar__head sidebar-enter">
-    <a class="brand" href="#top">
-      <span class="brand__mark" aria-hidden="true">N</span>
+    <a class="brand" href="design-system.html">
+      <img class="brand__logo" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="40" height="40">
       <span><span class="brand__name">Nexora</span><span class="brand__sub">Design system · v3.0</span></span>
     </a>
     <button class="btn btn--icon-ghost sidebar__close" type="button" data-nav-close aria-label="Close navigation"><svg class="icon"><use href="#i-x"/></svg></button>
@@ -104,30 +100,13 @@
 <div class="main" id="main">
   <header class="mobilebar">
     <button class="btn btn--icon-ghost" type="button" id="nav-toggle" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"><svg class="icon"><use href="#i-menu"/></svg></button>
-    <a class="brand" href="#top"><span class="brand__mark" aria-hidden="true">N</span><span class="brand__name">Nexora</span></a>
+    <a class="brand" href="design-system.html"><img class="brand__logo brand__logo--compact" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="36" height="36"><span class="brand__name">Nexora</span></a>
     <button class="btn btn--icon-ghost inspect-toggle" type="button" aria-pressed="false" aria-label="Inspect mode" data-inspect-toggle><svg class="icon"><use href="#i-target"/></svg></button>
     <span class="avatar avatar--sm avatar--neutral" aria-hidden="true">JV</span>
   </header>
 
   <div class="wrap" id="top">
     <header class="masthead">
-      <div class="dial enter" style="--i:3" aria-hidden="true">
-        <svg viewBox="0 0 460 460">
-          <circle class="dial__ring" cx="230" cy="230" r="220"/>
-          <circle class="dial__ticks dial__ticks--fine" cx="230" cy="230" r="206"/>
-          <g class="dial__spin dial__spin--rev"><circle class="dial__ticks" cx="230" cy="230" r="186"/></g>
-          <circle class="dial__ring dial__ring--strong" cx="230" cy="230" r="150"/>
-          <g class="dial__spin"><circle class="dial__arc" cx="230" cy="230" r="150"/><circle class="dial__arc dial__arc--teal" cx="230" cy="230" r="150"/></g>
-          <circle class="dial__ring" cx="230" cy="230" r="96"/>
-          <path class="dial__cross" d="M230 0v460M0 230h460"/>
-          <g class="dial__spin dial__spin--fast"><circle class="dial__dot dial__dot--halo" cx="230" cy="134" r="9"/><circle class="dial__dot" cx="230" cy="134" r="4"/></g>
-          <circle class="dial__dot" cx="230" cy="230" r="3"/>
-          <text class="dial__label" x="244" y="24">GRID / 48</text>
-          <text class="dial__label" x="392" y="222">TOKENS</text>
-          <text class="dial__label" x="244" y="452">MOTION / 300MS</text>
-          <text class="dial__label" x="14" y="222">BREAKPOINTS</text>
-        </svg>
-      </div>
       <div class="masthead__top">
         <div class="masthead__meta enter" style="--i:0">
           <span class="status-live"><span class="status-live__dot" aria-hidden="true"></span>SYSTEM ACTIVE</span>
@@ -825,6 +804,7 @@
 
 <div class="toast-region" id="toast-region" aria-live="polite"></div>
 
+<script src="backdrop.js"></script>
 <script src="design-system.js"></script>
 </body>
 </html>
