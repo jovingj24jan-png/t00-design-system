@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>School setup · Nexora</title>
+  <meta name="robots" content="noindex">
+  <script src="config.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="auth-body setup-body">
+
+<a class="skip-link" href="#wz-card">Skip to setup form</a>
+
+<header class="wz-top">
+  <a class="wz-top__brand" href="design-system.html" data-brand>
+    <img class="wz-top__logo" src="assets/logos/northvale-crest.png" alt="" width="40" height="40" data-logo>
+    <span class="wz-top__name" data-school-name>School setup</span>
+  </a>
+  <button class="btn btn--sm auth-btn auth-btn--outline wz-top__exit" type="button" data-exit hidden>Save &amp; exit</button>
+</header>
+
+<main class="wz" id="content">
+  <nav class="wz-steps" aria-label="Setup steps" hidden><ol data-stepper></ol></nav>
+  <div class="wz-mprogress" data-mprogress hidden>
+    <p class="wz-mprogress__label" data-mprogress-label></p>
+    <span class="wz-mprogress__bar" aria-hidden="true"><span data-mprogress-fill></span></span>
+  </div>
+
+  <section class="wz-card" id="wz-card" tabindex="-1" aria-busy="true" data-card>
+    <div class="wz-loading" data-loading>
+      <span class="spinner" aria-hidden="true"></span>
+      <p>Loading your school setup…</p>
+    </div>
+    <noscript><p>Turn on JavaScript to set up your school.</p></noscript>
+  </section>
+</main>
+
+<dialog class="modal wz-dialog" id="wz-dialog" aria-labelledby="wz-dialog-title" aria-describedby="wz-dialog-text">
+  <div class="modal__panel">
+    <div class="modal__body">
+      <h2 class="modal__title" id="wz-dialog-title"></h2>
+      <p class="modal__desc" id="wz-dialog-text"></p>
+    </div>
+    <div class="modal__foot" data-dialog-actions></div>
+  </div>
+</dialog>
+
+<script src="store.js"></script>
+<script src="i18n.js"></script>
+<script src="toast.js"></script>
+<script src="setup.js"></script>
+</body>
+</html>

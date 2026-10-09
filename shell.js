@@ -51,7 +51,9 @@
 
   // App pages, in sidebar order: every catalogue module, then Notifications and Plans.
   // Every page is listed; the guard decides what each role and plan can open.
-  const APP_PAGES = [...store.moduleKeys, 'notifications', 'plans'];
+  // `plans` and `setup` are their own pages; the rest open in app.html.
+  const APP_PAGES = [...store.moduleKeys, 'classes', 'notifications', 'settings', 'plans', 'setup'];
+  const OWN_PAGES = { plans: { name: 'Plans &amp; upgrade', href: () => routes.plans() }, setup: { name: 'School setup', href: () => routes.setup } };
 
   function schoolGroupHtml(user) {
     const here = currentPageKey();
@@ -61,14 +63,16 @@
       <div class="sidebar__group">
         <p class="sidebar__label">School <span class="sidebar__plan">${esc(plan.name)} plan</span></p>
         <ul>${APP_PAGES.map((key, i) => {
-          const isPlans = key === 'plans';
-          const name = isPlans ? 'Plans &amp; upgrade' : esc(store.pageByKey(key).name);
-          const href = isPlans ? routes.plans() : routes.page(key);
+          const own = OWN_PAGES[key];
+          const name = own ? own.name : esc(store.pageByKey(key).name);
+          const href = own ? own.href() : routes.page(key);
           const current = key === here;
-          const locked = !isPlans && !store.isEntitled(key, plan);
+          const locked = !own && !store.isEntitled(key, plan);
+          if (key === 'setup' && !store.canManagePlan(user)) return '';
+          const setupBadge = key === 'setup' && store.getSetup(store.school.id).status !== 'complete' ? '<span class="nav-link__flag">Not finished</span>' : '';
           const badge = key === 'notifications' && unread ? `<span class="nav-link__badge" aria-label="${unread} unread">${unread}</span>` : '';
           const lock = locked ? `<svg class="icon nav-link__lock" aria-hidden="true"><use href="#i-lock"/></svg><span class="sr-only"> (not in your plan)</span>` : '';
-          return `<li><a class="nav-link${current ? ' is-current' : ''}${locked ? ' is-locked' : ''}" href="${href}"${current ? ' aria-current="page"' : ''}><span class="nav-link__num">${String(i + 14).padStart(2, '0')}</span><span class="nav-link__text">${name}</span>${lock}${badge}</a></li>`;
+          return `<li><a class="nav-link${current ? ' is-current' : ''}${locked ? ' is-locked' : ''}" href="${href}"${current ? ' aria-current="page"' : ''}><span class="nav-link__num">${String(i + 14).padStart(2, '0')}</span><span class="nav-link__text">${name}</span>${lock}${badge}${setupBadge}</a></li>`;
         }).join('')}</ul>
       </div>`;
   }

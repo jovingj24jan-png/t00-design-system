@@ -44,6 +44,7 @@
       return `signin.html${s ? `?${s}` : ''}`;
     },
     firstLogin: 'first-login.html', // S03 — placeholder until the first-login flow is specified
+    setup: 'setup.html', // S05 — first-time school setup wizard
     landing: 'design-system.html', // S04 — the normal landing page after sign-in
     // Placeholder pages until password recovery, privacy and help content exist.
     forgotPassword: 'forgot-password.html', // S02
@@ -97,7 +98,7 @@
   // the others exist to demo sign-in states: Enterprise + SSO (Riverside) and paused (Meadowbrook).
   // status: 'active' | 'paused'. A school without a logo shows its initials.
   const schools = [
-    { id: 'sch-northvale', name: 'Northvale Academy', logo: 'assets/logos/northvale-crest.png', status: 'active', enterprise: false, ssoEnabled: false },
+    { id: 'sch-northvale', name: 'Northvale Academy', logo: 'assets/logos/northvale-crest.png', status: 'active', enterprise: false, ssoEnabled: false, email: 'office@northvale.school', phone: '+91 44 2345 6789' },
     { id: 'sch-riverside', name: 'Riverside Montessori', logo: null, status: 'active', enterprise: true, ssoEnabled: true },
     { id: 'sch-meadowbrook', name: 'Meadowbrook Children’s House', logo: null, status: 'paused', enterprise: false, ssoEnabled: false }
   ];
@@ -184,6 +185,9 @@
       description: 'Give your school a more structured way to manage safety procedures, safeguarding records, and essential follow-ups in one place.',
       features: ['Centralised health and safety records', 'Incident reporting and follow-up tracking', 'Safeguarding concerns and case records', 'Safety checks and compliance documentation', 'Authorised staff access and audit history']
     },
+    // School pages that every plan includes. S17 and S58 read the same records the S05 setup saves.
+    classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Every class in your school, with level, section and capacity.' },
+    settings: { name: 'Settings', icon: 'grid', roles: ['Director', 'Admin', 'Super Admin'], summary: 'School details, academic year, school hours and preferences.' },
     notifications: { name: 'Notifications', icon: 'bell', roles: roles.slice(), summary: 'Updates and requests sent to you.' }
   };
 
@@ -329,6 +333,75 @@
     return settle(write(ENQUIRY_KEY, [...read(ENQUIRY_KEY, []), enquiry]) ? { ok: true, enquiry } : { ok: false });
   }
 
+  /* ---------------------------------------------------------------- School data (S05 setup, S58 Settings, S17 Classes)
+     One source of truth per school, keyed by school ID so schools never share records.
+     Prototype only: kept in this browser's localStorage, not a server database. */
+
+  const settingsKey = id => `nexora-settings:${id}`;
+  const classesKey = id => `nexora-classes:${id}`;
+  const staffKey = id => `nexora-staff-drafts:${id}`;
+  const setupKey = id => `nexora-setup:${id}`;
+  const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  const CLASS_LEVELS = ['Toddler', 'Nursery', 'LKG', 'UKG', 'Montessori'];
+  const STAFF_ROLES = ['Teacher', 'Director', 'Accountant', 'Admin'];
+
+  // Settings sections: profile (S58 "School"), academicYear, hours, preferences.
+  function defaultSettings(schoolId) {
+    const s = schoolById(schoolId) || {};
+    return {
+      profile: { name: s.name || '', email: s.email || '', phone: s.phone || '', address: '' },
+      academicYear: { name: '', start: '', end: '' },
+      hours: { open: '', close: '', days: ['mon', 'tue', 'wed', 'thu', 'fri'] },
+      preferences: { language: 'en', timeFormat: '12h' },
+      updatedAt: null
+    };
+  }
+  function getSettings(schoolId) {
+    const base = defaultSettings(schoolId);
+    const saved = read(settingsKey(schoolId), {});
+    return {
+      profile: { ...base.profile, ...saved.profile },
+      academicYear: { ...base.academicYear, ...saved.academicYear },
+      hours: { ...base.hours, ...saved.hours },
+      preferences: { ...base.preferences, ...saved.preferences },
+      updatedAt: saved.updatedAt || null
+    };
+  }
+  function saveSettings(schoolId, section, values) {
+    if (!['profile', 'academicYear', 'hours', 'preferences'].includes(section)) return false;
+    const saved = read(settingsKey(schoolId), {});
+    saved[section] = { ...values };
+    saved.updatedAt = new Date().toISOString();
+    return write(settingsKey(schoolId), saved);
+  }
+
+  // Class record (S17): { id, schoolId, name, level, section, capacity, createdAt, updatedAt }.
+  // Students link to a class by its name, so a class with students can't be removed.
+  const getClasses = schoolId => read(classesKey(schoolId), []).filter(c => c.schoolId === schoolId);
+  const classStudentCount = (schoolId, name) => (schoolId === school.id ? students.filter(s => s.cls.toLowerCase() === String(name).trim().toLowerCase()).length : 0);
+  function saveClasses(schoolId, list) {
+    const now = new Date().toISOString();
+    const before = getClasses(schoolId);
+    const keep = new Set(list.map(c => c.id));
+    const blocked = before.filter(c => !keep.has(c.id) && classStudentCount(schoolId, c.name) > 0);
+    if (blocked.length) return { ok: false, reason: 'in-use', classes: blocked };
+    const names = list.map(c => c.name.trim().toLowerCase());
+    if (new Set(names).size !== names.length) return { ok: false, reason: 'duplicate' };
+    const next = list.map(c => {
+      const old = before.find(b => b.id === c.id);
+      return { id: c.id, schoolId, name: c.name.trim(), level: c.level, section: (c.section || '').trim(), capacity: c.capacity === '' || c.capacity == null ? null : Number(c.capacity), createdAt: old?.createdAt || now, updatedAt: now };
+    });
+    return write(classesKey(schoolId), next) ? { ok: true, classes: next } : { ok: false, reason: 'storage' };
+  }
+
+  // Staff entries from setup. No invitation service exists, so these stay drafts ("not invited yet").
+  const getStaffDrafts = schoolId => read(staffKey(schoolId), []).filter(s => s.schoolId === schoolId);
+  const saveStaffDrafts = (schoolId, list) => write(staffKey(schoolId), list.map(s => ({ id: s.id, schoolId, name: s.name.trim(), email: s.email.trim(), role: s.role, status: 'draft' })));
+
+  // Setup progress: { status: 'not-started'|'in-progress'|'complete', currentStep, completed[], skipped[], drafts{}, lastSavedAt, completedAt }.
+  const getSetup = schoolId => ({ status: 'not-started', currentStep: 1, completed: [], skipped: [], drafts: {}, lastSavedAt: null, completedAt: null, ...read(setupKey(schoolId), {}) });
+  const saveSetup = (schoolId, patch) => write(setupKey(schoolId), { ...getSetup(schoolId), ...patch, lastSavedAt: new Date().toISOString() });
+
   const notificationsFor = role => read(NOTIFICATIONS_KEY, []).filter(n => n.toRole === role);
   function markAllRead(role) {
     write(NOTIFICATIONS_KEY, read(NOTIFICATIONS_KEY, []).map(n => (n.toRole === role ? { ...n, read: true } : n)));
@@ -372,6 +445,18 @@
     markAllRead,
     school,
     schools,
+    WEEKDAYS,
+    CLASS_LEVELS,
+    STAFF_ROLES,
+    getSettings,
+    saveSettings,
+    getClasses,
+    saveClasses,
+    classStudentCount,
+    getStaffDrafts,
+    saveStaffDrafts,
+    getSetup,
+    saveSetup,
     schoolById,
     isFirstLogin,
     completeFirstLogin,

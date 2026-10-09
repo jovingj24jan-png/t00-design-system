@@ -43,5 +43,15 @@
     if (all.length > 3) all[0].remove();
   }
 
+  // A message handed over from the previous page (e.g. "Your school is ready" after setup).
+  try {
+    const flash = JSON.parse(sessionStorage.getItem('nexora-flash'));
+    if (flash?.title) {
+      sessionStorage.removeItem('nexora-flash');
+      const showFlash = () => show(flash.title, flash.text || '');
+      document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', showFlash) : showFlash();
+    }
+  } catch { /* nothing to show */ }
+
   window.NexoraToast = { show };
 })();

@@ -313,5 +313,11 @@
     return s.replace(/\{(\w+)\}/g, (_, k) => (k in vars ? vars[k] : `{${k}}`));
   }
 
-  window.NexoraI18n = { languages, translations, locale, setLocale, t, language: byCode };
+  // Store the preference without changing the current page (used by S05 setup).
+  function rememberLocale(code) {
+    if (!byCode(code)) return false;
+    try { localStorage.setItem(KEY, code); return true; } catch { return false; }
+  }
+
+  window.NexoraI18n = { languages, translations, locale, setLocale, rememberLocale, t, language: byCode };
 })();
