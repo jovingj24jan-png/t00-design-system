@@ -46,7 +46,7 @@
     firstLogin: 'first-login.html', // S03 — placeholder until the first-login flow is specified
     landing: 'design-system.html', // S04 — the normal landing page after sign-in
     // Placeholder pages until password recovery, privacy and help content exist.
-    forgotPassword: 'support.html?topic=forgot-password',
+    forgotPassword: 'forgot-password.html', // S02
     privacy: 'support.html?topic=privacy',
     help: 'support.html?topic=help',
     // S61 — plans & upgrade. Optional target plan and the module that sent the user there.

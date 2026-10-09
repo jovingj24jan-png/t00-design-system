@@ -1,19 +1,15 @@
 /* S01 — staff sign-in. School comes from ?school= (demo fixture, default Northvale); text from i18n.js;
-   credentials are checked by auth.js (demo only). First sign-in → S03, otherwise → S04. */
+   credentials are checked by auth.js (demo only). First sign-in → S03, otherwise → S04.
+   Shared branding, footer, language menu and password toggle come from auth-ui.js. */
 (() => {
   'use strict';
 
   const store = window.NexoraStore;
   const auth = window.NexoraAuth;
-  const i18n = window.NexoraI18n;
   const { routes } = store;
-  const $ = (s, r = document) => r.querySelector(s);
-  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+  const $ = s => document.querySelector(s);
 
   const params = new URLSearchParams(location.search);
-  const school = store.schoolById(params.get('school')) || store.school;
   const next = params.get('next') || '';
   // Only return to a page of this site, never an outside URL or the sign-in page itself.
   const safeNext = /^(?!signin\.html)[a-z0-9-]+\.html(?:[?#][^\s]*)?$/i.test(next) ? next : null;
@@ -35,114 +31,22 @@
 
   // UI state kept as translation keys, so a language switch can re-render every message.
   const state = { busy: false, alertKey: null, statusKey: null, fieldErrors: {}, lockedUntil: 0, timer: null };
-  const t = (key, vars) => i18n.t(key, { school: school.name, ...vars });
+
+  const ui = window.NexoraAuthUI.mount({ onLanguageChange: renderDynamic });
+  const { school, t, esc, icon } = ui;
   const paused = school.status === 'paused';
   const ssoAvailable = school.enterprise && school.ssoEnabled;
+  const pwToggle = ui.bindPasswordToggle(toggleBtn, pwInput);
 
-  /* ------------------------------------------------------------ Flags (visual only; the name is always shown) */
-  const FLAGS = {
-    gb: '<svg viewBox="0 0 60 30" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect class="flag-blue" width="60" height="30"/><path class="flag-white-st" d="M0 0l60 30M60 0L0 30" stroke-width="6"/><path class="flag-red-st" d="M0 0l60 30M60 0L0 30" stroke-width="2"/><path class="flag-white-st" d="M30 0v30M0 15h60" stroke-width="10"/><path class="flag-red-st" d="M30 0v30M0 15h60" stroke-width="6"/></svg>',
-    in: '<svg viewBox="0 0 30 20" preserveAspectRatio="none" aria-hidden="true"><rect class="flag-saffron" width="30" height="6.67"/><rect class="flag-white" y="6.67" width="30" height="6.67"/><rect class="flag-green" y="13.33" width="30" height="6.67"/><circle class="flag-navy-st" cx="15" cy="10" r="2.6" fill="none" stroke-width="0.8"/></svg>',
-    ae: '<svg viewBox="0 0 30 20" preserveAspectRatio="none" aria-hidden="true"><rect class="flag-uae-green" x="8" width="22" height="6.67"/><rect class="flag-white" x="8" y="6.67" width="22" height="6.67"/><rect class="flag-black" x="8" y="13.33" width="22" height="6.67"/><rect class="flag-red" width="8" height="20"/></svg>'
-  };
-
-  /* ------------------------------------------------------------ School branding */
-  function renderSchool() {
-    $('[data-school-name]').textContent = school.name;
-    const initials = school.name.split(/\s+/).filter(w => /^[A-Za-z]/.test(w)).map(w => w[0]).join('').slice(0, 2).toUpperCase();
-    $('[data-school-logo]').innerHTML = school.logo
-      ? `<img src="${esc(school.logo)}" alt="" width="72" height="72">`
-      : `<span class="auth__initials" aria-hidden="true">${esc(initials)}</span>`;
-    $$('[data-route]').forEach(a => { a.href = routes[a.dataset.route]; });
-    if (paused) pausedBox.hidden = false;
-    ssoWrap.hidden = !ssoAvailable;
-  }
-
-  /* ------------------------------------------------------------ Translation */
-  function applyLanguage() {
-    $$('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
-    $$('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
-    $$('[data-i18n-aria-label]').forEach(el => el.setAttribute('aria-label', t(el.dataset.i18nAriaLabel)));
+  function renderDynamic() {
     document.title = `${t('pageTitle')} · ${school.name}`;
-    toggleBtn.setAttribute('aria-label', t(pwInput.type === 'password' ? 'showPassword' : 'hidePassword'));
     alertText.textContent = state.alertKey ? t(state.alertKey) : '';
     status.textContent = state.statusKey ? t(state.statusKey) : '';
     Object.entries(state.fieldErrors).forEach(([id, key]) => showFieldError(id, key));
-    if (state.busy) setBusyLabel();
+    if (state.busy) ui.setLoading(submitBtn, 'signingIn');
     if (state.lockedUntil) tick();
     $('[data-demo-note]').textContent = t('demoNote');
-    renderLanguageMenu();
   }
-
-  /* ------------------------------------------------------------ Language menu (T00 select pattern) */
-  const langRoot = $('[data-lang]');
-  const langTrigger = $('[data-lang-trigger]');
-  const langMenu = $('[data-lang-menu]');
-  let activeLang = 0;
-
-  function renderLanguageMenu() {
-    const current = i18n.locale();
-    const lang = i18n.language(current);
-    $('[data-lang-flag]').innerHTML = FLAGS[lang.flag];
-    const name = $('[data-lang-name]');
-    name.textContent = lang.name;
-    name.lang = lang.code;
-    langMenu.setAttribute('aria-label', t('language'));
-    langMenu.innerHTML = i18n.languages.map((l, i) => `
-      <li class="select__option" role="option" id="lang-${l.code}" data-code="${l.code}" aria-selected="${l.code === current}" lang="${l.code}" dir="${l.dir}">
-        <span class="auth-lang__flag" aria-hidden="true">${FLAGS[l.flag]}</span>${esc(l.name)}${icon('check')}
-      </li>`).join('');
-    activeLang = Math.max(0, i18n.languages.findIndex(l => l.code === current));
-  }
-  function setActiveLang(i) {
-    const options = $$('[role="option"]', langMenu);
-    activeLang = (i + options.length) % options.length;
-    options.forEach((o, j) => o.classList.toggle('is-active', j === activeLang));
-    langMenu.setAttribute('aria-activedescendant', options[activeLang].id);
-  }
-  const langOpen = () => langRoot.classList.contains('is-open');
-  function openLang() {
-    langRoot.classList.add('is-open');
-    langTrigger.setAttribute('aria-expanded', 'true');
-    setActiveLang(activeLang);
-    langMenu.focus();
-  }
-  function closeLang(focusTrigger = true) {
-    if (!langOpen()) return;
-    langRoot.classList.remove('is-open');
-    langTrigger.setAttribute('aria-expanded', 'false');
-    langMenu.removeAttribute('aria-activedescendant');
-    if (focusTrigger) langTrigger.focus();
-  }
-  function chooseLang(code) {
-    i18n.setLocale(code);
-    applyLanguage();
-    closeLang();
-  }
-  langTrigger.addEventListener('click', () => (langOpen() ? closeLang() : openLang()));
-  langTrigger.addEventListener('keydown', e => {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); openLang(); }
-  });
-  langMenu.addEventListener('click', e => { const o = e.target.closest('[role="option"]'); if (o) chooseLang(o.dataset.code); });
-  langMenu.addEventListener('keydown', e => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveLang(activeLang + 1); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveLang(activeLang - 1); }
-    else if (e.key === 'Home') { e.preventDefault(); setActiveLang(0); }
-    else if (e.key === 'End') { e.preventDefault(); setActiveLang(-1); }
-    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseLang(i18n.languages[activeLang].code); }
-    else if (e.key === 'Escape') { e.preventDefault(); closeLang(); }
-    else if (e.key === 'Tab') closeLang(false);
-  });
-  document.addEventListener('click', e => { if (!langRoot.contains(e.target)) closeLang(false); });
-
-  /* ------------------------------------------------------------ Password visibility */
-  toggleBtn.addEventListener('click', () => {
-    const show = pwInput.type === 'password';
-    pwInput.type = show ? 'text' : 'password';
-    toggleBtn.setAttribute('aria-pressed', String(show));
-    toggleBtn.setAttribute('aria-label', t(show ? 'hidePassword' : 'showPassword'));
-    toggleBtn.innerHTML = icon(show ? 'eye-off' : 'eye');
-  });
 
   /* ------------------------------------------------------------ Messages */
   function showAlert(key) {
@@ -167,19 +71,15 @@
 
   /* ------------------------------------------------------------ Form enabled / busy */
   function setFormEnabled(enabled) {
-    [idInput, pwInput, remember, toggleBtn].forEach(el => { el.disabled = !enabled; });
+    [idInput, pwInput, remember, toggleBtn, ssoBtn].forEach(el => { el.disabled = !enabled; });
+    submitBtn.dataset.lockedDisabled = String(!enabled);
     submitBtn.disabled = !enabled;
-    ssoBtn.disabled = !enabled;
-  }
-  function setBusyLabel() {
-    submitBtn.innerHTML = `<span class="spinner" aria-hidden="true"></span><span>${esc(t('signingIn'))}</span>`;
   }
   function setBusy(busy) {
     state.busy = busy;
-    submitBtn.classList.toggle('is-loading', busy);
-    submitBtn.setAttribute('aria-busy', String(busy));
-    if (busy) { setBusyLabel(); setFormEnabled(false); }
-    else { submitBtn.innerHTML = `<span data-i18n="signIn">${esc(t('signIn'))}</span>`; setFormEnabled(!paused && !state.lockedUntil); }
+    if (busy) setFormEnabled(false);
+    ui.setLoading(submitBtn, busy ? 'signingIn' : null);
+    if (!busy) setFormEnabled(!paused && !state.lockedUntil);
   }
 
   /* ------------------------------------------------------------ Lockout */
@@ -248,6 +148,7 @@
     if (result.reason === 'paused') { pausedBox.hidden = false; setFormEnabled(false); return; }
     showAlert(result.reason === 'error' ? 'signInFailed' : 'incorrectCredentials');
     pwInput.value = '';
+    pwToggle.hide();
     pwInput.focus();
   });
 
@@ -264,11 +165,17 @@
     if (!result.ok) showAlert('ssoNotConnected');
   });
 
+  // Forgot password (S02): carry a typed email over so it doesn't have to be entered twice.
+  $('[data-route="forgotPassword"]').addEventListener('click', () => {
+    const value = idInput.value.trim();
+    if (value.includes('@')) auth.recoveryFlow.save({ email: value, step: 1 });
+  });
+
   /* ------------------------------------------------------------ Demo details (prototype only) */
   function renderDemo() {
     const accounts = store.users.filter(u => u.schoolId === school.id);
     $('[data-demo-accounts]').innerHTML = accounts.length
-      ? accounts.map(u => `<li><span class="mono">${esc(u.email)}</span> · ${esc(u.role)}${u.firstLogin ? ' · first sign-in' : ''}</li>`).join('') + `<li>Password for every account: <span class="mono">${esc(auth.demoPassword)}</span></li>`
+      ? accounts.map(u => `<li><span class="mono">${esc(u.email)}</span> · ${esc(u.role)}${u.firstLogin ? ' · first sign-in' : ''}</li>`).join('') + `<li>Password for every account: <span class="mono">${esc(auth.demoPassword)}</span> (unless you've reset it)</li>`
       : '<li>No password accounts at this school.</li>';
     $('[data-demo-schools]').innerHTML = `Demo schools: ${store.schools.map(s => s.id === school.id
       ? `<strong>${esc(s.name)}</strong>`
@@ -276,11 +183,15 @@
   }
 
   /* ------------------------------------------------------------ Start */
-  i18n.setLocale(i18n.locale());
-  renderSchool();
+  ssoWrap.hidden = !ssoAvailable;
+  if (paused) { pausedBox.hidden = false; setFormEnabled(false); }
   renderDemo();
-  applyLanguage();
-  if (paused) setFormEnabled(false);
+  renderDynamic();
   const lock = auth.lockState(school.id);
   if (!paused && lock.locked) startLockout(lock.lockedUntil);
+
+  // Arriving from S02 after a reset (or "Back to sign in"): prefill the email, never the password.
+  const handoff = auth.takeSignInHandoff();
+  if (handoff?.email) idInput.value = handoff.email;
+  if (handoff?.notice) window.NexoraToast?.show(t(handoff.notice), '', 'check-circle');
 })();

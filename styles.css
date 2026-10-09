@@ -58,6 +58,7 @@
   --color-light-error-border: #F4B4AC;
   --color-light-warning: #8A5A00;
   --color-light-warning-bg: #FFF8E6;
+  --color-light-success: #1E7B4F;
   --color-accent-hover: #F7C566;
   --color-accent-pressed: #E3A53A;
   --color-accent-ring: rgba(245, 184, 75, 0.45);
@@ -1725,4 +1726,81 @@ html[dir="rtl"] .auth-body #signin-id:placeholder-shown { direction: rtl; }
   .auth__tagline { display: block; max-width: 16ch; font: 700 clamp(2rem, 1.2rem + 1.8vw, 2.75rem)/1.15 var(--font-display); letter-spacing: -0.02em; text-wrap: balance; }
   html[lang="ta"] .auth__tagline { max-width: 22ch; font-family: var(--font-tamil); font-size: clamp(1.5rem, 1rem + 1.2vw, 2rem); line-height: 1.5; letter-spacing: 0; }
   .auth__panel { align-items: center; padding: var(--space-12) clamp(var(--space-8), 5vw, var(--space-16)); }
+}
+
+/* ==========================================================================
+   S02 Forgot / reset password (forgot-password.html) — S01 layout and tokens
+   ========================================================================== */
+
+.rs-progress { display: grid; gap: var(--space-2); margin-bottom: var(--space-6); }
+.rs-progress__label { font: 600 12.5px/1.4 var(--font-sans); letter-spacing: 0.04em; color: var(--color-light-muted); }
+html[lang="en"] .rs-progress__label { text-transform: uppercase; letter-spacing: 0.08em; }
+.rs-progress__bar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.rs-progress__bar span { height: 4px; border-radius: var(--radius-full); background: var(--color-light-border); transition: background-color var(--duration-normal) var(--ease-standard); }
+.rs-progress__bar .is-done { background: var(--color-light-text); }
+.rs-progress__bar .is-current { background: var(--color-accent); }
+
+.rs-step { display: flex; flex-direction: column; gap: var(--space-5); }
+.rs-step > .auth__head { margin-bottom: 0; }
+.rs-step > .auth-alert { margin-bottom: 0; }
+.rs-step .auth__title:focus { outline: none; }
+.rs-step .auth__title:focus-visible { outline: 2px solid var(--color-light-text); outline-offset: 4px; border-radius: var(--radius-sharp); }
+.rs-step:not([hidden]) { animation: fade-up var(--duration-normal) var(--ease-emphasized); }
+
+.rs-back {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: var(--space-2);
+  min-height: 44px; margin-block: calc(-1 * var(--space-3)) calc(-1 * var(--space-2)); margin-inline-start: calc(-1 * var(--space-2)); padding: 0 var(--space-2);
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-light-text); font-size: 14.5px; font-weight: 600; cursor: pointer;
+}
+.rs-back:hover { background: var(--color-light-surface-2); }
+.rs-back:focus-visible { outline: 2px solid var(--color-light-text); outline-offset: 2px; }
+[dir="rtl"] .rs-back .icon, [dir="rtl"] .rs-mail { transform: scaleX(-1); }
+
+.rs-mail { width: 96px; height: auto; }
+.rs-mail__body { fill: var(--color-light-warning-bg); stroke: var(--color-light-text); stroke-width: 2.5; }
+.rs-mail__flap, .rs-mail__line { fill: none; stroke: var(--color-light-text); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.rs-mail__line { stroke: var(--color-light-border-strong); stroke-width: 2; }
+.rs-mail__dot { fill: var(--color-accent); stroke: var(--color-light-surface); stroke-width: 3; }
+.rs-email { font-weight: 600; color: var(--color-light-text); overflow-wrap: anywhere; }
+.rs-status:empty { display: none; }
+.rs-status { color: var(--color-light-text); }
+.rs-note { font-size: 13px; line-height: 1.5; color: var(--color-light-muted); text-align: center; }
+
+.rs-invalid .auth-link { min-height: 36px; margin-top: 2px; padding: 0; border: 0; background: none; cursor: pointer; color: var(--color-light-error); text-decoration-color: currentColor; }
+
+/* Live password rules */
+.rs-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2) var(--space-3); margin-top: var(--space-2); font-size: 13.5px; }
+.rs-rules li { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--color-light-muted); transition: color var(--duration-fast) var(--ease-standard); }
+.rs-rules .icon { width: 16px; height: 16px; flex-shrink: 0; }
+.rs-rules .is-met { color: var(--color-light-success); }
+
+.rs-strength { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-2); }
+.rs-strength__track { flex: 1; height: 6px; border-radius: var(--radius-full); background: var(--color-light-surface-2); overflow: hidden; }
+.rs-strength__fill { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--color-light-border); transition: width var(--duration-normal) var(--ease-standard), background-color var(--duration-normal) var(--ease-standard); }
+.rs-strength__label { min-width: 6ch; font-size: 13px; font-weight: 600; text-align: end; }
+.rs-strength[data-level="weak"] .rs-strength__fill { width: 33.4%; background: var(--color-light-error); }
+.rs-strength[data-level="fair"] .rs-strength__fill { width: 66.7%; background: var(--color-accent); }
+.rs-strength[data-level="strong"] .rs-strength__fill { width: 100%; background: var(--color-light-success); }
+.rs-strength[data-level="weak"] .rs-strength__label { color: var(--color-light-error); }
+.rs-strength[data-level="fair"] .rs-strength__label { color: var(--color-light-warning); }
+.rs-strength[data-level="strong"] .rs-strength__label { color: var(--color-light-success); }
+
+/* The shared T00 toast is dark; keep its text light on the white sign-in pages. */
+.auth-body .toast { color: var(--color-text); }
+.rs-actions { display: grid; gap: var(--space-3); }
+.rs-actions__link { justify-self: center; }
+
+/* Mobile: one step, main action pinned to the bottom (clear of the home indicator).
+   scroll-padding keeps focused fields above the pinned bar. */
+@media (max-width: 767px) {
+  html:has(.rs) { scroll-padding-bottom: 120px; }
+  .rs-actions {
+    position: sticky; bottom: 0; z-index: 5;
+    margin-inline: calc(-1 * var(--space-4));
+    padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    background: var(--color-light-surface);
+    border-top: 1px solid var(--color-light-border);
+    box-shadow: 0 -8px 16px -12px var(--color-backdrop);
+  }
+  .rs-rules { grid-template-columns: minmax(0, 1fr); }
 }

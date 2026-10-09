@@ -36,7 +36,10 @@
     return;
   }
 
-  const [titleKey, textKey] = TOPICS[new URLSearchParams(location.search).get('topic')] || TOPICS.help;
+  const topic = new URLSearchParams(location.search).get('topic');
+  // Password recovery now has its own flow (S02); old links go there.
+  if (topic === 'forgot-password') { location.replace(routes.forgotPassword); return; }
+  const [titleKey, textKey] = TOPICS[topic] || TOPICS.help;
   document.title = `${t(titleKey)} · ${school.name}`;
   wrap.innerHTML = `
     <span class="auth-note__label">${esc(t('placeholderLabel'))}</span>
