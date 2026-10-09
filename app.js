@@ -1,5 +1,6 @@
 /* app.html?page=… — every school page goes through one guard:
-   unknown page → not-found view; signed out → demo sign-in; no permission → access-denied.html; else the page. */
+   unknown page → not-found view; signed out → demo sign-in; no permission → access-denied.html;
+   module not in the school's plan → plan-restricted view at this same URL; else the page. */
 (() => {
   'use strict';
 
@@ -30,6 +31,11 @@
   }
 
   window.NexoraShell.mount();
+  // Entitlement is read fresh on every load, so after an upgrade the same URL shows the module.
+  if (!store.isEntitled(key)) {
+    window.NexoraPlanGate.render(main, user, key);
+    return;
+  }
   document.title = `${page.name} · Nexora`;
   main.classList.add('record-page');
   if (key === 'notifications') renderNotifications(); else renderPage();
@@ -66,11 +72,13 @@
           <ul class="notice-list">
             ${list.map(n => `
               <li class="notice${n.read ? '' : ' is-unread'}">
-                <span class="avatar avatar--sm avatar--accent" aria-hidden="true"><svg class="icon icon--sm"><use href="#i-shield-lock"/></svg></span>
+                <span class="avatar avatar--sm avatar--accent" aria-hidden="true"><svg class="icon icon--sm"><use href="#i-${n.kind === 'upgrade-request' ? 'layers' : 'shield-lock'}"/></svg></span>
                 <div class="notice__body">
                   <p class="notice__title">${n.read ? '' : '<span class="sr-only">Unread: </span>'}${esc(n.title)}</p>
                   <p class="notice__text">${esc(n.body)}</p>
-                  ${n.reason ? `<blockquote class="notice__reason">“${esc(n.reason)}”</blockquote>` : '<p class="notice__text">No reason given.</p>'}
+                  ${n.kind === 'upgrade-request'
+                    ? `<p class="notice__text"><a class="btn btn--tertiary btn--sm notice__link" href="${routes.plans({ plan: n.requiredPlan, module: n.page })}">Review plans</a></p>`
+                    : n.reason ? `<blockquote class="notice__reason">“${esc(n.reason)}”</blockquote>` : '<p class="notice__text">No reason given.</p>'}
                   <p class="notice__meta"><time datetime="${esc(n.createdAt)}">${esc(time(n.createdAt))}</time>${n.read ? '' : ' · <span class="badge badge--primary badge--plain">New</span>'}</p>
                 </div>
               </li>`).join('')}

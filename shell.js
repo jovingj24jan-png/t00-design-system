@@ -8,7 +8,10 @@
   const dash = routes.dashboard;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const initials = n => n.replace(/^(Ms|Mrs|Mr)\.\s*/, '').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  const currentPageKey = () => (/\/(app|access-denied)\.html$/.test(location.pathname) ? new URLSearchParams(location.search).get('page') : null);
+  const currentPageKey = () => {
+    if (/\/plans\.html$/.test(location.pathname)) return 'plans';
+    return /\/(app|access-denied)\.html$/.test(location.pathname) ? new URLSearchParams(location.search).get('page') : null;
+  };
 
   const ICONS = `
     <svg xmlns="http://www.w3.org/2000/svg" hidden aria-hidden="true">
@@ -26,6 +29,18 @@
       <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
       <symbol id="i-shield-lock" viewBox="0 0 24 24"><path d="M12 2.5 4.5 5.5v6c0 4.6 3.1 8.6 7.5 10 4.4-1.4 7.5-5.4 7.5-10v-6z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M10.2 11V9.6a1.8 1.8 0 0 1 3.6 0V11"/></symbol>
       <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+      <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+      <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+      <symbol id="i-calendar-check" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M9 15l2 2 4-4"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+      <symbol id="i-user-plus" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6M16 11h6"/></symbol>
+      <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/><circle cx="16" cy="14.5" r="1"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></symbol>
+      <symbol id="i-banknote" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 10v4M18 10v4"/></symbol>
+      <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M12 2.5 4.5 5.5v6c0 4.6 3.1 8.6 7.5 10 4.4-1.4 7.5-5.4 7.5-10v-6z"/><path d="m9 12 2 2 4-4"/></symbol>
     </svg>`;
 
   const NAV = [
@@ -34,20 +49,26 @@
     ['Systems', [['states', '09', 'States'], ['responsive', '10', 'Responsive blueprint'], ['playground', '11', 'Playground'], ['motion', '12', 'Motion system'], ['tokens', '13', 'Token inspector']]]
   ];
 
-  // App pages, in sidebar order. Every page is listed; the guard decides what each role can open.
-  const APP_PAGES = ['classroom-tracker', 'reports', 'payroll', 'safeguarding', 'fees', 'notifications'];
+  // App pages, in sidebar order: every catalogue module, then Notifications and Plans.
+  // Every page is listed; the guard decides what each role and plan can open.
+  const APP_PAGES = [...store.moduleKeys, 'notifications', 'plans'];
 
   function schoolGroupHtml(user) {
     const here = currentPageKey();
     const unread = store.notificationsFor(user.role).filter(n => !n.read).length;
+    const plan = store.currentPlan();
     return `
       <div class="sidebar__group">
-        <p class="sidebar__label">School</p>
+        <p class="sidebar__label">School <span class="sidebar__plan">${esc(plan.name)} plan</span></p>
         <ul>${APP_PAGES.map((key, i) => {
-          const page = store.pageByKey(key);
+          const isPlans = key === 'plans';
+          const name = isPlans ? 'Plans &amp; upgrade' : esc(store.pageByKey(key).name);
+          const href = isPlans ? routes.plans() : routes.page(key);
           const current = key === here;
+          const locked = !isPlans && !store.isEntitled(key, plan);
           const badge = key === 'notifications' && unread ? `<span class="nav-link__badge" aria-label="${unread} unread">${unread}</span>` : '';
-          return `<li><a class="nav-link${current ? ' is-current' : ''}" href="${routes.page(key)}"${current ? ' aria-current="page"' : ''}><span class="nav-link__num">${String(i + 14).padStart(2, '0')}</span>${esc(page.name)}${badge}</a></li>`;
+          const lock = locked ? `<svg class="icon nav-link__lock" aria-hidden="true"><use href="#i-lock"/></svg><span class="sr-only"> (not in your plan)</span>` : '';
+          return `<li><a class="nav-link${current ? ' is-current' : ''}${locked ? ' is-locked' : ''}" href="${href}"${current ? ' aria-current="page"' : ''}><span class="nav-link__num">${String(i + 14).padStart(2, '0')}</span><span class="nav-link__text">${name}</span>${lock}${badge}</a></li>`;
         }).join('')}</ul>
       </div>`;
   }
