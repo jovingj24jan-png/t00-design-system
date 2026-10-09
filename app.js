@@ -1,5 +1,5 @@
 /* app.html?page=… — every school page goes through one guard:
-   unknown page → not-found view; signed out → demo sign-in; no permission → access-denied.html;
+   unknown page → not-found view; signed out → S01 sign-in; no permission → access-denied.html;
    module not in the school's plan → plan-restricted view at this same URL; else the page. */
 (() => {
   'use strict';
@@ -17,9 +17,9 @@
     return;
   }
 
+  // Signed out: S01 sign-in, which brings the user back here afterwards.
   if (!store.session.isSignedIn()) {
-    window.NexoraShell.mount();
-    renderSignIn();
+    location.replace(routes.signIn({ next: `${location.pathname.split('/').pop()}${location.search}` }));
     return;
   }
 
@@ -87,23 +87,5 @@
         : `<div class="state-tile__body state-tile__center" style="padding:var(--space-8) 0"><span class="state-icon" aria-hidden="true"><svg class="icon"><use href="#i-bell"/></svg></span><h2 class="card__title">No notifications yet</h2><p class="card__meta">Requests and updates for ${esc(user.role)}s will appear here.</p></div>`}
       </article>`;
     main.querySelector('[data-mark-read]')?.addEventListener('click', () => { store.markAllRead(user.role); location.reload(); });
-  }
-
-  function renderSignIn() {
-    document.title = `Sign in · Nexora`;
-    main.innerHTML = `
-      <article class="panel denied" aria-labelledby="signin-title">
-        <span class="denied__icon" aria-hidden="true"><svg class="icon"><use href="#i-user"/></svg></span>
-        <h1 class="denied__title" id="signin-title">Sign in to open ${esc(page.name)}</h1>
-        <p class="denied__text">This is a prototype, so there are no passwords. Choose a demo role to continue.</p>
-        <div class="role-pick" role="group" aria-label="Demo roles">
-          ${store.roles.map(r => `<button class="btn btn--secondary" type="button" data-sign-in="${esc(r)}">${esc(r)}</button>`).join('')}
-        </div>
-      </article>`;
-    main.querySelectorAll('[data-sign-in]').forEach(b => b.addEventListener('click', () => {
-      store.setRole(b.dataset.signIn);
-      store.session.set(true);
-      location.reload();
-    }));
   }
 })();

@@ -16,27 +16,13 @@
   const fromPage = fromKey ? store.pageByKey(fromKey) : null;
   const main = document.getElementById('content');
 
-  window.NexoraShell.mount();
-  main.classList.add('record-page');
-
   if (!store.session.isSignedIn()) {
-    document.title = 'Sign in · Nexora';
-    main.innerHTML = `
-      <article class="panel denied" aria-labelledby="signin-title">
-        <span class="denied__icon" aria-hidden="true">${icon('user')}</span>
-        <h1 class="denied__title" id="signin-title">Sign in to see your school's plan</h1>
-        <p class="denied__text">This is a prototype, so there are no passwords. Choose a demo role to continue.</p>
-        <div class="role-pick" role="group" aria-label="Demo roles">
-          ${store.roles.map(r => `<button class="btn btn--secondary" type="button" data-sign-in="${esc(r)}">${esc(r)}</button>`).join('')}
-        </div>
-      </article>`;
-    main.querySelectorAll('[data-sign-in]').forEach(b => b.addEventListener('click', () => {
-      store.setRole(b.dataset.signIn);
-      store.session.set(true);
-      location.reload();
-    }));
+    location.replace(routes.signIn({ next: `${location.pathname.split('/').pop()}${location.search}` }));
     return;
   }
+
+  window.NexoraShell.mount();
+  main.classList.add('record-page');
 
   const user = store.currentUser();
   const current = store.currentPlan();

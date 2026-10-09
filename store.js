@@ -35,6 +35,20 @@
     record: id => `record.html?id=${encodeURIComponent(id)}`,
     page: key => `app.html?page=${encodeURIComponent(key)}`,
     denied: key => `access-denied.html?page=${encodeURIComponent(key)}`,
+    // S01 sign-in. `school` picks a demo school; `next` returns a signed-out visitor to the page they asked for.
+    signIn: ({ school, next } = {}) => {
+      const q = new URLSearchParams();
+      if (school) q.set('school', school);
+      if (next) q.set('next', next);
+      const s = q.toString();
+      return `signin.html${s ? `?${s}` : ''}`;
+    },
+    firstLogin: 'first-login.html', // S03 — placeholder until the first-login flow is specified
+    landing: 'design-system.html', // S04 — the normal landing page after sign-in
+    // Placeholder pages until password recovery, privacy and help content exist.
+    forgotPassword: 'support.html?topic=forgot-password',
+    privacy: 'support.html?topic=privacy',
+    help: 'support.html?topic=help',
     // S61 — plans & upgrade. Optional target plan and the module that sent the user there.
     plans: ({ plan, module } = {}) => {
       const q = new URLSearchParams();
@@ -45,14 +59,20 @@
     }
   };
 
-  // Prototype only: there is no real sign-in. A localStorage flag stands in for a session.
+  // Prototype only: there is no real sign-in. A flag stands in for a session; it never holds a
+  // password or token. "Remember me" keeps it in localStorage (survives closing the browser);
+  // otherwise it lives in sessionStorage and ends with the browser session.
   const SESSION_KEY = 'nexora-session';
   const session = {
     isSignedIn() {
-      try { return localStorage.getItem(SESSION_KEY) === 'signed-in'; } catch { return false; }
+      try { return localStorage.getItem(SESSION_KEY) === 'signed-in' || sessionStorage.getItem(SESSION_KEY) === 'signed-in'; } catch { return false; }
     },
-    set(signedIn) {
-      try { signedIn ? localStorage.setItem(SESSION_KEY, 'signed-in') : localStorage.removeItem(SESSION_KEY); } catch { /* storage blocked: stay signed out */ }
+    set(signedIn, { remember = true } = {}) {
+      try {
+        localStorage.removeItem(SESSION_KEY);
+        sessionStorage.removeItem(SESSION_KEY);
+        if (signedIn) (remember ? localStorage : sessionStorage).setItem(SESSION_KEY, 'signed-in');
+      } catch { /* storage blocked: stay signed out */ }
     }
   };
 
@@ -60,19 +80,29 @@
 
   // Prototype only: one demo user per role. The signed-in role is chosen in the sidebar.
   const roles = ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'];
+  // firstLogin: the account has never completed S03 (first-login setup).
   const users = [
-    { id: 'u-teacher', name: 'Ms. Lakshmi', role: 'Teacher', email: 'lakshmi@northvale.school' },
-    { id: 'u-director', name: 'Mrs. Rao', role: 'Director', email: 'rao@northvale.school' },
-    { id: 'u-accountant', name: 'Mr. Iyer', role: 'Accountant', email: 'iyer@northvale.school' },
-    { id: 'u-admin', name: 'Ms. Fernandes', role: 'Admin', email: 'fernandes@northvale.school' },
-    { id: 'u-super', name: 'Joving', role: 'Super Admin', email: 'joving@northvale.school' }
+    { id: 'u-teacher', name: 'Ms. Lakshmi', role: 'Teacher', email: 'lakshmi@northvale.school', phone: '+91 98400 11111', schoolId: 'sch-northvale', firstLogin: true },
+    { id: 'u-director', name: 'Mrs. Rao', role: 'Director', email: 'rao@northvale.school', phone: '+91 98400 22222', schoolId: 'sch-northvale', firstLogin: false },
+    { id: 'u-accountant', name: 'Mr. Iyer', role: 'Accountant', email: 'iyer@northvale.school', phone: '+91 98400 33333', schoolId: 'sch-northvale', firstLogin: false },
+    { id: 'u-admin', name: 'Ms. Fernandes', role: 'Admin', email: 'fernandes@northvale.school', phone: '+91 98400 44444', schoolId: 'sch-northvale', firstLogin: false },
+    { id: 'u-super', name: 'Joving', role: 'Super Admin', email: 'joving@northvale.school', phone: '+91 98400 55555', schoolId: 'sch-northvale', firstLogin: false }
   ];
 
   /* ---------------------------------------------------------------- Subscription (prototype)
      One school, three plans ranked by tier. A module is available when the school's plan rank
      is at least the rank of the module's minimum plan. */
 
-  const school = { id: 'sch-northvale', name: 'Northvale Academy' };
+  // Demo school configuration (prototype fixture). Northvale is the school this app runs as;
+  // the others exist to demo sign-in states: Enterprise + SSO (Riverside) and paused (Meadowbrook).
+  // status: 'active' | 'paused'. A school without a logo shows its initials.
+  const schools = [
+    { id: 'sch-northvale', name: 'Northvale Academy', logo: 'assets/logos/northvale-crest.png', status: 'active', enterprise: false, ssoEnabled: false },
+    { id: 'sch-riverside', name: 'Riverside Montessori', logo: null, status: 'active', enterprise: true, ssoEnabled: true },
+    { id: 'sch-meadowbrook', name: 'Meadowbrook Children’s House', logo: null, status: 'paused', enterprise: false, ssoEnabled: false }
+  ];
+  const school = schools[0];
+  const schoolById = id => schools.find(s => s.id === id) || null;
   const plans = [
     { id: 'starter', name: 'Starter', rank: 1, summary: 'Daily classroom essentials for a single school.' },
     { id: 'growth', name: 'Growth', rank: 2, summary: 'Admissions, fees and reporting for a growing school.' },
@@ -158,6 +188,7 @@
   };
 
   const ROLE_KEY = 'nexora-demo-role';
+  const FIRST_LOGIN_KEY = 'nexora-first-login-done';
   const REQUESTS_KEY = 'nexora-access-requests';
   const NOTIFICATIONS_KEY = 'nexora-notifications';
   const PLAN_KEY = 'nexora-school-plan';
@@ -180,6 +211,9 @@
     if (!roles.includes(role)) return;
     try { localStorage.setItem(ROLE_KEY, role); } catch { /* storage blocked */ }
   }
+  // First-login status comes from the user record, until S03 is completed on this device.
+  const isFirstLogin = user => Boolean(user.firstLogin) && !read(FIRST_LOGIN_KEY, []).includes(user.id);
+  const completeFirstLogin = user => write(FIRST_LOGIN_KEY, [...new Set([...read(FIRST_LOGIN_KEY, []), user.id])]);
   const pageByKey = key => (Object.prototype.hasOwnProperty.call(pages, key) ? { key, ...pages[key] } : null);
   const canAccess = (user, key) => { const p = pageByKey(key); return Boolean(p && p.roles.includes(user.role)); };
 
@@ -337,6 +371,10 @@
     notificationsFor,
     markAllRead,
     school,
+    schools,
+    schoolById,
+    isFirstLogin,
+    completeFirstLogin,
     plans,
     planById,
     moduleKeys,

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sign in · Nexora</title>
+  <meta name="robots" content="noindex">
+  <script src="config.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="auth-body">
+
+<svg xmlns="http://www.w3.org/2000/svg" hidden aria-hidden="true">
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6C3.7 8.4 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 9.2-9.2M17 6l3 3M14 9l2 2"/></symbol>
+</svg>
+
+<a class="skip-link" href="#signin-form" data-i18n="skipToForm">Skip to sign-in form</a>
+
+<div class="auth">
+  <section class="auth__brand" aria-labelledby="school-name">
+    <div class="auth__school">
+      <span class="auth__logo" data-school-logo></span>
+      <p class="auth__school-name" id="school-name" data-school-name></p>
+    </div>
+    <svg class="auth__art" viewBox="0 0 320 210" aria-hidden="true" focusable="false">
+      <circle class="art-sun" cx="262" cy="46" r="20"/>
+      <path class="art-soft" d="M20 186h280" stroke-dasharray="2 7"/>
+      <rect class="art-ln" x="40" y="150" width="80" height="34" rx="4"/>
+      <rect class="art-ln" x="50" y="122" width="60" height="26" rx="4"/>
+      <rect class="art-ln" x="58" y="100" width="44" height="20" rx="3"/>
+      <rect class="art-ln" x="65" y="84" width="30" height="14" rx="3"/>
+      <rect class="art-accent" x="71" y="72" width="18" height="10" rx="2"/>
+      <path class="art-ln" d="M150 184h132M150 170h106M150 156h80M150 142h54M150 128h28"/>
+      <path class="art-soft" d="M176 184v-4M202 184v-4M228 184v-4M254 184v-4M176 170v-4M202 170v-4M228 170v-4M176 156v-4M202 156v-4"/>
+      <path class="art-ln" d="M268 184v-34"/>
+      <path class="art-leaf" d="M268 160c-14-2-20-12-18-24 12 1 19 10 18 24zM268 168c12-4 20-14 18-26-12 2-18 12-18 26z"/>
+    </svg>
+    <p class="auth__tagline"><span data-i18n="taglineStart"></span><span class="auth__tagline-accent" data-i18n="taglineAccent"></span></p>
+  </section>
+
+  <main class="auth__panel" id="content">
+    <div class="auth__wrap">
+      <header class="auth__head">
+        <h1 class="auth__title" data-i18n="welcomeBack"></h1>
+        <p class="auth__sub" data-i18n="signInTo"></p>
+      </header>
+
+      <div class="auth__alerts">
+        <div class="auth-alert auth-alert--paused" data-paused role="status" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg>
+          <p data-i18n="schoolPaused"></p>
+        </div>
+        <div class="auth-alert auth-alert--error" data-alert role="alert" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+          <p data-alert-text></p>
+        </div>
+        <div class="auth-alert auth-alert--error" data-lockout hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
+          <div>
+            <p role="alert" data-i18n="tooManyAttempts"></p>
+            <p class="auth-alert__timer" role="timer" data-lockout-timer></p>
+          </div>
+        </div>
+        <p class="auth-status" data-status role="status" aria-live="polite"></p>
+      </div>
+
+      <form class="auth-form" id="signin-form" novalidate data-signin-form>
+        <div class="field">
+          <label class="field__label" for="signin-id" data-i18n="emailOrPhone"></label>
+          <input class="input" id="signin-id" name="identifier" type="text" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" dir="auto" required aria-describedby="signin-id-error" data-i18n-placeholder="emailOrPhonePlaceholder">
+          <p class="field__hint field__hint--error" id="signin-id-error" hidden></p>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="signin-password" data-i18n="password"></label>
+          <div class="auth-pass">
+            <input class="input" id="signin-password" name="password" type="password" autocomplete="current-password" required aria-describedby="signin-password-error" data-i18n-placeholder="passwordPlaceholder">
+            <button class="auth-pass__toggle" type="button" aria-controls="signin-password" aria-pressed="false" data-toggle-password>
+              <svg class="icon" aria-hidden="true"><use href="#i-eye"/></svg>
+            </button>
+          </div>
+          <p class="field__hint field__hint--error" id="signin-password-error" hidden></p>
+        </div>
+
+        <div class="auth-form__row">
+          <label class="check"><input type="checkbox" name="remember" checked><span data-i18n="rememberMe"></span></label>
+          <a class="auth-link" href="#" data-route="forgotPassword" data-i18n="forgotPassword"></a>
+        </div>
+
+        <button class="btn btn--block auth-btn" type="submit" data-submit><span data-i18n="signIn"></span></button>
+
+        <div class="auth-sso" data-sso hidden>
+          <p class="auth-divider"><span data-i18n="or"></span></p>
+          <button class="btn btn--block auth-btn auth-btn--outline" type="button" data-sso-button><svg class="icon" aria-hidden="true"><use href="#i-key"/></svg><span data-i18n="signInWithSso"></span></button>
+        </div>
+      </form>
+
+      <details class="auth-demo">
+        <summary data-i18n="demoTitle"></summary>
+        <div class="auth-demo__body" lang="en" dir="ltr">
+          <p data-demo-note></p>
+          <ul data-demo-accounts></ul>
+          <p data-demo-schools></p>
+        </div>
+      </details>
+
+      <footer class="auth-foot">
+        <div class="select auth-lang" data-lang>
+          <button class="select__trigger" type="button" id="lang-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="lang-menu" data-lang-trigger>
+            <span class="sr-only" data-i18n="language"></span>
+            <span class="auth-lang__flag" data-lang-flag aria-hidden="true"></span>
+            <span class="select__value" data-lang-name></span>
+            <svg class="icon select__chev" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </button>
+          <ul class="select__menu" id="lang-menu" role="listbox" tabindex="-1" data-lang-menu></ul>
+        </div>
+        <nav class="auth-foot__links" aria-label="Support" data-i18n-aria-label="supportLinks">
+          <a class="auth-link" href="#" data-route="privacy" data-i18n="privacy"></a>
+          <a class="auth-link" href="#" data-route="help" data-i18n="help"></a>
+        </nav>
+      </footer>
+    </div>
+  </main>
+</div>
+
+<script src="store.js"></script>
+<script src="i18n.js"></script>
+<script src="auth.js"></script>
+<script src="signin.js"></script>
+</body>
+</html>
