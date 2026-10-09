@@ -164,6 +164,7 @@
       main.insertAdjacentHTML('beforebegin', sidebarHtml(user));
       main.insertAdjacentHTML('afterbegin', mobilebarHtml(user));
       initNav();
+      window.NexoraConnectivity?.init();
       // Switching role re-runs the page guard, so a page may become allowed or denied.
       document.querySelector('[data-demo-role]').addEventListener('change', e => {
         store.setRole(e.target.value);

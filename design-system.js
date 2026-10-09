@@ -888,6 +888,11 @@
         name.focus();
         return;
       }
+      // Student details are personal data: they are never kept in browser storage, so adding
+      // a student needs a connection (the drawer stays open with the details still filled in).
+      const offlineNote = $('[data-offline-error]', form);
+      offlineNote.hidden = true;
+      if (!window.NexoraConnectivity?.requireOnline('Adding a student', text => { offlineNote.innerHTML = `${icon('alert-circle')}${text}`; offlineNote.hidden = false; })) return;
       tableApi.add(name.value.trim(), form.elements.class.value);
       toast(`${name.value.trim()} added`, 'Prototype: added to this page only.');
       form.reset();
@@ -1060,6 +1065,7 @@
   initLoad();
   initAmbient();
   initNav();
+  window.NexoraConnectivity?.init();
   initInspector();
   initSwatches();
   initType();

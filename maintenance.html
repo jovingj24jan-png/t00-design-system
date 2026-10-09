@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>We'll be back soon · Nexora</title>
+  <meta name="robots" content="noindex">
+  <script src="config.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="is-minimal">
+
+<div class="backdrop" aria-hidden="true" data-backdrop>
+  <svg class="wave wave--back" data-wave="back" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
+  <svg class="wave wave--front" data-wave="front" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
+  <svg class="wave wave--sheen" data-wave="sheen" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
+</div>
+
+<div class="main" id="main">
+  <header class="nf-brandbar">
+    <span class="brand"><img class="brand__logo nf-brandbar__logo" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="56" height="56"><span class="brand__name">Nexora</span></span>
+  </header>
+
+  <main class="nf-page mt-page" id="content">
+    <div class="nf mt">
+      <svg class="nf__art" viewBox="0 0 200 160" aria-hidden="true" focusable="false">
+        <path class="nf-ln nf-ln--soft" d="M18 146h164" stroke-dasharray="3 6"/>
+        <rect class="nf-ln" x="44" y="112" width="112" height="22" rx="4"/>
+        <rect class="nf-ln" x="58" y="86" width="84" height="22" rx="4"/>
+        <rect class="nf-ln" x="72" y="60" width="56" height="22" rx="4"/>
+        <path class="nf-ln nf-ln--soft" d="M100 28v26" stroke-dasharray="3 5"/>
+        <rect class="nf-ln nf-ln--accent" x="86" y="6" width="28" height="22" rx="4"/>
+        <path class="nf-ln nf-ln--soft" d="M70 14h8M122 14h8"/>
+      </svg>
+      <span class="badge badge--warning mt__status">Planned maintenance</span>
+      <h1 class="nf__title">We'll be back soon</h1>
+      <p class="nf__text">We're performing scheduled maintenance to improve your experience. Please check back in a little while.</p>
+      <div class="mt__actions">
+        <button class="btn btn--primary btn--lg btn--block" type="button" data-retry>Retry</button>
+      </div>
+      <p class="mt__note" id="retry-status" role="status" aria-live="polite"></p>
+    </div>
+  </main>
+</div>
+
+<script src="backdrop.js"></script>
+<script src="maintenance.js"></script>
+</body>
+</html>

@@ -117,6 +117,7 @@
           <h2 class="modal__title" id="switch-title"></h2>
           <p class="modal__desc" id="switch-desc"></p>
           <div data-switch-effects></div>
+          <p class="field__hint field__hint--error" data-offline-error role="alert" hidden></p>
         </div>
         <div class="modal__foot">
           <button class="btn btn--primary" type="button" data-confirm>Switch plan</button>
@@ -137,6 +138,7 @@
 
   const modal = main.querySelector('#switch-modal');
   const confirmBtn = modal.querySelector('[data-confirm]');
+  const offlineError = modal.querySelector('[data-offline-error]');
   let target = null;
   let opener = null;
 
@@ -153,6 +155,7 @@
       ? `<div class="well"><span class="tech-label">Unlocks</span><ul class="pp-effects">${list(gained)}</ul></div>`
       : `<div class="well pp-warn"><span class="tech-label">Locks again</span><ul class="pp-effects">${list(lost)}</ul></div>`;
     confirmBtn.textContent = `${upgrade ? 'Upgrade' : 'Move'} to ${plan.name}`;
+    offlineError.hidden = true;
     modal.classList.remove('is-closing');
     modal.showModal();
     confirmBtn.focus();
@@ -168,12 +171,12 @@
   modal.addEventListener('cancel', e => { e.preventDefault(); close(); });
   modal.addEventListener('click', e => { if (e.target === modal || e.target.closest('[data-close]')) close(); });
 
+  const showError = text => { offlineError.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>${text}`; offlineError.hidden = false; };
   confirmBtn.addEventListener('click', () => {
+    if (!window.NexoraConnectivity.requireOnline('Changing the plan', showError)) return;
     const result = store.setSchoolPlan(user, target.id);
-    if (!result.ok) {
-      window.NexoraToast.show('Plan not changed', "We couldn't save the new plan. Please try again.", 'info');
-      return;
-    }
+    // Shown in the dialog: a toast would sit behind the open modal.
+    if (!result.ok) { showError("We couldn't save the new plan. Nothing was changed. Please try again."); return; }
     try { sessionStorage.setItem(FLASH_KEY, `${school.name} is now on ${result.plan.name}`); } catch { /* toast is optional */ }
     // Reload so the sidebar locks and every card reflect the new plan; ?plan is dropped so
     // the selection doesn't point at the plan the school is already on.

@@ -57,6 +57,7 @@
             <p class="field__hint" id="request-hint">Optional. Up to ${MAX} characters.</p>
             <p class="sr-only" role="status" data-count-status></p>
           </div>
+          <p class="field__hint field__hint--error" data-offline-error role="alert" hidden></p>
           <p class="field__hint field__hint--error" data-send-error hidden><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Your request couldn't be saved. Please try again.</p>
         </div>
         <div class="modal__foot">
@@ -73,6 +74,7 @@
   const count = modal.querySelector('[data-count]');
   const countStatus = modal.querySelector('[data-count-status]');
   const sendError = modal.querySelector('[data-send-error]');
+  const offlineError = modal.querySelector('[data-offline-error]');
 
   function showSent() {
     requestBtn.disabled = true;
@@ -87,6 +89,7 @@
   function open() {
     opener = document.activeElement;
     sendError.hidden = true;
+    offlineError.hidden = true;
     modal.classList.remove('is-closing');
     modal.showModal();
     reason.focus();
@@ -118,6 +121,9 @@
 
   form.addEventListener('submit', e => {
     e.preventDefault();
+    sendError.hidden = true;
+    offlineError.hidden = true;
+    if (!window.NexoraConnectivity.requireOnline('Requesting access', text => { offlineError.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>${text}`; offlineError.hidden = false; })) return;
     const result = store.requestAccess(user, key, reason.value);
     if (!result.ok) { sendError.hidden = false; return; }
     opener = null;

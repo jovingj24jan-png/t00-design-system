@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Nexora Design System</title>
   <meta name="description" content="Nexora Design System: colours, type, components, states, responsive rules, motion and tokens. One system. Every screen. Same experience.">
+  <script src="config.js"></script>
   <link rel="stylesheet" href="styles.css">
   <script>document.documentElement.classList.add('js');</script>
 </head>
@@ -791,6 +792,7 @@
         <label class="field__label" for="add-class">Class</label>
         <select class="input" id="add-class" name="class"><option>Montessori A</option><option>UKG A</option><option>UKG B</option><option>LKG A</option><option>Nursery</option></select>
       </div>
+      <p class="field__hint field__hint--error" data-offline-error role="alert" hidden></p>
     </div>
     <div class="drawer__foot"><button class="btn btn--secondary" type="button" data-close>Cancel</button><button class="btn btn--primary" type="submit">Add student</button></div>
   </form>
@@ -806,6 +808,7 @@
 
 <script src="backdrop.js"></script>
 <script src="toast.js"></script>
+<script src="connectivity.js"></script>
 <script src="design-system.js"></script>
 </body>
 </html>

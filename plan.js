@@ -189,6 +189,7 @@
 
     btn.addEventListener('click', async () => {
       if (btn.disabled || btn.classList.contains('is-loading')) return;
+      if (!window.NexoraConnectivity.requireOnline('Asking your admin')) return;
       setLoading(btn, 'Sending…');
       const result = await store.requestUpgrade(user, key);
       clearLoading(btn);
@@ -260,8 +261,9 @@
 
       busy = true;
       setLoading(sendBtn, 'Sending…');
+      const offline = !window.NexoraConnectivity.isOnline();
       const result = await store.submitEnquiry({
-        user, module: key,
+        user, module: key, savedOffline: offline,
         name: fields.name.el.value, email: fields.email.el.value, message: fields.message.el.value,
         preferredTime: form.elements.time.value
       });
@@ -271,7 +273,8 @@
       // On failure the form keeps everything the user typed.
       if (!result.ok) { sendError.hidden = false; sendBtn.focus(); return; }
       close();
-      window.NexoraToast.show('Enquiry saved', 'Prototype: not yet sent to our team.');
+      if (offline) window.NexoraToast.show('Saved on this device', "You're offline. Prototype: enquiries aren't sent to our team yet.", 'info');
+      else window.NexoraToast.show('Enquiry saved', 'Prototype: not yet sent to our team.');
     });
   }
 

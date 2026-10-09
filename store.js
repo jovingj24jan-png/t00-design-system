@@ -284,12 +284,12 @@
     return settle({ ok: true, created: true, request });
   }
 
-  function submitEnquiry({ user, module, name, email, message, preferredTime }) {
+  function submitEnquiry({ user, module, name, email, message, preferredTime, savedOffline = false }) {
     const enquiry = {
       id: `e-${Date.now().toString(36)}`,
       schoolId: school.id, userId: user.id, module,
       name: String(name).trim(), email: String(email).trim(), message: String(message).trim(),
-      preferredTime, status: 'saved-locally', createdAt: new Date().toISOString()
+      preferredTime, status: 'saved-locally', savedOffline, createdAt: new Date().toISOString()
     };
     if (!enquiry.name || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(enquiry.email) || !enquiry.message) return settle({ ok: false, reason: 'invalid' });
     return settle(write(ENQUIRY_KEY, [...read(ENQUIRY_KEY, []), enquiry]) ? { ok: true, enquiry } : { ok: false });
