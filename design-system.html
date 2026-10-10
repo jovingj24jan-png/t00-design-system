@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="styles.css">
   <script>document.documentElement.classList.add('js');</script>
 </head>
-<body class="ds-body">
+<body>
 
 <div class="backdrop" aria-hidden="true" data-backdrop>
   <svg class="wave wave--back" data-wave="back" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>
@@ -53,7 +53,10 @@
 
 <aside class="sidebar" id="sidebar" aria-label="Design system navigation">
   <div class="sidebar__head sidebar-enter">
-    <a class="nx-brand" href="design-system.html" aria-label="Nexora design system, top"><svg class="nx-mark" viewBox="0 0 40 40" aria-hidden="true" focusable="false"><defs><linearGradient id="ds-ring-1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="nx-stop-a"/><stop offset="0.55" class="nx-stop-b"/><stop offset="1" class="nx-stop-c"/></linearGradient></defs><path d="M33 13.5A15 15 0 1 0 34.5 24" fill="none" stroke="url(#ds-ring-1)" stroke-width="3.2" stroke-linecap="round"/><circle cx="34.6" cy="18.6" r="2.2" class="nx-dot"/></svg><span class="nx-word"><span class="nx-word__name">Nexora</span><span class="nx-word__sub">Design system · v3.0</span></span></a>
+    <a class="brand" href="design-system.html">
+      <img class="brand__logo" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="40" height="40">
+      <span><span class="brand__name">Nexora</span><span class="brand__sub">Design system · v3.0</span></span>
+    </a>
     <button class="btn btn--icon-ghost sidebar__close" type="button" data-nav-close aria-label="Close navigation"><svg class="icon"><use href="#i-x"/></svg></button>
   </div>
   <nav class="sidebar__scroll sidebar-enter" aria-label="Sections">
@@ -98,60 +101,46 @@
 <div class="main" id="main">
   <header class="mobilebar">
     <button class="btn btn--icon-ghost" type="button" id="nav-toggle" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"><svg class="icon"><use href="#i-menu"/></svg></button>
-    <a class="nx-brand" href="design-system.html" aria-label="Nexora design system, top"><svg class="nx-mark" viewBox="0 0 40 40" aria-hidden="true" focusable="false"><defs><linearGradient id="ds-ring-2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="nx-stop-a"/><stop offset="0.55" class="nx-stop-b"/><stop offset="1" class="nx-stop-c"/></linearGradient></defs><path d="M33 13.5A15 15 0 1 0 34.5 24" fill="none" stroke="url(#ds-ring-2)" stroke-width="3.2" stroke-linecap="round"/><circle cx="34.6" cy="18.6" r="2.2" class="nx-dot"/></svg><span class="nx-word"><span class="nx-word__name">Nexora</span><span class="nx-word__sub">Design system</span></span></a>
+    <a class="brand" href="design-system.html"><img class="brand__logo brand__logo--compact" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="36" height="36"><span class="brand__name">Nexora</span></a>
     <button class="btn btn--icon-ghost inspect-toggle" type="button" aria-pressed="false" aria-label="Inspect mode" data-inspect-toggle><svg class="icon"><use href="#i-target"/></svg></button>
     <span class="avatar avatar--sm avatar--neutral" aria-hidden="true">JV</span>
   </header>
 
   <div class="wrap" id="top">
-    <header class="ds-hero">
-      <div class="ds-hero__copy">
-        <div class="ds-hero__meta enter" style="--i:0">
+    <header class="masthead">
+      <div class="masthead__top">
+        <div class="masthead__meta enter" style="--i:0">
           <span class="status-live"><span class="status-live__dot" aria-hidden="true"></span>SYSTEM ACTIVE</span>
           <span class="tech-label">Source of truth / v3.0</span>
         </div>
-        <p class="ds-hero__eyebrow enter" style="--i:1">Nexora Montessori — Design language, v3.0</p>
-        <h1 class="ds-hero__title enter" style="--i:2"><span class="ds-hero__line">Nexora</span> <span class="ds-hero__line ds-hero__line--grad">Design system</span></h1>
-        <p class="ds-hero__lede enter" style="--i:3">One quiet, consistent language for every Nexora screen. Colour, type, components, states and motion, defined once as tokens and used everywhere, in English and Tamil.</p>
-        <div class="ds-hero__actions enter" style="--i:4">
-          <a class="btn btn--primary btn--lg" href="#buttons">Explore components<svg class="icon icon--sm" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
-          <a class="btn btn--secondary btn--lg" href="#playground">Open playground</a>
+        <div class="masthead__user enter" style="--i:1">
+          <p class="masthead__message">Built for Montessori schools. Every screen in English and தமிழ்.</p>
+          <span class="avatar avatar--neutral" role="img" aria-label="Joving, design lead">JV</span>
         </div>
       </div>
 
-      <nav class="ds-hero__toc enter" style="--i:4" aria-label="Contents">
-        <p class="ds-toc__label"><span>Contents</span><span>13 chapters</span></p>
-        <ol class="ds-toc">
-          <li><a href="#dna"><span class="ds-toc__num">01</span><span class="ds-toc__name">Design DNA</span><span class="ds-toc__desc">Colour roles, contrast</span></a></li>
-          <li><a href="#type"><span class="ds-toc__num">02</span><span class="ds-toc__name">Typography</span><span class="ds-toc__desc">English and Tamil scale</span></a></li>
-          <li><a href="#buttons"><span class="ds-toc__num">03</span><span class="ds-toc__name">Buttons</span><span class="ds-toc__desc">Variants by state</span></a></li>
-          <li><a href="#forms"><span class="ds-toc__num">04</span><span class="ds-toc__name">Form elements</span><span class="ds-toc__desc">Inputs and validation</span></a></li>
-          <li><a href="#cards"><span class="ds-toc__num">05</span><span class="ds-toc__name">Cards &amp; data</span><span class="ds-toc__desc">Stat, status, profile</span></a></li>
-          <li><a href="#tables"><span class="ds-toc__num">06</span><span class="ds-toc__name">Tables &amp; lists</span><span class="ds-toc__desc">Sort, select, stack</span></a></li>
-          <li><a href="#tabs"><span class="ds-toc__num">07</span><span class="ds-toc__name">Tabs &amp; filters</span><span class="ds-toc__desc">Narrowing a list</span></a></li>
-          <li><a href="#overlays"><span class="ds-toc__num">08</span><span class="ds-toc__name">Modals &amp; drawers</span><span class="ds-toc__desc">Focus and dismissal</span></a></li>
-          <li><a href="#states"><span class="ds-toc__num">09</span><span class="ds-toc__name">States</span><span class="ds-toc__desc">Empty to locked</span></a></li>
-          <li><a href="#responsive"><span class="ds-toc__num">10</span><span class="ds-toc__name">Responsive blueprint</span><span class="ds-toc__desc">360 to 1440</span></a></li>
-          <li><a href="#playground"><span class="ds-toc__num">11</span><span class="ds-toc__name">Playground</span><span class="ds-toc__desc">Try any variant</span></a></li>
-          <li><a href="#motion"><span class="ds-toc__num">12</span><span class="ds-toc__name">Motion system</span><span class="ds-toc__desc">Timing and primitives</span></a></li>
-          <li><a href="#tokens"><span class="ds-toc__num">13</span><span class="ds-toc__name">Token inspector</span><span class="ds-toc__desc">Every value, copyable</span></a></li>
-        </ol>
+      <h1 class="masthead__title enter" style="--i:2">Nexora<i>.</i> <span>Design System</span></h1>
+      <span class="masthead__rule" aria-hidden="true"></span>
+      <nav aria-label="System areas" class="enter" style="--i:3">
+        <ul class="masthead__pills">
+          <li><a href="#dna">Colours</a></li>
+          <li><a href="#type">Type</a></li>
+          <li><a href="#buttons">Components</a></li>
+          <li><a href="#states">States</a></li>
+          <li><a href="#responsive">Responsive</a></li>
+          <li><a href="#motion">Motion</a></li>
+          <li><a href="#tokens">Tokens</a></li>
+        </ul>
       </nav>
+      <p class="masthead__tagline enter" style="--i:4">One system. Every screen. <em>Same experience.</em></p>
 
-      <div class="metrics ds-hero__metrics" role="group" aria-label="System status">
-        <div class="metric enter" style="--i:6"><p class="metric__value" data-count="24" data-pad="2">24</p><p class="metric__label"><span>Components</span><span class="tech-label tech-label--plain">Live</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:.8"></span></div></div>
-        <div class="metric enter" style="--i:7"><p class="metric__value" data-count="8" data-pad="2">08</p><p class="metric__label"><span>States</span><span class="tech-label tech-label--plain">Per comp.</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:.55"></span></div></div>
-        <div class="metric enter" style="--i:8"><p class="metric__value" data-count="4" data-pad="2">04</p><p class="metric__label"><span>Breakpoints</span><span class="tech-label tech-label--plain">360–1440</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:.4"></span></div></div>
-        <div class="metric enter" style="--i:9"><p class="metric__value" data-count="100" data-suffix="%">100%</p><p class="metric__label"><span>Token based</span><span class="tech-label tech-label--plain">No hex in HTML</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:1"></span></div></div>
+      <div class="metrics" role="group" aria-label="System status">
+        <div class="metric enter" style="--i:5"><p class="metric__value" data-count="24" data-pad="2">24</p><p class="metric__label"><span>Components</span><span class="tech-label tech-label--plain">Live</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:.8"></span></div></div>
+        <div class="metric enter" style="--i:6"><p class="metric__value" data-count="8" data-pad="2">08</p><p class="metric__label"><span>States</span><span class="tech-label tech-label--plain">Per comp.</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:.55"></span></div></div>
+        <div class="metric enter" style="--i:7"><p class="metric__value" data-count="4" data-pad="2">04</p><p class="metric__label"><span>Breakpoints</span><span class="tech-label tech-label--plain">360–1440</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:.4"></span></div></div>
+        <div class="metric enter" style="--i:8"><p class="metric__value" data-count="100" data-suffix="%">100%</p><p class="metric__label"><span>Token based</span><span class="tech-label tech-label--plain">No hex in HTML</span></p><div class="metric__bar" aria-hidden="true"><span style="--fill:1"></span></div></div>
       </div>
-
-          </header>
-
-    <div class="ds-ticker marquee marquee--x" aria-hidden="true">
-      <ul data-marquee>
-        <li>--color-primary</li><li>--color-electric</li><li>--color-violet</li><li>--color-pink</li><li>--color-surface-glass</li><li>--radius-xl</li><li>--space-6</li><li>--shadow-md</li><li>--font-display</li><li>--duration-slow</li><li>--ease-emphasized</li><li>--color-edge-lit</li><li>--fs-display</li><li>--color-success</li>
-      </ul>
-    </div>
+    </header>
 
     <main class="board" id="content" tabindex="-1">
 
@@ -167,10 +156,10 @@
         <div class="dna-extra">
           <div class="well">
             <div class="subhead"><h3>Colour balance</h3><span class="tech-label tech-label--plain">60 · 30 · 10</span></div>
-            <div class="ratio" role="img" aria-label="Background 60 percent, surfaces 30 percent, yellow action 10 percent">
+            <div class="ratio" role="img" aria-label="Background 60 percent, surfaces 30 percent, orange accent 10 percent">
               <span class="ratio__bg" style="--w:60%">BG 60</span><span class="ratio__surface" style="--w:30%">SURF 30</span><span class="ratio__accent" style="--w:10%">10</span>
             </div>
-            <p class="card__meta" style="margin-top:var(--space-3)">Yellow marks the next action; blue and violet are light, never buttons. If a screen looks yellow, it has too many actions.</p>
+            <p class="card__meta" style="margin-top:var(--space-3)">Orange marks the next action. If a screen looks orange, it has too many.</p>
           </div>
           <div class="well">
             <div class="subhead"><h3>Contrast pairs</h3><span class="tech-label tech-label--plain">Measured live</span></div>
@@ -712,7 +701,7 @@
       <section class="panel span-7 reveal" id="motion" aria-labelledby="motion-title">
         <header class="panel__head">
           <span class="panel__num">12<i class="marker" aria-hidden="true"></i></span>
-          <div><h2 class="panel__title" id="motion-title">Motion system</h2><p class="panel__sub">Transform, opacity and a little blur. Pages use the shared primitives in motion.js through data-motion, data-stagger, data-number-flow, data-scroll-speed, data-accordion and data-marquee. Click a tile to play it.</p></div>
+          <div><h2 class="panel__title" id="motion-title">Motion system</h2><p class="panel__sub">Transform and opacity only. Click a tile to play it.</p></div>
           <span class="tech-label">Token / Motion</span>
         </header>
         <div class="motion-head">
@@ -821,6 +810,5 @@
 <script src="toast.js"></script>
 <script src="connectivity.js"></script>
 <script src="design-system.js"></script>
-<script src="motion.js"></script>
 </body>
 </html>

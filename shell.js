@@ -1,7 +1,5 @@
-/* App shell for every signed-in page except design-system.html.
-   Desktop (>=1024px): top app bar with the primary modules; every other page, the demo role and
-   sign-out live in the drawer it opens. Below 1024px: mobile bar + the same drawer.
-   Signed out: logo only. */
+/* App shell for secondary pages (record, not found).
+   Signed in: the same sidebar + mobile bar as design-system.html. Signed out: logo only. */
 (() => {
   'use strict';
 
@@ -23,7 +21,6 @@
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
       <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
-      <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
       <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 18l-6-6 6-6"/></symbol>
       <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
       <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
@@ -73,8 +70,6 @@
   // Every page is listed; the guard decides what each role and plan can open.
   // `plans` and `setup` are their own pages; the rest open in app.html.
   const APP_PAGES = ['dashboard', ...store.moduleKeys, 'classes', 'notifications', 'settings', 'plans', 'setup'];
-  // Top-bar modules on desktop. Names come from the store, so renamed modules follow automatically.
-  const PRIMARY = ['dashboard', 'admissions', 'attendance', 'fees', 'classroom-tracker', 'reports'];
   const OWN_PAGES = { dashboard: { name: 'Dashboard', href: () => dash }, plans: { name: 'Plans &amp; upgrade', href: () => routes.plans() }, setup: { name: 'School setup', href: () => routes.setup } };
 
   function schoolGroupHtml(user) {
@@ -111,42 +106,13 @@
       <button class="btn btn--secondary btn--block" type="button" data-session="out">Sign out</button>`;
   }
 
-  // Nexora mark: an open gradient ring (colours from the light-trail tokens). Each copy gets its own
-  // gradient id: a gradient defined inside a hidden bar would not paint the visible one.
-  let markId = 0;
-  const mark = () => { const id = `nx-ring-${++markId}`; return `<svg class="nx-mark" viewBox="0 0 40 40" aria-hidden="true" focusable="false"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="nx-stop-a"/><stop offset="0.55" class="nx-stop-b"/><stop offset="1" class="nx-stop-c"/></linearGradient></defs><path d="M33 13.5A15 15 0 1 0 34.5 24" fill="none" stroke="url(#${id})" stroke-width="3.2" stroke-linecap="round"/><circle cx="34.6" cy="18.6" r="2.2" class="nx-dot"/></svg>`; };
-  const wordmark = `<span class="nx-word"><span class="nx-word__name">Nexora</span><span class="nx-word__sub">Montessori</span></span>`;
-
-  function primaryLinksHtml() {
-    const here = currentPageKey();
-    const plan = store.currentPlan();
-    return PRIMARY.map(key => {
-      const own = OWN_PAGES[key];
-      const name = own ? own.name : esc(store.pageByKey(key).name);
-      const href = own ? own.href() : routes.page(key);
-      const current = key === here;
-      const locked = !own && !store.isEntitled(key, plan);
-      return `<li><a class="appbar__link${current ? ' is-current' : ''}" href="${href}"${current ? ' aria-current="page"' : ''}>${name}${locked ? '<svg class="icon icon--sm appbar__lock" aria-hidden="true"><use href="#i-lock"/></svg><span class="sr-only"> (not in your plan)</span>' : ''}</a></li>`;
-    }).join('');
-  }
-
-  const appbarHtml = user => `
-    <header class="appbar">
-      <a class="nx-brand" href="${dash}" aria-label="Nexora Montessori, dashboard">${mark()}${wordmark}</a>
-      <nav class="appbar__nav" aria-label="Main"><ul>${primaryLinksHtml()}</ul></nav>
-      <div class="appbar__tools" data-appbar-tools>
-        <button class="appbar__user" type="button" data-nav-open aria-controls="sidebar" aria-expanded="false" aria-label="Menu: all pages, role and sign out (${esc(user.name)}, ${esc(user.role)})">
-          <span class="avatar avatar--sm avatar--glow" aria-hidden="true">${esc(initials(user.name))}</span>
-          <span class="appbar__user-name" aria-hidden="true">${esc(user.name)}</span>
-          <svg class="icon icon--sm" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-        </button>
-      </div>
-    </header>`;
-
   const sidebarHtml = user => `
     <aside class="sidebar" id="sidebar" aria-label="Design system navigation">
       <div class="sidebar__head">
-        <a class="nx-brand" href="${dash}" aria-label="Nexora Montessori, dashboard">${mark()}<span class="nx-word"><span class="nx-word__name">Nexora</span><span class="nx-word__sub">${esc(store.school.name)}</span></span></a>
+        <a class="brand" href="${dash}">
+          <img class="brand__logo" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="40" height="40">
+          <span><span class="brand__name">Nexora</span><span class="brand__sub">${esc(store.school.name)}</span></span>
+        </a>
         <button class="btn btn--icon-ghost sidebar__close" type="button" data-nav-close aria-label="Close navigation"><svg class="icon"><use href="#i-x"/></svg></button>
       </div>
       <nav class="sidebar__scroll" aria-label="Sections">
@@ -166,7 +132,7 @@
   const mobilebarHtml = user => `
     <header class="mobilebar">
       <button class="btn btn--icon-ghost" type="button" id="nav-toggle" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"><svg class="icon"><use href="#i-menu"/></svg></button>
-      <a class="nx-brand" href="${dash}" aria-label="Nexora Montessori, dashboard">${mark()}${wordmark}</a>
+      <a class="brand" href="${dash}"><img class="brand__logo brand__logo--compact" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="36" height="36"><span class="brand__name">Nexora</span></a>
       <span class="avatar avatar--sm avatar--neutral" role="img" aria-label="${esc(user.name)}, ${esc(user.role)}">${esc(initials(user.name))}</span>
     </header>`;
 
@@ -178,8 +144,7 @@
   // Same drawer behaviour as the design-system page below 1024px.
   function initNav() {
     const sidebar = document.getElementById('sidebar');
-    const openers = [...document.querySelectorAll('#nav-toggle, [data-nav-open]')];
-    let toggle = openers[0];
+    const toggle = document.getElementById('nav-toggle');
     const backdrop = document.querySelector('.nav-backdrop');
     const main = document.getElementById('main');
     const desktop = matchMedia('(min-width: 1024px)');
@@ -190,7 +155,7 @@
       open = value;
       sidebar.classList.toggle('is-open', value);
       backdrop.classList.toggle('is-visible', value);
-      openers.forEach(b => b.setAttribute('aria-expanded', String(value)));
+      toggle.setAttribute('aria-expanded', String(value));
       main.inert = value;
       document.documentElement.style.overflow = value ? 'hidden' : '';
       if (value) {
@@ -203,7 +168,7 @@
         if (restore) toggle.focus();
       }
     }
-    openers.forEach(b => b.addEventListener('click', () => { toggle = b; setOpen(true); }));
+    toggle.addEventListener('click', () => setOpen(true));
     document.querySelectorAll('[data-nav-close]').forEach(el => el.addEventListener('click', () => setOpen(false)));
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && open) setOpen(false); });
     desktop.addEventListener('change', e => { if (e.matches) setOpen(false, false); });
@@ -217,14 +182,6 @@
     if (!sidebar) return;
     sidebar.querySelector('.sidebar__scroll .sidebar__group:last-child').outerHTML = schoolGroupHtml(user);
     sidebar.querySelector('.sidebar__foot').innerHTML = roleSwitchHtml(user);
-    const nav = document.querySelector('.appbar__nav ul');
-    if (nav) nav.innerHTML = primaryLinksHtml();
-    const pill = document.querySelector('.appbar__user');
-    if (pill) {
-      pill.querySelector('.avatar').textContent = initials(user.name);
-      pill.querySelector('.appbar__user-name').textContent = user.name;
-      pill.setAttribute('aria-label', `Menu: all pages, role and sign out (${user.name}, ${user.role})`);
-    }
     const avatar = document.querySelector('.mobilebar .avatar');
     if (avatar) { avatar.textContent = initials(user.name); avatar.setAttribute('aria-label', `${user.name}, ${user.role}`); }
     bindRoleSwitch();
@@ -264,13 +221,14 @@
     if (signedIn) {
       const user = store.currentUser();
       main.insertAdjacentHTML('beforebegin', sidebarHtml(user));
-      main.insertAdjacentHTML('beforebegin', appbarHtml(user));
       main.insertAdjacentHTML('afterbegin', mobilebarHtml(user));
       if (window.NexoraBell) {
         const bar = main.querySelector('.mobilebar');
         bar.insertBefore(window.NexoraBell.create(), bar.querySelector('.avatar'));
-        // The dashboard keeps its own bell in its header; other pages get one in the app bar.
-        if (topbar) { const tools = document.querySelector('[data-appbar-tools]'); tools.insertBefore(window.NexoraBell.create(), tools.firstChild); }
+        if (topbar) {
+          bar.insertAdjacentHTML('afterend', '<div class="topbar"></div>');
+          main.querySelector('.topbar').appendChild(window.NexoraBell.create());
+        }
       }
       let queued = false;
       store.subscribe(() => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; updateUnreadBadge(); }); } });

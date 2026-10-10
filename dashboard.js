@@ -314,9 +314,8 @@
     const status = schoolStatus();
     return `
       <div class="dash-head__text">
-        <p class="dash-head__date"><span class="dash-head__brand">Nexora Montessori</span><time datetime="${store.today()}">${esc(new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</time></p>
-        <h1 class="dash-head__greet" id="dash-title" tabindex="-1">${esc(greeting())}, <span class="dash-head__name">${esc(user.name)}</span></h1>
-        <p class="dash-head__tagline">Every child, every day, in one place.</p>
+        <p class="dash-head__date"><time datetime="${store.today()}">${esc(new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</time></p>
+        <h1 class="dash-head__greet" id="dash-title" tabindex="-1">${esc(greeting())}, ${esc(user.name)}</h1>
         <div class="dash-head__chips">
           <span class="dash-chip dash-chip--${status.tone}">${status.tone === 'open' ? '<span class="dash-chip__dot" aria-hidden="true"></span>' : icon('clock', 'icon--sm')}${esc(status.text)}</span>
           <span class="dash-chip">${icon('user', 'icon--sm')}${esc(user.role)} · ${esc(store.school.name)}</span>
@@ -584,6 +583,7 @@
   }
 
   window.NexoraShell.mount({
+    topbar: false,
     onRoleChange() {
       cache.clear();
       lastBreaches = null;
@@ -596,6 +596,7 @@
   skeleton();
   setTimeout(() => {
     frame();
+    main.querySelector('[data-tools]').appendChild(window.NexoraBell.create());
     bind();
     render();
   }, 500);
