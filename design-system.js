@@ -281,10 +281,14 @@
     ['Primary', 'primary', 'Actions, focus, highlights'],
     ['Primary hover', 'primary-hover', 'Hover on primary'],
     ['Primary light', 'primary-light', 'Selected rows, tints'],
-    ['Secondary', 'secondary', 'Steel accents, icons'],
+    ['Secondary', 'secondary', 'Cool steel accents, icons'],
     ['Accent', 'accent', 'Locks, highlights'],
+    ['Electric blue', 'electric', 'Light trails, info glow'],
+    ['Violet', 'violet', 'Light trails, panel glow'],
+    ['Pink', 'pink', 'Faint trail highlight only'],
     ['Background', 'bg', 'Page canvas'],
     ['Surface', 'surface', 'Panels and cards'],
+    ['Elevated surface', 'surface-3', 'Menus, raised controls'],
     ['Border', 'border', 'Dividers, outlines'],
     ['Success', 'success', 'Present, saved'],
     ['Warning', 'warning', 'Late, due soon'],
@@ -1035,7 +1039,10 @@
     { name: 'Toast', time: '300ms', stage: '<span class="m-toast"></span>', play: st => animate($('.m-toast', st), [{ opacity: 0, transform: 'translateY(30px)' }, { opacity: 1, transform: 'none' }]) },
     { name: 'Skeleton', time: '1.2s loop', stage: '<span class="m-sk"><span class="skeleton sk-line w-90"></span><span class="skeleton sk-line w-70"></span><span class="skeleton sk-line w-40"></span></span>', play: st => { const sk = $('.m-sk', st); sk.classList.remove('is-playing'); void sk.offsetWidth; sk.classList.add('is-playing'); } },
     { name: 'Progress', time: '600ms', stage: '<span class="m-progress"><span style="transform:scaleX(.72)"></span></span>', play: st => animate($('.m-progress span', st), [{ transform: 'scaleX(0)' }, { transform: 'scaleX(0.72)' }], '--duration-slow') },
-    { name: 'Number count', time: '600ms', stage: '<span class="m-count">128</span>', play: st => { const el = $('.m-count', st); el.dataset.count = '128'; countUp(el); } },
+    { name: 'NumberFlow', time: '900ms', stage: '<span class="m-count">128</span>', play: st => { const el = $('.m-count', st); el.textContent = String(40 + Math.round(Math.random() * 160)); window.NexoraMotion.numberFlow(el); } },
+    { name: 'CharacterReveal', time: '520ms + 16ms', stage: '<span class="m-chars">Every child</span>', play: st => { const old = $('.m-chars', st); const el = old.cloneNode(false); el.textContent = 'Every child'; old.replaceWith(el); window.NexoraMotion.split(el); void el.offsetWidth; requestAnimationFrame(() => el.classList.add('is-in')); } },
+    { name: 'BlurReveal', time: '600ms', stage: '<span class="m-box"></span>', play: st => animate($('.m-box', st), [{ opacity: 0, filter: 'blur(8px)', transform: 'scale(1.04)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], '--duration-slow') },
+    { name: 'VerticalMarquee', time: 'loop · pauses on hover', stage: '<span class="m-marquee"><span class="m-marquee__track"><i></i><i></i><i></i><i></i><i></i><i></i></span></span>', play: st => { const t = $('.m-marquee__track', st); t.classList.toggle('is-playing'); } },
     { name: 'Tab indicator', time: '300ms', stage: '<span class="m-tabs"><span>All</span><span>Active</span><span>Done</span><i></i></span>', play: st => animate($('.m-tabs i', st), [{ transform: 'translateX(0)' }, { transform: 'translateX(100%)', offset: 0.45 }, { transform: 'translateX(200%)' }], '--duration-slow') },
     { name: 'Accordion', time: '300ms', stage: '<span class="m-acc"><span class="m-acc__head"><span>Term 1</span><span>+</span></span><span class="m-acc__body"><span><i></i><i></i></span></span></span>', play: st => $('.m-acc', st).classList.toggle('is-open') }
   ];
@@ -1043,7 +1050,7 @@
   function initMotion() {
     const grid = $('[data-motion-grid]');
     grid.innerHTML = MOTIONS.map((m, i) => `
-      <button class="motion-tile" type="button" data-motion="${i}" aria-label="Play ${m.name} animation">
+      <button class="motion-tile" type="button" data-motion-demo="${i}" aria-label="Play ${m.name} animation">
         <span class="motion-tile__stage" aria-hidden="true">${m.stage}</span>
         <span class="motion-tile__meta"><span class="motion-tile__name">${m.name}</span><span class="motion-tile__play">${icon('play', 'icon--sm')}Play</span></span>
         <span class="motion-tile__time">${m.time}</span>
@@ -1051,12 +1058,12 @@
     // The accordion demo needs a block-level wrapper inside its body.
     $$('.m-acc__body > span', grid).forEach(s => { s.style.display = 'block'; s.style.overflow = 'hidden'; });
     grid.addEventListener('click', e => {
-      const t = e.target.closest('[data-motion]');
+      const t = e.target.closest('[data-motion-demo]');
       if (!t || document.body.classList.contains('is-inspecting')) return;
-      MOTIONS[t.dataset.motion].play($('.motion-tile__stage', t));
+      MOTIONS[t.dataset.motionDemo].play($('.motion-tile__stage', t));
     });
     $('[data-play-all]').addEventListener('click', () => {
-      $$('[data-motion]', grid).forEach((t, i) => setTimeout(() => MOTIONS[i].play($('.motion-tile__stage', t)), reduceMotion.matches ? 0 : i * 90));
+      $$('[data-motion-demo]', grid).forEach((t, i) => setTimeout(() => MOTIONS[i].play($('.motion-tile__stage', t)), reduceMotion.matches ? 0 : i * 90));
     });
   }
 

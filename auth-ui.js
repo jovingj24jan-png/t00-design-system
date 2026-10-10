@@ -89,7 +89,12 @@
         <span class="auth__logo">${school.logo ? `<img src="${esc(school.logo)}" alt="" width="72" height="72">` : `<span class="auth__initials" aria-hidden="true">${esc(initials)}</span>`}</span>
         <p class="auth__school-name" id="school-name">${esc(school.name)}</p>
       </div>
-      ${ART}
+      <div class="auth__showcase">
+        ${ART}
+        <div class="auth__marquee marquee" aria-hidden="true">
+          <ul class="auth__marquee-list" data-marquee>${['mqAttendance', 'mqObservations', 'mqMessages', 'mqGallery', 'mqFees', 'mqRatios'].map(k => `<li data-i18n="${k}"></li>`).join('')}</ul>
+        </div>
+      </div>
       <p class="auth__tagline"><span data-i18n="taglineStart"></span><span class="auth__tagline-accent" data-i18n="taglineAccent"></span></p>`;
     brand.setAttribute('aria-labelledby', 'school-name');
 

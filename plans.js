@@ -13,6 +13,8 @@
   const params = new URLSearchParams(location.search);
   const selected = store.planById(params.get('plan'));
   const fromKey = store.requiredPlanFor(params.get('module')) ? params.get('module') : null;
+  // Module lists start open where there is room; on phones only the plan you came to see is open.
+  const wide = window.matchMedia('(min-width: 768px)').matches;
   const fromPage = fromKey ? store.pageByKey(fromKey) : null;
   const main = document.getElementById('content');
 
@@ -69,13 +71,15 @@
           </span>
         </div>
         <p class="pp-card__text">${esc(plan.summary)}</p>
-        <p class="tech-label tech-label--plain">${included.length} of ${store.moduleKeys.length} modules</p>
+        <details class="pp-card__more" data-accordion${wide || isSelected || (fromKey && included.includes(fromKey) && upgrade) ? ' open' : ''}>
+        <summary class="pp-card__toggle"><span class="tech-label tech-label--plain">${included.length} of ${store.moduleKeys.length} modules</span>${icon('chevron-down', 'icon--sm accordion__chev')}</summary>
         <ul class="pp-card__modules">
           ${store.moduleKeys.map(k => {
             const on = included.includes(k);
             return `<li class="${on ? 'is-on' : 'is-off'}${k === fromKey ? ' is-from' : ''}">${icon(on ? 'check' : 'lock', 'icon--sm')}<span>${esc(store.pageByKey(k).name)}</span><span class="sr-only">${on ? ' (included)' : ' (not included)'}</span></li>`;
           }).join('')}
         </ul>
+        </details>
         ${action}
       </article>`;
   }

@@ -1,4 +1,5 @@
-/* Shared page background: pure black with a flowing ribbon, drawn into the .backdrop SVGs. */
+/* Shared page background: midnight navy, aurora light and flowing light-trail ribbons.
+   Pages may include the .backdrop markup; if they don't, it is created here. */
 (() => {
   'use strict';
 
@@ -26,10 +27,11 @@
       stops.forEach(([offset, tone, alpha]) => el('stop', { offset, class: `ws-${tone}`, 'stop-opacity': alpha }, g));
     };
 
-    function ribbon(svg, id, A, B, { strands, fill = 0.55, strength = 1, shadow = false, tMax = 1 }) {
+    // tone 'pink' swaps the bright highlights for the pink trail colour.
+    function ribbon(svg, id, A, B, { strands, fill = 0.55, strength = 1, shadow = false, tMax = 1, tone = 'white' }) {
       const defs = el('defs', {}, svg);
-      gradient(defs, `${id}-body`, { x1: 0, y1: 0, x2: 0, y2: 1 }, [[0, 'white', 0.5], [0.14, 'silver', 0.42], [0.38, 'gray', 0.28], [0.72, 'dark', 0.55], [1, 'black', 0.85]]);
-      gradient(defs, `${id}-strand`, { gradientUnits: 'userSpaceOnUse', x1: -200, y1: 0, x2: 1800, y2: 0 }, [[0, 'silver', 0.35], [0.28, 'white', 1], [0.46, 'silver', 0.75], [0.6, 'white', 1], [0.8, 'gray', 0.65], [1, 'silver', 0.4]]);
+      gradient(defs, `${id}-body`, { x1: 0, y1: 0, x2: 0, y2: 1 }, [[0, tone, 0.42], [0.14, 'silver', 0.34], [0.38, 'gray', 0.26], [0.72, 'dark', 0.55], [1, 'black', 0.85]]);
+      gradient(defs, `${id}-strand`, { gradientUnits: 'userSpaceOnUse', x1: -200, y1: 0, x2: 1800, y2: 0 }, [[0, 'silver', 0.35], [0.28, tone, 1], [0.46, 'gray', 0.75], [0.6, tone, 1], [0.8, 'silver', 0.65], [1, 'gray', 0.4]]);
       gradient(defs, `${id}-fade`, { gradientUnits: 'userSpaceOnUse', x1: -200, y1: 0, x2: 1800, y2: 0 }, [[0, 'mask', 0], [0.16, 'mask', 1], [0.84, 'mask', 1], [1, 'mask', 0]]);
       const mask = el('mask', { id: `${id}-mask`, maskUnits: 'userSpaceOnUse', x: -400, y: -400, width: 2600, height: 1800 }, defs);
       el('rect', { x: -400, y: -400, width: 2600, height: 1800, fill: `url(#${id}-fade)` }, mask);
@@ -51,6 +53,7 @@
       }
     }
 
+    ensureMarkup();
     const back = document.querySelector('[data-wave="back"]');
     const front = document.querySelector('[data-wave="front"]');
     const sheen = document.querySelector('[data-wave="sheen"]');
@@ -58,9 +61,31 @@
 
     // Two quieter ribbons behind: one higher and flatter, one lower and fainter.
     ribbon(back, 'wb1', WAVE_TOP.map(([x, y]) => [x + 80, y * 0.7 - 40]), WAVE_BOT.map(([x, y]) => [x + 80, y * 0.66 - 10]), { strands: 34, fill: 0.45, strength: 0.8 });
-    ribbon(back, 'wb2', WAVE_TOP.map(([x, y]) => [x - 60, y * 0.85 + 250]), WAVE_BOT.map(([x, y]) => [x - 60, y * 0.8 + 300]), { strands: 22, fill: 0.3, strength: 0.45 });
+    ribbon(back, 'wb2', WAVE_TOP.map(([x, y]) => [x - 60, y * 0.85 + 250]), WAVE_BOT.map(([x, y]) => [x - 60, y * 0.8 + 300]), { strands: 22, fill: 0.3, strength: 0.5, tone: 'pink' });
     ribbon(front, 'wf', WAVE_TOP, WAVE_BOT, { strands: 60, fill: 0.55, shadow: true });
     ribbon(sheen, 'wsh', WAVE_TOP, WAVE_BOT, { strands: 26, fill: 0, strength: 1, tMax: 0.5 });
+  }
+
+  function ensureMarkup() {
+    let host = document.querySelector('[data-backdrop]');
+    if (!host) {
+      host = document.createElement('div');
+      host.className = 'backdrop';
+      host.setAttribute('aria-hidden', 'true');
+      host.dataset.backdrop = '';
+      host.innerHTML = ['back', 'front', 'sheen'].map(k => `<svg class="wave wave--${k}" data-wave="${k}" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" focusable="false"></svg>`).join('');
+      document.body.prepend(host);
+    }
+    let aurora = host.querySelector('.backdrop__aurora');
+    if (!aurora) {
+      aurora = document.createElement('div');
+      aurora.className = 'backdrop__aurora';
+      host.prepend(aurora);
+    }
+    // Layered parallax (ScrollTransform in motion.js): far layers drift less than near ones.
+    const speeds = { aurora: '-0.04', back: '-0.08', front: '-0.14', sheen: '-0.14' };
+    aurora.dataset.scrollSpeed = speeds.aurora;
+    host.querySelectorAll('[data-wave]').forEach(svg => { svg.dataset.scrollSpeed = speeds[svg.dataset.wave]; });
   }
 
   initWave();

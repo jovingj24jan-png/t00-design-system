@@ -15,6 +15,12 @@
 
   const translations = {
     en: {
+      mqAttendance: 'Attendance in one tap',
+      mqObservations: 'Daily observations',
+      mqMessages: 'Parent messages',
+      mqGallery: 'Class gallery',
+      mqFees: 'Fees and receipts',
+      mqRatios: 'Live staff ratios',
       pageTitle: 'Sign in',
       taglineStart: 'Every child, every day, ',
       taglineAccent: 'in one place.',
@@ -107,6 +113,12 @@
       passwordUpdated: 'Password updated. Please sign in.'
     },
     ta: {
+      mqAttendance: 'ஒரே தொடுதலில் வருகை',
+      mqObservations: 'தினசரி கவனிப்புகள்',
+      mqMessages: 'பெற்றோர் செய்திகள்',
+      mqGallery: 'வகுப்பு படங்கள்',
+      mqFees: 'கட்டணம் மற்றும் ரசீதுகள்',
+      mqRatios: 'நேரடி ஆசிரியர் விகிதம்',
       pageTitle: 'உள்நுழைவு',
       taglineStart: 'ஒவ்வொரு குழந்தையும், ஒவ்வொரு நாளும், ',
       taglineAccent: 'ஒரே இடத்தில்.',
@@ -199,6 +211,12 @@
       passwordUpdated: 'கடவுச்சொல் புதுப்பிக்கப்பட்டது. உள்நுழையவும்.'
     },
     ar: {
+      mqAttendance: 'الحضور بلمسة واحدة',
+      mqObservations: 'ملاحظات يومية',
+      mqMessages: 'رسائل أولياء الأمور',
+      mqGallery: 'معرض الصف',
+      mqFees: 'الرسوم والإيصالات',
+      mqRatios: 'نسب الموظفين المباشرة',
       pageTitle: 'تسجيل الدخول',
       taglineStart: 'كل طفل، كل يوم، ',
       taglineAccent: 'في مكان واحد.',
