@@ -548,10 +548,20 @@
     };
   }
 
-  const getChildren = (schoolId = school.id) => seeded(childrenKey(schoolId), () => [
-    ...rosterSeed.map((s, i) => seedChild(s, i)),
-    ...SEED_EXTRA.map((x, i) => seedChild(x, rosterSeed.length + i, x))
-  ]);
+  // Seeded on first read; older saved records are brought up to the S13 profile shape (saved without an event).
+  function getChildren(schoolId = school.id) {
+    const list = seeded(childrenKey(schoolId), () => [
+      ...rosterSeed.map((s, i) => seedChild(s, i)),
+      ...SEED_EXTRA.map((x, i) => seedChild(x, rosterSeed.length + i, x))
+    ]);
+    const guardians = read(guardiansKey(schoolId), []);
+    let changed = false;
+    list.forEach((c, i) => { if (normaliseChild(c, i, guardians)) changed = true; });
+    if (changed) {
+      try { localStorage.setItem(guardiansKey(schoolId), JSON.stringify(guardians)); localStorage.setItem(childrenKey(schoolId), JSON.stringify(list)); } catch { /* storage blocked: shape stays in memory */ }
+    }
+    return list;
+  }
   const childById = id => getChildren().find(c => c.id === id) || null;
   const childName = c => `${c.firstName} ${c.lastName}`.trim();
   const activeRoster = () => getChildren().filter(c => c.status === 'active').map(c => ({ id: c.id, name: childName(c), cls: c.cls }));
@@ -595,6 +605,15 @@
       if (i < 0) return settle({ ok: false, reason: 'missing' });
       const before = list[i];
       child = { ...before, ...d, history: [...before.history, stamp(user, 'edited', before.cls !== d.cls ? `Details updated; class ${before.cls} → ${d.cls}` : 'Details updated')] };
+      // The S14 guardian fields edit the shared primary guardian record.
+      const link = before.guardianLinks?.find(l => l.primary);
+      if (link) {
+        const guardians = getGuardians();
+        const g = guardians.find(x => x.id === link.guardianId);
+        if (g) { Object.assign(g, { name: d.guardian.name, phone: d.guardian.phone, email: d.guardian.email }); write(guardiansKey(school.id), guardians); }
+        child.guardianLinks = before.guardianLinks.map(l => (l === link ? { ...l, relation: d.guardian.relation } : l));
+        list.forEach(x => { if (x.id !== child.id && x.guardianLinks?.some(l => l.guardianId === link.guardianId)) syncPrimary(x, guardians); });
+      }
       // A not-yet-started child becomes active once the start date is reached, and back again if it moves later.
       if (['active', 'starting'].includes(before.status)) child.status = d.startDate > today() ? 'starting' : 'active';
       list[i] = child;
@@ -602,6 +621,17 @@
       const dupe = list.find(c => c.firstName.toLowerCase() === d.firstName.toLowerCase() && c.lastName.toLowerCase() === d.lastName.toLowerCase() && c.dob === d.dob);
       if (dupe) return settle({ ok: false, reason: 'duplicate', child: dupe });
       child = { id: newId('ch'), ...d, status: d.startDate > today() ? 'starting' : 'active', photo: null, withdrawal: null, history: [stamp(user, 'enrolled', `Enrolled in ${d.cls}`)] };
+      const guardians = getGuardians();
+      const g = { id: newId('g'), name: d.guardian.name, phone: d.guardian.phone, email: d.guardian.email, prefers: 'phone' };
+      guardians.push(g);
+      if (!write(guardiansKey(school.id), guardians)) return settle({ ok: false, reason: 'storage' });
+      Object.assign(child, {
+        preferredName: '', keyTeacher: educators.find(e => e.cls === d.cls)?.name || '',
+        guardianLinks: [{ guardianId: g.id, relation: d.guardian.relation, primary: true }],
+        emergency: [], pickup: { authorised: [{ name: d.guardian.name, relation: d.guardian.relation, phone: d.guardian.phone }], verification: '', passcode: '' },
+        medications: [], careNotes: '', emergencyInstructions: '',
+        alerts: d.alerts.map(a => (a.type === 'custody' ? { ...a, restrictedPerson: '' } : ['allergy', 'medical'].includes(a.type) ? { ...a, severity: '', instructions: '' } : a))
+      });
       list.push(child);
     }
     return saveChildren(list) ? settle({ ok: true, child }) : settle({ ok: false, reason: 'storage' });
@@ -620,6 +650,8 @@
     targets.forEach(c => {
       if (c.cls === cls) return;
       c.history = [...c.history, stamp(user, 'moved', `Moved from ${c.cls} to ${cls}`)];
+      // A key teacher from the old class hands over to the new class's lead educator.
+      if (!c.keyTeacher || educators.some(e => e.name === c.keyTeacher && e.cls === c.cls)) c.keyTeacher = educators.find(e => e.cls === cls)?.name || '';
       c.cls = cls;
       moved += 1;
     });
@@ -662,6 +694,403 @@
     const msg = { id: newId('msg'), recipients, subject: subject.trim(), body: body.trim(), status: 'queued', createdAt: new Date().toISOString(), createdBy: user.name };
     return write(messagesKey(school.id), [msg, ...getFamilyMessages()]) ? settle({ ok: true, message: msg }) : settle({ ok: false, reason: 'storage' });
   }
+
+  /* ---------------------------------------------------------------- S13 child profile
+     Sections stored on the child record (normalised on read, so older saved records gain them):
+       preferredName, keyTeacher, photo (data URL, set from the profile),
+       guardianLinks [{ guardianId, relation, primary }] → shared guardian records (nexora-guardians),
+       emergency [{ name, relation, phone }], pickup { authorised [{ name, relation, phone }], verification, passcode },
+       medications [{ name, dose, storedAt }], careNotes, emergencyInstructions.
+     Safety alerts stay in `alerts` (one source for S12 icons, the S13 banner and the editors):
+       allergy/medical/dietary { type, detail, severity?, instructions? } · custody { type, detail, restrictedPerson? }.
+     Diary, learning, documents and consents are their own record sets keyed by child ID.
+     Every write checks the role (PROFILE_ACCESS) and is recorded in the audit log. */
+
+  const guardiansKey = id => `nexora-guardians:${id}`;
+  const auditKey = id => `nexora-audit:${id}`;
+  const diaryKey = id => `nexora-diary:${id}`;
+  const learningKey = id => `nexora-learning:${id}`;
+  const docsKey = id => `nexora-child-docs:${id}`;
+  const consentsKey = id => `nexora-consents:${id}`;
+
+  const LEADERS = ['Director', 'Admin', 'Super Admin'];
+  const CLASS_STAFF = ['Teacher', ...LEADERS];
+  // Who can see (view) and change (edit) each profile section. Tabs tied to a module also need the module's
+  // page role and the school's plan (module); safety alerts on the banner are never plan-locked.
+  const PROFILE_ACCESS = {
+    overview: { view: ['Teacher', 'Accountant', ...LEADERS], edit: LEADERS },
+    identity: { view: ['Teacher', 'Accountant', ...LEADERS], edit: LEADERS },
+    family: { view: ['Teacher', 'Accountant', ...LEADERS], edit: LEADERS },
+    emergency: { view: CLASS_STAFF, edit: LEADERS },
+    passcode: { view: CLASS_STAFF, edit: LEADERS },
+    custody: { view: CLASS_STAFF, edit: LEADERS },
+    medical: { view: CLASS_STAFF, edit: LEADERS },
+    attendance: { view: CLASS_STAFF, edit: [], module: 'attendance' },
+    diary: { view: CLASS_STAFF, edit: CLASS_STAFF },
+    learning: { view: CLASS_STAFF, edit: CLASS_STAFF, module: 'classroom-tracker' },
+    incidents: { view: ['Director', 'Super Admin'], edit: [], module: 'safeguarding' },
+    documents: { view: CLASS_STAFF, edit: LEADERS },
+    consents: { view: CLASS_STAFF, edit: LEADERS },
+    billing: { view: ['Director', 'Accountant', 'Admin', 'Super Admin'], edit: [], module: 'fees' }
+  };
+  const canView = (user, section) => Boolean(PROFILE_ACCESS[section]?.view.includes(user.role));
+  const canEditSection = (user, section) => Boolean(PROFILE_ACCESS[section]?.edit.includes(user.role));
+  const sectionModule = section => PROFILE_ACCESS[section]?.module || null;
+
+  function logAudit(user, action, childId, detail = '') {
+    const entry = { id: newId('au'), at: new Date().toISOString(), actorId: user.id, actorName: user.name, actorRole: user.role, action, childId, detail };
+    const list = read(auditKey(school.id), []);
+    list.unshift(entry);
+    write(auditKey(school.id), list.slice(0, 500));
+    return entry;
+  }
+  const getAudit = (childId = null) => read(auditKey(school.id), []).filter(e => !childId || e.childId === childId);
+
+  /* Guardians: shared records so siblings point at the same person; removing a link never deletes one. */
+  const getGuardians = () => read(guardiansKey(school.id), []);
+  const guardianById = id => getGuardians().find(g => g.id === id) || null;
+  const PROFILE_SEED = {
+    'Meera Singh': { restrictedPerson: 'Manjit Singh' },
+    'Aarav Sharma': { severity: 'severe', instructions: 'If symptoms appear: give EpiPen, call 108, then call parents.' },
+    'Navya Krishnan': { severity: 'severe' },
+    'Riya Sen': { medications: [{ name: 'Midazolam buccal', dose: 'As per seizure plan', storedAt: 'Office medicine cabinet' }] },
+    'Rohan Kumar': { medications: [{ name: 'Salbutamol inhaler', dose: '2 puffs before outdoor play', storedAt: 'Class bag' }] },
+    'Arjun Pillai': { medications: [{ name: 'Glucose tablets', dose: '1 if levels are low', storedAt: 'Office' }] }
+  };
+
+  // Brings any saved record up to the full profile shape. Returns true when it changed something.
+  function normaliseChild(c, i, guardians) {
+    let changed = false;
+    const set = (k, v) => { if (c[k] === undefined) { c[k] = v; changed = true; } };
+    const seed = PROFILE_SEED[childName(c)] || {};
+    set('preferredName', '');
+    set('keyTeacher', educators.find(e => e.cls === c.cls)?.name || '');
+    if (!c.guardianLinks) {
+      const findOrAdd = g => {
+        const key = `${g.name.toLowerCase()}|${String(g.phone).replace(/\D/g, '')}`;
+        let rec = guardians.find(x => `${x.name.toLowerCase()}|${x.phone.replace(/\D/g, '')}` === key);
+        if (!rec) { rec = { id: `g-${guardians.length + 1}`, name: g.name, phone: g.phone, email: g.email || '', prefers: 'phone' }; guardians.push(rec); }
+        return rec;
+      };
+      const primary = findOrAdd(c.guardian);
+      c.guardianLinks = [{ guardianId: primary.id, relation: c.guardian.relation, primary: true }];
+      // Most demo families have a second parent on file.
+      if (i % 3 !== 2) {
+        const other = c.guardian.relation === 'Mother' ? 'Father' : 'Mother';
+        const first = GUARDIAN_NAMES[(i + 7) % GUARDIAN_NAMES.length];
+        const second = findOrAdd({ name: `${first} ${c.lastName}`, phone: `+91 99${String(5000000 + i * 6151).slice(0, 3)} ${String(20000 + i * 1999).slice(-5)}`, email: '' });
+        c.guardianLinks.push({ guardianId: second.id, relation: other, primary: false });
+      }
+      changed = true;
+    }
+    if (!c.emergency) {
+      c.emergency = [{ name: `${GUARDIAN_NAMES[(i + 11) % GUARDIAN_NAMES.length]} ${c.lastName}`, relation: 'Grandparent', phone: `+91 97${String(3000000 + i * 4793).slice(0, 3)} ${String(30000 + i * 2711).slice(-5)}` }];
+      changed = true;
+    }
+    if (!c.pickup) {
+      const linked = c.guardianLinks.map(l => ({ g: guardians.find(x => x.id === l.guardianId), l })).filter(x => x.g);
+      c.pickup = {
+        authorised: linked.map(({ g, l }) => ({ name: g.name, relation: l.relation, phone: g.phone })),
+        verification: 'Photo ID for anyone not known to the class team. Call the primary guardian before releasing to someone new.',
+        passcode: String(1000 + ((i * 7919) % 9000))
+      };
+      changed = true;
+    }
+    set('medications', seed.medications || []);
+    set('careNotes', '');
+    set('emergencyInstructions', '');
+    c.alerts.forEach(a => {
+      if (a.type === 'custody' && a.restrictedPerson === undefined) { a.restrictedPerson = seed.restrictedPerson || ''; changed = true; }
+      if (['allergy', 'medical'].includes(a.type) && a.severity === undefined) { a.severity = a.type === 'allergy' ? (seed.severity || (/severe/i.test(a.detail) ? 'severe' : '')) : ''; changed = true; }
+      if (['allergy', 'medical'].includes(a.type) && a.instructions === undefined) { a.instructions = a.type === 'allergy' ? (seed.instructions || '') : ''; changed = true; }
+    });
+    return changed;
+  }
+
+  // Keeps the denormalised `guardian` (used by S12 search, CSV and S31) equal to the primary link.
+  function syncPrimary(c, guardians = getGuardians()) {
+    const link = c.guardianLinks.find(l => l.primary) || c.guardianLinks[0];
+    const g = link && guardians.find(x => x.id === link.guardianId);
+    c.guardian = g ? { name: g.name, relation: link.relation, phone: g.phone, email: g.email } : { name: '', relation: '', phone: '', email: '' };
+  }
+
+  // Profile view of one child: record + linked guardians resolved.
+  function childProfile(id) {
+    const c = childById(id);
+    if (!c) return null;
+    const guardians = getGuardians();
+    return { ...c, guardians: c.guardianLinks.map(l => ({ ...guardians.find(g => g.id === l.guardianId), relation: l.relation, primary: l.primary })).filter(g => g.id) };
+  }
+
+  const clean = v => String(v ?? '').trim();
+  const isDate = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+  const phoneOk = v => clean(v).replace(/\D/g, '').length >= 10;
+  const emailOk = v => !clean(v) || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(clean(v));
+  const SEVERITIES_MED = ['severe', 'moderate', 'mild'];
+
+  // Section validators: return { values, errors }. Row lists report errors as `rows.<index>.<field>`.
+  const rowsCheck = (rows, rules, max = 8) => {
+    const errors = {};
+    const values = (rows || []).slice(0, max).map((r, i) => {
+      const out = {};
+      Object.entries(rules).forEach(([k, rule]) => {
+        out[k] = clean(r[k]);
+        const msg = rule(out[k], r);
+        if (msg) errors[`rows.${i}.${k}`] = msg;
+      });
+      return out;
+    });
+    return { values, errors };
+  };
+  const req = label => v => (v ? '' : `Enter ${label}.`);
+  const phoneRule = v => (phoneOk(v) ? '' : 'Enter a phone number with at least 10 digits.');
+
+  const SECTION_RULES = {
+    identity(v, c) {
+      const errors = {};
+      const values = { firstName: clean(v.firstName), lastName: clean(v.lastName), preferredName: clean(v.preferredName), dob: clean(v.dob), startDate: clean(v.startDate), keyTeacher: clean(v.keyTeacher) };
+      if (!values.firstName) errors.firstName = 'Enter the child’s first name.';
+      if (!values.lastName) errors.lastName = 'Enter the child’s last name.';
+      if (!isDate(values.dob) || values.dob >= today()) errors.dob = 'Enter a date of birth in the past.';
+      if (!isDate(values.startDate)) errors.startDate = 'Enter a start date.';
+      if (values.keyTeacher && !educators.some(e => e.name === values.keyTeacher)) errors.keyTeacher = 'Choose a teacher from the list.';
+      if (v.photo !== undefined) {
+        if (v.photo && !/^data:image\/(png|jpeg|webp);base64,/.test(v.photo)) errors.photo = 'Use a PNG, JPEG or WebP image.';
+        else if (v.photo && v.photo.length > 700000) errors.photo = 'Use an image under 500 KB.';
+        else values.photo = v.photo || null;
+      }
+      void c;
+      return { values, errors };
+    },
+    emergency: v => rowsCheck(v.rows, { name: req('a name'), relation: req('the relationship'), phone: phoneRule }, 4),
+    pickup(v) {
+      const r = rowsCheck(v.rows, { name: req('a name'), relation: req('the relationship'), phone: phoneRule }, 8);
+      r.values = { authorised: r.values, verification: clean(v.verification) };
+      return r;
+    },
+    custody: v => rowsCheck(v.rows, { detail: req('the restriction or court-order note'), restrictedPerson: () => '' }, 4),
+    passcode(v) {
+      const p = clean(v.passcode);
+      return { values: { passcode: p }, errors: /^\d{4,8}$/.test(p) ? {} : { passcode: 'Use 4 to 8 digits.' } };
+    },
+    allergies: v => rowsCheck(v.rows, { detail: req('the allergy'), severity: s => (SEVERITIES_MED.includes(s) ? '' : 'Choose a severity.'), instructions: () => '' }),
+    conditions: v => rowsCheck(v.rows, { detail: req('the condition'), instructions: () => '' }),
+    medications: v => rowsCheck(v.rows, { name: req('the medication'), dose: () => '', storedAt: () => '' }),
+    dietary: v => rowsCheck(v.rows, { detail: req('the dietary need') }),
+    care: v => ({ values: { careNotes: clean(v.careNotes).slice(0, 2000), emergencyInstructions: clean(v.emergencyInstructions).slice(0, 2000) }, errors: {} })
+  };
+  // Which access rule guards each editable section.
+  const SECTION_GUARD = { identity: 'identity', emergency: 'emergency', pickup: 'emergency', custody: 'custody', passcode: 'passcode', allergies: 'medical', conditions: 'medical', medications: 'medical', dietary: 'medical', care: 'medical' };
+  const SECTION_LABEL = { identity: 'Child details', emergency: 'Emergency contacts', pickup: 'Authorised pickup', custody: 'Pickup restrictions', passcode: 'Pickup passcode', allergies: 'Allergies', conditions: 'Medical conditions', medications: 'Medication', dietary: 'Dietary needs', care: 'Care notes' };
+
+  // Saves one section of one child. Only that section's fields change.
+  function updateChildSection(user, id, section, input) {
+    const guard = SECTION_GUARD[section];
+    if (!guard || !canEditSection(user, guard)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getChildren();
+    const c = list.find(x => x.id === id);
+    if (!c) return settle({ ok: false, reason: 'missing' });
+    if (!classScope(user).includes(c.cls)) return settle({ ok: false, reason: 'forbidden' });
+    const { values, errors } = SECTION_RULES[section](input, c);
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const keepAlerts = types => c.alerts.filter(a => !types.includes(a.type));
+    switch (section) {
+      case 'identity': Object.assign(c, values); break;
+      case 'emergency': c.emergency = values; break;
+      case 'pickup': c.pickup = { ...c.pickup, ...values }; break;
+      case 'passcode': c.pickup = { ...c.pickup, passcode: values.passcode }; break;
+      case 'custody': c.alerts = [...keepAlerts(['custody']), ...values.map(r => ({ type: 'custody', detail: r.detail, restrictedPerson: r.restrictedPerson }))]; break;
+      case 'allergies': c.alerts = [...keepAlerts(['allergy']), ...values.map(r => ({ type: 'allergy', ...r }))]; break;
+      case 'conditions': c.alerts = [...keepAlerts(['medical']), ...values.map(r => ({ type: 'medical', detail: r.detail, severity: '', instructions: r.instructions }))]; break;
+      case 'dietary': c.alerts = [...keepAlerts(['dietary']), ...values.map(r => ({ type: 'dietary', detail: r.detail }))]; break;
+      case 'medications': c.medications = values; break;
+      case 'care': Object.assign(c, values); break;
+    }
+    // Passcodes are never written to history or the audit detail.
+    c.history = [...c.history, stamp(user, 'edited', `${SECTION_LABEL[section]} updated`)];
+    if (!saveChildren(list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, `edit:${section}`, id, `${SECTION_LABEL[section]} updated`);
+    return settle({ ok: true, child: c });
+  }
+
+  // Guardians: add or edit one guardian for a child, or remove the link (the guardian record stays).
+  function saveGuardianLink(user, childId, input, guardianId = null) {
+    if (!canEditSection(user, 'family')) return settle({ ok: false, reason: 'forbidden' });
+    const values = { name: clean(input.name), relation: clean(input.relation), phone: clean(input.phone), email: clean(input.email), prefers: clean(input.prefers) || 'phone', primary: Boolean(input.primary) };
+    const errors = {};
+    if (!values.name) errors.name = 'Enter the guardian’s name.';
+    if (!values.relation) errors.relation = 'Choose the relationship.';
+    if (!phoneOk(values.phone)) errors.phone = 'Enter a phone number with at least 10 digits.';
+    if (!emailOk(values.email)) errors.email = 'Enter a valid email or leave it blank.';
+    if (!['phone', 'whatsapp', 'email'].includes(values.prefers)) errors.prefers = 'Choose how they prefer to be contacted.';
+    if (values.prefers === 'email' && !values.email) errors.email = 'Add an email to use it as the preferred contact.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const list = getChildren();
+    const c = list.find(x => x.id === childId);
+    if (!c) return settle({ ok: false, reason: 'missing' });
+    const guardians = getGuardians();
+    let g = guardianId && guardians.find(x => x.id === guardianId);
+    if (g) Object.assign(g, { name: values.name, phone: values.phone, email: values.email, prefers: values.prefers });
+    else {
+      g = { id: newId('g'), name: values.name, phone: values.phone, email: values.email, prefers: values.prefers };
+      guardians.push(g);
+    }
+    let link = c.guardianLinks.find(l => l.guardianId === g.id);
+    if (!link) { link = { guardianId: g.id, relation: values.relation, primary: false }; c.guardianLinks.push(link); }
+    link.relation = values.relation;
+    if (values.primary || c.guardianLinks.length === 1) c.guardianLinks.forEach(l => { l.primary = l === link; });
+    // Shared record changed: refresh every linked child's primary snapshot.
+    list.forEach(x => { if (x.guardianLinks?.some(l => l.guardianId === g.id)) syncPrimary(x, guardians); });
+    c.history = [...c.history, stamp(user, 'edited', `${guardianId ? 'Guardian updated' : 'Guardian added'}: ${g.name}`)];
+    if (!write(guardiansKey(school.id), guardians) || !saveChildren(list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, guardianId ? 'edit:guardian' : 'add:guardian', childId, g.name);
+    return settle({ ok: true, guardian: g });
+  }
+  function unlinkGuardian(user, childId, guardianId) {
+    if (!canEditSection(user, 'family')) return settle({ ok: false, reason: 'forbidden' });
+    const list = getChildren();
+    const c = list.find(x => x.id === childId);
+    if (!c) return settle({ ok: false, reason: 'missing' });
+    if (c.guardianLinks.length <= 1) return settle({ ok: false, reason: 'last', message: 'A child needs at least one guardian. Add another before removing this one.' });
+    const link = c.guardianLinks.find(l => l.guardianId === guardianId);
+    if (!link) return settle({ ok: false, reason: 'missing' });
+    c.guardianLinks = c.guardianLinks.filter(l => l !== link);
+    if (link.primary) c.guardianLinks[0].primary = true;
+    syncPrimary(c);
+    const g = guardianById(guardianId);
+    c.history = [...c.history, stamp(user, 'edited', `Guardian removed from this child: ${g?.name || guardianId}`)];
+    if (!saveChildren(list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'unlink:guardian', childId, g?.name || guardianId);
+    return settle({ ok: true });
+  }
+
+  // Pickup passcode: only for authorised roles, and every reveal is audited (the code itself is never logged).
+  function revealPasscode(user, childId) {
+    const c = childById(childId);
+    if (!c) return settle({ ok: false, reason: 'missing' });
+    if (!canView(user, 'passcode') || !classScope(user).includes(c.cls)) return settle({ ok: false, reason: 'forbidden' });
+    const entry = logAudit(user, 'reveal:passcode', childId, 'Pickup passcode revealed');
+    return settle({ ok: true, passcode: c.pickup?.passcode || '', audit: entry });
+  }
+
+  /* Diary + learning: entries added by class staff. Learning uses the Montessori presentation stages. */
+  const LEARNING_STAGES = { introduced: 'Introduced', practising: 'Practising', mastered: 'Mastered' };
+  const LEARNING_AREAS = ['Practical life', 'Sensorial', 'Language', 'Mathematics', 'Culture'];
+  const getDiary = childId => read(diaryKey(school.id), []).filter(e => e.childId === childId).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+  const getLearning = childId => read(learningKey(school.id), []).filter(e => e.childId === childId).sort((a, b) => b.date.localeCompare(a.date));
+  function saveEntry(kind, user, childId, input, entryId = null) {
+    const section = kind === 'diary' ? 'diary' : 'learning';
+    if (!canEditSection(user, section) || (sectionModule(section) && !isEntitled(sectionModule(section)))) return settle({ ok: false, reason: 'forbidden' });
+    const c = childById(childId);
+    if (!c || !classScope(user).includes(c.cls)) return settle({ ok: false, reason: 'forbidden' });
+    const errors = {};
+    let values;
+    if (kind === 'diary') {
+      values = { date: clean(input.date), title: clean(input.title), meals: clean(input.meals), rest: clean(input.rest), notes: clean(input.notes) };
+      if (!isDate(values.date) || values.date > today()) errors.date = 'Enter today or an earlier date.';
+      if (!values.title) errors.title = 'Give the entry a short title.';
+      if (!values.notes && !values.meals && !values.rest) errors.notes = 'Add notes, meals or rest.';
+    } else {
+      values = { date: clean(input.date), area: clean(input.area), material: clean(input.material), stage: clean(input.stage), observation: clean(input.observation) };
+      if (!isDate(values.date) || values.date > today()) errors.date = 'Enter today or an earlier date.';
+      if (!LEARNING_AREAS.includes(values.area)) errors.area = 'Choose a learning area.';
+      if (!values.material) errors.material = 'Enter the activity or material.';
+      if (!LEARNING_STAGES[values.stage]) errors.stage = 'Choose a stage.';
+    }
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const key = kind === 'diary' ? diaryKey(school.id) : learningKey(school.id);
+    const all = read(key, []);
+    let entry = entryId && all.find(e => e.id === entryId && e.childId === childId);
+    if (entry) Object.assign(entry, values, { updatedAt: new Date().toISOString(), updatedBy: user.name });
+    else { entry = { id: newId(kind === 'diary' ? 'dy' : 'ln'), childId, ...values, author: user.name, createdAt: new Date().toISOString() }; all.push(entry); }
+    if (!write(key, all)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, `${entryId ? 'edit' : 'add'}:${kind}`, childId, values.title || values.material);
+    return settle({ ok: true, entry });
+  }
+
+  /* Documents: real files only (PDF, JPEG, PNG up to 1 MB), stored as data URLs on this device. */
+  const DOC_TYPES = { 'application/pdf': 'PDF', 'image/jpeg': 'JPEG', 'image/png': 'PNG' };
+  const DOC_CATEGORIES = ['Birth certificate', 'Immunisation record', 'Medical plan', 'Court order', 'Address proof', 'Other'];
+  const DOC_MAX = 1024 * 1024;
+  const getDocuments = childId => read(docsKey(school.id), []).filter(d => d.childId === childId).sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+  function addDocument(user, childId, input) {
+    if (!canEditSection(user, 'documents')) return settle({ ok: false, reason: 'forbidden' });
+    const errors = {};
+    const values = { name: clean(input.name), category: clean(input.category), expiry: clean(input.expiry), fileName: clean(input.fileName), mime: clean(input.mime), size: Number(input.size) || 0, data: String(input.data || '') };
+    if (!values.data) errors.file = 'Choose a file to upload.';
+    else if (!DOC_TYPES[values.mime]) errors.file = 'Upload a PDF, JPEG or PNG file.';
+    else if (values.size > DOC_MAX) errors.file = 'Upload a file of 1 MB or less.';
+    if (!values.name) errors.name = 'Give the document a name.';
+    if (!DOC_CATEGORIES.includes(values.category)) errors.category = 'Choose a category.';
+    if (values.expiry && !isDate(values.expiry)) errors.expiry = 'Enter a valid date or leave it blank.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const doc = { id: newId('doc'), childId, ...values, status: 'unverified', uploadedAt: new Date().toISOString(), uploadedBy: user.name };
+    if (!write(docsKey(school.id), [...read(docsKey(school.id), []), doc])) return settle({ ok: false, reason: 'storage', message: 'This file is too large to keep on this device. Try a smaller file.' });
+    logAudit(user, 'add:document', childId, values.name);
+    return settle({ ok: true, document: doc });
+  }
+  function verifyDocument(user, childId, docId, verified) {
+    if (!canEditSection(user, 'documents')) return settle({ ok: false, reason: 'forbidden' });
+    const all = read(docsKey(school.id), []);
+    const d = all.find(x => x.id === docId && x.childId === childId);
+    if (!d) return settle({ ok: false, reason: 'missing' });
+    Object.assign(d, { status: verified ? 'verified' : 'unverified', verifiedBy: verified ? user.name : null, verifiedAt: verified ? new Date().toISOString() : null });
+    if (!write(docsKey(school.id), all)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, verified ? 'verify:document' : 'unverify:document', childId, d.name);
+    return settle({ ok: true, document: d });
+  }
+
+  /* Consents: one record per category; a category with no record is Pending, never Granted. */
+  const CONSENT_TYPES = [
+    { id: 'photos-gallery', label: 'Photos in the parent gallery' },
+    { id: 'photos-social', label: 'Photos on school social media' },
+    { id: 'outings', label: 'Local walks and outings' },
+    { id: 'first-aid', label: 'Emergency medical treatment' },
+    { id: 'sun-cream', label: 'Applying sun cream' },
+    { id: 'sharing', label: 'Sharing records with specialists' }
+  ];
+  const CONSENT_STATUSES = { granted: 'Granted', pending: 'Pending', declined: 'Declined', expired: 'Expired' };
+  function getConsents(childId) {
+    const saved = read(consentsKey(school.id), []).filter(x => x.childId === childId);
+    return CONSENT_TYPES.map(t => {
+      const r = saved.find(x => x.type === t.id);
+      if (!r) return { type: t.id, label: t.label, status: 'pending', respondedBy: '', date: '', expires: '' };
+      const status = r.status === 'granted' && r.expires && r.expires < today() ? 'expired' : r.status;
+      return { ...r, label: t.label, status };
+    });
+  }
+  function saveConsent(user, childId, input) {
+    if (!canEditSection(user, 'consents')) return settle({ ok: false, reason: 'forbidden' });
+    const values = { type: clean(input.type), status: clean(input.status), respondedBy: clean(input.respondedBy), date: clean(input.date), expires: clean(input.expires) };
+    const errors = {};
+    if (!CONSENT_TYPES.some(t => t.id === values.type)) errors.type = 'Unknown consent.';
+    if (!['granted', 'declined', 'pending'].includes(values.status)) errors.status = 'Choose a response.';
+    if (values.status !== 'pending' && !values.respondedBy) errors.respondedBy = 'Choose which guardian responded.';
+    if (values.status !== 'pending' && (!isDate(values.date) || values.date > today())) errors.date = 'Enter the date of the response.';
+    if (values.expires && (!isDate(values.expires) || (values.date && values.expires <= values.date))) errors.expires = 'The expiry must be after the response date.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const all = read(consentsKey(school.id), []).filter(x => !(x.childId === childId && x.type === values.type));
+    all.push({ childId, ...values, recordedBy: user.name, recordedAt: new Date().toISOString() });
+    if (!write(consentsKey(school.id), all)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'edit:consent', childId, `${CONSENT_TYPES.find(t => t.id === values.type).label}: ${CONSENT_STATUSES[values.status]}`);
+    return settle({ ok: true });
+  }
+
+  /* Attendance: only registers actually saved on this device (no invented history). */
+  function attendanceFor(childId) {
+    const prefix = `nexora-register:${school.id}:`;
+    const out = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k?.startsWith(prefix)) continue;
+        const reg = read(k, {});
+        Object.entries(reg).forEach(([cls, r]) => { if (r?.marks?.[childId]) out.push({ date: k.slice(prefix.length), cls, mark: r.marks[childId], takenBy: r.takenBy, takenAt: r.takenAt }); });
+      }
+    } catch { /* storage blocked */ }
+    return out.sort((a, b) => b.date.localeCompare(a.date));
+  }
+
   // Any child on record (including withdrawn), so past invoices and incidents keep their names.
   const studentById = id => { const c = childById(id); return c ? { id: c.id, name: childName(c), cls: c.cls } : null; };
 
@@ -1165,6 +1594,34 @@
     saveChildPrefs,
     getFamilyMessages,
     saveFamilyMessage,
+    PROFILE_ACCESS,
+    canView,
+    canEditSection,
+    sectionModule,
+    childProfile,
+    getGuardians,
+    updateChildSection,
+    saveGuardianLink,
+    unlinkGuardian,
+    revealPasscode,
+    getAudit,
+    LEARNING_STAGES,
+    LEARNING_AREAS,
+    getDiary,
+    getLearning,
+    saveDiaryEntry: (user, childId, input, id) => saveEntry('diary', user, childId, input, id),
+    saveLearningEntry: (user, childId, input, id) => saveEntry('learning', user, childId, input, id),
+    DOC_TYPES,
+    DOC_CATEGORIES,
+    DOC_MAX,
+    getDocuments,
+    addDocument,
+    verifyDocument,
+    CONSENT_TYPES,
+    CONSENT_STATUSES,
+    getConsents,
+    saveConsent,
+    attendanceFor,
     rosterClasses,
     studentById,
     educators,

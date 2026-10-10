@@ -34,7 +34,9 @@
   const photo = (c, cls = '') => c.photo
     ? `<img class="kid-photo ${cls}" src="${esc(c.photo)}" alt="" width="64" height="64">`
     : `<span class="kid-photo kid-photo--initials ${cls}" aria-hidden="true">${esc(initials(c))}</span>`;
-  const alertLabel = a => `${store.ALERT_TYPES[a.type]}: ${a.detail}`;
+  const custodyHidden = a => a.type === 'custody' && !store.canView(store.currentUser(), 'custody');
+  const alertText = a => (custodyHidden(a) ? 'Restriction on file. Details are limited to class staff and school leaders.' : a.type === 'custody' && a.restrictedPerson ? `Do not release to: ${a.restrictedPerson}. ${a.detail}` : a.detail);
+  const alertLabel = a => `${store.ALERT_TYPES[a.type]}: ${alertText(a)}`;
   const alertsHtml = c => c.alerts.length
     ? `<ul class="kid-alerts" aria-label="Safety alerts for ${esc(name(c))}">${c.alerts.map((a, i) => `<li><button class="kid-alert kid-alert--${a.type}" type="button" data-alert="${esc(c.id)}:${i}" aria-label="${esc(alertLabel(a))}" aria-describedby="kids-tip" aria-expanded="false">${icon(ALERT_ICON[a.type])}</button></li>`).join('')}</ul>`
     : '<span class="kid-alerts kid-alerts--none">No alerts</span>';
@@ -586,7 +588,7 @@
       const a = store.childById(id)?.alerts[Number(idx)];
       if (!a) return;
       if (tipFor && tipFor !== btn) tipFor.setAttribute('aria-expanded', 'false');
-      tip.innerHTML = `<span class="kids-tip__type kids-tip__type--${a.type}">${icon(ALERT_ICON[a.type], 'icon--sm')}${esc(store.ALERT_TYPES[a.type])}</span><span>${esc(a.detail)}</span>`;
+      tip.innerHTML = `<span class="kids-tip__type kids-tip__type--${a.type}">${icon(ALERT_ICON[a.type], 'icon--sm')}${esc(store.ALERT_TYPES[a.type])}</span><span>${esc(alertText(a))}</span>`;
       tip.hidden = false;
       tip.dataset.pinned = pinned ? '1' : '';
       btn.setAttribute('aria-expanded', 'true');
@@ -807,7 +809,9 @@
       if (!families.has(k)) families.set(k, { key: k, guardian: c.guardian, children: [] });
       families.get(k).children.push(name(c));
     };
-    kids.forEach(addFamily);
+    // From a child profile (?family=all) every linked guardian is a recipient; from S12 bulk, the primary guardian.
+    if (params.get('family') === 'all') kids.forEach(c => (store.childProfile(c.id)?.guardians || []).forEach(g => addFamily({ ...c, guardian: g })));
+    else kids.forEach(addFamily);
     const directory = store.getChildren().filter(c => scope.includes(c.cls) && ['active', 'starting'].includes(c.status));
 
     document.title = 'Message families · Nexora';
@@ -910,5 +914,5 @@
     return false;
   }
 
-  window.NexoraChildren = { render, downloadCsv };
+  window.NexoraChildren = { render, downloadCsv, dialog, field, moveDialog, withdrawDialog };
 })();
