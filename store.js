@@ -194,6 +194,9 @@
     // School pages that every plan includes. S17 and S58 read the same records the S05 setup saves.
     children: { name: 'Children', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Every child in the school: find anyone in seconds and see safety alerts at a glance.' },
     enrol: { name: 'Enrol child', icon: 'user-plus', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Add a child to the school, or edit an existing child’s details.' },
+    waitlist: { name: 'Waitlist', icon: 'clock', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Children waiting for a seat in a full class.' },
+    families: { name: 'Families', icon: 'users', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Households, guardians and the children they’re linked to.' },
+    roster: { name: 'Class rosters', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Who is in each class, with capacity and schedules.' },
     compose: { name: 'Message families', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Write to selected families. Prototype: messages are saved, not delivered.' },
     classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Every class in your school, with level, section and capacity.' },
     settings: { name: 'Settings', icon: 'grid', roles: ['Director', 'Admin', 'Super Admin'], summary: 'School details, academic year, school hours and preferences.' },
@@ -578,65 +581,6 @@
   function saveChildren(list, schoolId = school.id) { return write(childrenKey(schoolId), list); }
   const stamp = (user, action, detail) => ({ at: new Date().toISOString(), by: user.name, action, detail });
 
-  // S14 enrol (no id) and edit (id). Returns { ok, child } or { ok: false, reason, errors }.
-  function saveChild(user, data, id = null) {
-    if (!canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
-    const clean = v => String(v ?? '').trim();
-    const d = {
-      firstName: clean(data.firstName), lastName: clean(data.lastName), dob: clean(data.dob), cls: clean(data.cls), startDate: clean(data.startDate),
-      guardian: { name: clean(data.guardianName), relation: clean(data.guardianRelation) || 'Parent', phone: clean(data.guardianPhone), email: clean(data.guardianEmail) },
-      alerts: (data.alerts || []).filter(a => ALERT_TYPES[a.type] && clean(a.detail)).map(a => ({ type: a.type, detail: clean(a.detail) }))
-    };
-    const errors = {};
-    if (!d.firstName) errors.firstName = 'Enter the child’s first name.';
-    if (!d.lastName) errors.lastName = 'Enter the child’s last name.';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.dob) || d.dob >= today()) errors.dob = 'Enter a date of birth in the past.';
-    if (!classByName(d.cls)) errors.cls = 'Choose a class.';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.startDate)) errors.startDate = 'Enter a start date.';
-    if (!d.guardian.name) errors.guardianName = 'Enter the primary guardian’s name.';
-    if (d.guardian.phone.replace(/\D/g, '').length < 10) errors.guardianPhone = 'Enter a phone number with at least 10 digits.';
-    if (d.guardian.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(d.guardian.email)) errors.guardianEmail = 'Enter a valid email or leave it blank.';
-    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
-
-    const list = getChildren();
-    let child;
-    if (id) {
-      const i = list.findIndex(c => c.id === id);
-      if (i < 0) return settle({ ok: false, reason: 'missing' });
-      const before = list[i];
-      child = { ...before, ...d, history: [...before.history, stamp(user, 'edited', before.cls !== d.cls ? `Details updated; class ${before.cls} → ${d.cls}` : 'Details updated')] };
-      // The S14 guardian fields edit the shared primary guardian record.
-      const link = before.guardianLinks?.find(l => l.primary);
-      if (link) {
-        const guardians = getGuardians();
-        const g = guardians.find(x => x.id === link.guardianId);
-        if (g) { Object.assign(g, { name: d.guardian.name, phone: d.guardian.phone, email: d.guardian.email }); write(guardiansKey(school.id), guardians); }
-        child.guardianLinks = before.guardianLinks.map(l => (l === link ? { ...l, relation: d.guardian.relation } : l));
-        list.forEach(x => { if (x.id !== child.id && x.guardianLinks?.some(l => l.guardianId === link.guardianId)) syncPrimary(x, guardians); });
-      }
-      // A not-yet-started child becomes active once the start date is reached, and back again if it moves later.
-      if (['active', 'starting'].includes(before.status)) child.status = d.startDate > today() ? 'starting' : 'active';
-      list[i] = child;
-    } else {
-      const dupe = list.find(c => c.firstName.toLowerCase() === d.firstName.toLowerCase() && c.lastName.toLowerCase() === d.lastName.toLowerCase() && c.dob === d.dob);
-      if (dupe) return settle({ ok: false, reason: 'duplicate', child: dupe });
-      child = { id: newId('ch'), ...d, status: d.startDate > today() ? 'starting' : 'active', photo: null, withdrawal: null, history: [stamp(user, 'enrolled', `Enrolled in ${d.cls}`)] };
-      const guardians = getGuardians();
-      const g = { id: newId('g'), name: d.guardian.name, phone: d.guardian.phone, email: d.guardian.email, prefers: 'phone' };
-      guardians.push(g);
-      if (!write(guardiansKey(school.id), guardians)) return settle({ ok: false, reason: 'storage' });
-      Object.assign(child, {
-        preferredName: '', keyTeacher: educators.find(e => e.cls === d.cls)?.name || '',
-        guardianLinks: [{ guardianId: g.id, relation: d.guardian.relation, primary: true }],
-        emergency: [], pickup: { authorised: [{ name: d.guardian.name, relation: d.guardian.relation, phone: d.guardian.phone }], verification: '', passcode: '' },
-        medications: [], careNotes: '', emergencyInstructions: '',
-        alerts: d.alerts.map(a => (a.type === 'custody' ? { ...a, restrictedPerson: '' } : ['allergy', 'medical'].includes(a.type) ? { ...a, severity: '', instructions: '' } : a))
-      });
-      list.push(child);
-    }
-    return saveChildren(list) ? settle({ ok: true, child }) : settle({ ok: false, reason: 'storage' });
-  }
-
   // Moves one or more children together: if any child can't move, nothing is saved.
   function moveChildren(user, ids, cls) {
     if (!canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
@@ -797,11 +741,24 @@
       changed = true;
     }
     set('medications', seed.medications || []);
+    set('gender', '');
+    set('languages', []);
+    set('nationality', '');
+    set('schedule', null);
+    set('immunisations', []);
+    set('doctor', { name: '', clinic: '', phone: '', notes: '' });
+    set('dietaryNotes', '');
+    set('liftedRestrictions', []);
+    set('restrictionsDeclared', c.alerts.some(a => a.type === 'custody') ? 'recorded' : 'unknown');
+    set('healthDeclared', { allergies: c.alerts.some(a => a.type === 'allergy') ? 'recorded' : 'unknown', conditions: c.alerts.some(a => a.type === 'medical') ? 'recorded' : 'unknown', medications: (c.medications || seed.medications || []).length ? 'recorded' : 'unknown' });
+    if (c.pickup) c.pickup.authorised.forEach(p => { if (p.status === undefined) { p.status = 'authorised'; p.idRef = ''; changed = true; } });
+    c.medications.forEach(m => { if (m.consent === undefined) { m.consent = 'pending'; m.schedule = m.schedule || ''; m.notes = m.notes || ''; changed = true; } });
+    c.guardianLinks.forEach(l => { if (l.livesWith === undefined) { l.livesWith = null; l.responsibility = null; changed = true; } });
     set('careNotes', '');
     set('emergencyInstructions', '');
     c.alerts.forEach(a => {
       if (a.type === 'custody' && a.restrictedPerson === undefined) { a.restrictedPerson = seed.restrictedPerson || ''; changed = true; }
-      if (['allergy', 'medical'].includes(a.type) && a.severity === undefined) { a.severity = a.type === 'allergy' ? (seed.severity || (/severe/i.test(a.detail) ? 'severe' : '')) : ''; changed = true; }
+      if (['allergy', 'medical'].includes(a.type) && a.severity === undefined) { a.severity = a.type === 'allergy' ? (seed.severity || (/\b(severe|moderate|mild)\b/i.exec(a.detail)?.[1].toLowerCase() ?? '')) : ''; changed = true; }
       if (['allergy', 'medical'].includes(a.type) && a.instructions === undefined) { a.instructions = a.type === 'allergy' ? (seed.instructions || '') : ''; changed = true; }
     });
     return changed;
@@ -863,19 +820,22 @@
       return { values, errors };
     },
     emergency: v => rowsCheck(v.rows, { name: req('a name'), relation: req('the relationship'), phone: phoneRule }, 4),
-    pickup(v) {
-      const r = rowsCheck(v.rows, { name: req('a name'), relation: req('the relationship'), phone: phoneRule }, 8);
+    pickup(v, c) {
+      const r = rowsCheck(v.rows, { name: req('a name'), relation: req('the relationship'), phone: phoneRule, idRef: () => '', status: s => (['authorised', 'pending', 'suspended'].includes(s) ? '' : 'Choose a status.') }, 8);
+      // Nobody can be authorised to collect while an active restriction names them.
+      const barred = c.alerts.filter(a => a.type === 'custody' && a.status !== 'lifted' && a.restrictedPerson).map(a => a.restrictedPerson.trim().toLowerCase());
+      r.values.forEach((p, i) => { if (p.status === 'authorised' && barred.includes(p.name.toLowerCase())) r.errors[`rows.${i}.name`] = `${p.name} is a restricted person. Lift the restriction first.`; });
       r.values = { authorised: r.values, verification: clean(v.verification) };
       return r;
     },
-    custody: v => rowsCheck(v.rows, { detail: req('the restriction or court-order note'), restrictedPerson: () => '' }, 4),
+    custody: v => rowsCheck(v.rows, { detail: req('the restriction or court-order note'), restrictedPerson: () => '', relation: () => '', effective: d => (!d || isDate(d) ? '' : 'Enter a valid date or leave it blank.') }, 4),
     passcode(v) {
       const p = clean(v.passcode);
       return { values: { passcode: p }, errors: /^\d{4,8}$/.test(p) ? {} : { passcode: 'Use 4 to 8 digits.' } };
     },
-    allergies: v => rowsCheck(v.rows, { detail: req('the allergy'), severity: s => (SEVERITIES_MED.includes(s) ? '' : 'Choose a severity.'), instructions: () => '' }),
+    allergies: v => rowsCheck(v.rows, { detail: req('the allergy'), severity: s => (SEVERITIES_MED.includes(s) ? '' : 'Choose a severity.'), reaction: (x, r) => (r.severity === 'severe' && !clean(x) ? 'Describe the reaction for a severe allergy.' : ''), instructions: () => '' }),
     conditions: v => rowsCheck(v.rows, { detail: req('the condition'), instructions: () => '' }),
-    medications: v => rowsCheck(v.rows, { name: req('the medication'), dose: () => '', storedAt: () => '' }),
+    medications: v => rowsCheck(v.rows, { name: req('the medication'), dose: req('the dose or instructions'), schedule: () => '', storedAt: () => '', consent: s => (['pending', 'given', 'declined'].includes(s) ? '' : 'Choose the consent status.') }),
     dietary: v => rowsCheck(v.rows, { detail: req('the dietary need') }),
     care: v => ({ values: { careNotes: clean(v.careNotes).slice(0, 2000), emergencyInstructions: clean(v.emergencyInstructions).slice(0, 2000) }, errors: {} })
   };
@@ -899,11 +859,22 @@
       case 'emergency': c.emergency = values; break;
       case 'pickup': c.pickup = { ...c.pickup, ...values }; break;
       case 'passcode': c.pickup = { ...c.pickup, passcode: values.passcode }; break;
-      case 'custody': c.alerts = [...keepAlerts(['custody']), ...values.map(r => ({ type: 'custody', detail: r.detail, restrictedPerson: r.restrictedPerson }))]; break;
-      case 'allergies': c.alerts = [...keepAlerts(['allergy']), ...values.map(r => ({ type: 'allergy', ...r }))]; break;
-      case 'conditions': c.alerts = [...keepAlerts(['medical']), ...values.map(r => ({ type: 'medical', detail: r.detail, severity: '', instructions: r.instructions }))]; break;
+      // Saving keeps attachments linked to the same entries, and an emptied list goes back to "not recorded", never "none".
+      case 'custody': {
+        const prev = c.alerts.filter(a => a.type === 'custody');
+        c.alerts = [...keepAlerts(['custody']), ...values.map(r => ({ type: 'custody', detail: r.detail, restrictedPerson: r.restrictedPerson, relation: r.relation, effective: r.effective, status: 'active', docId: prev.find(p => p.restrictedPerson === r.restrictedPerson && p.detail === r.detail)?.docId || null }))];
+        c.restrictionsDeclared = values.length ? 'recorded' : 'unknown';
+        break;
+      }
+      case 'allergies': {
+        const prev = c.alerts.filter(a => a.type === 'allergy');
+        c.alerts = [...keepAlerts(['allergy']), ...values.map(r => ({ type: 'allergy', ...r, planDocId: prev.find(p => p.detail === r.detail)?.planDocId || null }))];
+        c.healthDeclared = { ...c.healthDeclared, allergies: values.length ? 'recorded' : 'unknown' };
+        break;
+      }
+      case 'conditions': c.alerts = [...keepAlerts(['medical']), ...values.map(r => ({ type: 'medical', detail: r.detail, severity: '', instructions: r.instructions }))]; c.healthDeclared = { ...c.healthDeclared, conditions: values.length ? 'recorded' : 'unknown' }; break;
       case 'dietary': c.alerts = [...keepAlerts(['dietary']), ...values.map(r => ({ type: 'dietary', detail: r.detail }))]; break;
-      case 'medications': c.medications = values; break;
+      case 'medications': c.medications = values.map(m => { const p = c.medications.find(x => x.name === m.name); return { ...m, notes: p?.notes || '', docId: p?.docId || null }; }); c.healthDeclared = { ...c.healthDeclared, medications: values.length ? 'recorded' : 'unknown' }; break;
       case 'care': Object.assign(c, values); break;
     }
     // Passcodes are never written to history or the audit detail.
@@ -1089,6 +1060,346 @@
       }
     } catch { /* storage blocked */ }
     return out.sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+
+  /* ---------------------------------------------------------------- S14 enrolment wizard, S09 waitlist, S15 families, S18 roster
+     Classes: capacity comes from the S17 class record when one exists for the name, otherwise from
+     the school's class configuration (nexora-class-config); occupancy is counted from the children
+     records (active + starting soon), never stored, so it can't drift.
+     Households group guardians; a child links to 1–2 households through guardianLinks[].householdId.
+     enrolChild() validates every step, re-checks duplicates, capacity and pickup conflicts, then saves
+     all related records together and rolls back if any write fails. */
+
+  const classConfigKey = id => `nexora-class-config:${id}`;
+  const householdsKey = id => `nexora-households:${id}`;
+  const waitlistKey = id => `nexora-waitlist:${id}`;
+  const draftsKey = id => `nexora-enrol-drafts:${id}`;
+
+  const GENDERS = [['', 'Not answered'], ['girl', 'Girl'], ['boy', 'Boy'], ['another', 'Another gender'], ['prefer-not', 'Prefer not to say']];
+  const LANGUAGES = ['English', 'Tamil', 'Hindi', 'Telugu', 'Kannada', 'Malayalam', 'Urdu', 'Bengali', 'Marathi', 'Gujarati', 'Punjabi', 'Arabic', 'French', 'Mandarin', 'Other'];
+  const COUNTRIES = ['India', 'Sri Lanka', 'Bangladesh', 'Nepal', 'Pakistan', 'United Arab Emirates', 'Saudi Arabia', 'Singapore', 'Malaysia', 'United Kingdom', 'United States', 'Canada', 'Australia', 'New Zealand', 'Germany', 'France', 'Japan', 'South Africa', 'Kenya', 'Other'];
+  const DIETARY_OPTIONS = ['Vegetarian', 'Vegan', 'Dairy-free', 'Gluten-free', 'Egg-free', 'Jain', 'Halal', 'Kosher', 'Religious requirement', 'Other'];
+  const SESSIONS = { full: 'Full day', morning: 'Morning', afternoon: 'Afternoon' };
+  const DECLARATIONS = { recorded: 'Recorded below', none: 'None — confirmed by family', unknown: 'Not yet collected' };
+  const PICKUP_STATUS = { authorised: 'Authorised', pending: 'Pending verification', suspended: 'Suspended' };
+  const RESTRICTION_STATUS = { active: 'Active', lifted: 'Lifted' };
+  const MED_CONSENT = { pending: 'Consent not yet given', given: 'Written consent on file', declined: 'Consent declined' };
+
+  // Demo configuration until S17 gives every class a capacity. Nursery is full on purpose (waitlist demo).
+  const getClassConfig = () => seeded(classConfigKey(school.id), () => ({ 'Montessori A': 14, 'UKG A': 12, 'UKG B': 10, 'LKG A': 12, Nursery: 11 }));
+  const schoolDays = () => getSettings(school.id).hours.days?.length ? getSettings(school.id).hours.days : ['mon', 'tue', 'wed', 'thu', 'fri'];
+
+  // One class: teacher, capacity, occupancy (current children, optionally excluding one child being edited).
+  function classInfo(name, excludeId = null) {
+    const c = classByName(name);
+    if (!c) return null;
+    const s17 = getClasses(school.id).find(x => x.name.toLowerCase() === name.toLowerCase());
+    const capacity = s17?.capacity ?? getClassConfig()[name] ?? null;
+    const occupancy = getChildren().filter(k => k.cls === name && ['active', 'starting'].includes(k.status) && k.id !== excludeId).length;
+    return { name, level: c.level, teacher: educators.find(e => e.cls === name)?.name || '', capacity, occupancy, remaining: capacity == null ? null : Math.max(0, capacity - occupancy), full: capacity != null && occupancy >= capacity };
+  }
+  const classesInfo = (excludeId = null) => rosterClasses.map(c => classInfo(c.name, excludeId));
+
+  /* Households: seeded from the existing guardian links (siblings share one), saved without an event. */
+  function getHouseholds() {
+    const saved = read(householdsKey(school.id), null);
+    if (saved) return saved;
+    const list = [];
+    const children = getChildren();
+    children.forEach(c => {
+      const ids = c.guardianLinks.map(l => l.guardianId).sort();
+      let h = list.find(x => x.guardianIds.slice().sort().join() === ids.join());
+      if (!h) { h = { id: `h-${list.length + 1}`, label: `${c.lastName} household`, guardianIds: ids }; list.push(h); }
+      c.guardianLinks.forEach(l => { if (!l.householdId) l.householdId = h.id; });
+    });
+    try { localStorage.setItem(householdsKey(school.id), JSON.stringify(list)); localStorage.setItem(childrenKey(school.id), JSON.stringify(children)); } catch { /* in memory */ }
+    return list;
+  }
+  // Families for search (S14 step 2) and S15: household + guardians + linked children.
+  function families(query = '') {
+    const q = clean(query).toLowerCase();
+    const households = getHouseholds();
+    const guardians = getGuardians();
+    const children = getChildren();
+    return households.map(h => ({
+      ...h,
+      guardians: h.guardianIds.map(id => guardians.find(g => g.id === id)).filter(Boolean),
+      children: children.filter(c => c.guardianLinks?.some(l => l.householdId === h.id)).map(c => ({ id: c.id, name: childName(c), cls: c.cls, status: c.status }))
+    })).filter(f => !q || [f.label, ...f.guardians.map(g => `${g.name} ${g.phone} ${g.email}`), ...f.children.map(c => c.name)].join(' ').toLowerCase().includes(q));
+  }
+
+  /* Duplicates: same normalised first + last name and date of birth (drafts excluded, the edited child excluded). */
+  const norm = s => clean(s).toLowerCase().replace(/\s+/g, ' ');
+  function findDuplicates({ firstName, lastName, dob }, excludeId = null) {
+    if (!norm(firstName) || !norm(lastName) || !isDate(dob)) return [];
+    return getChildren().filter(c => c.id !== excludeId && norm(c.firstName) === norm(firstName) && norm(c.lastName) === norm(lastName) && c.dob === dob)
+      .map(c => ({ id: c.id, name: childName(c), cls: c.cls, status: c.status }));
+  }
+
+  /* Waitlist (S09). */
+  const getWaitlist = () => read(waitlistKey(school.id), []);
+  function addToWaitlist(user, input) {
+    if (!canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
+    const v = { firstName: clean(input.firstName), lastName: clean(input.lastName), dob: clean(input.dob), cls: clean(input.cls), startDate: clean(input.startDate), guardianName: clean(input.guardianName), guardianPhone: clean(input.guardianPhone), notes: clean(input.notes) };
+    const errors = {};
+    if (!v.firstName || !v.lastName) errors.name = 'Enter the child’s first and last name.';
+    if (!isDate(v.dob) || v.dob >= today()) errors.dob = 'Enter a date of birth in the past.';
+    if (!classByName(v.cls)) errors.cls = 'Choose the class requested.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const list = getWaitlist();
+    // One open entry per child and class: re-adding updates it instead of duplicating.
+    let entry = list.find(w => w.status === 'waiting' && w.cls === v.cls && norm(w.firstName) === norm(v.firstName) && norm(w.lastName) === norm(v.lastName) && w.dob === v.dob);
+    if (entry) Object.assign(entry, v, { updatedAt: new Date().toISOString() });
+    else { entry = { id: newId('wl'), ...v, status: 'waiting', addedBy: user.name, createdAt: new Date().toISOString() }; list.push(entry); }
+    if (!write(waitlistKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'add:waitlist', entry.id, `${v.firstName} ${v.lastName} · ${v.cls}`);
+    return settle({ ok: true, entry, position: list.filter(w => w.status === 'waiting' && w.cls === v.cls).indexOf(entry) + 1 });
+  }
+
+  /* Drafts: never children records, so they never count as enrolled. One draft per child being edited. */
+  const getDrafts = () => read(draftsKey(school.id), []);
+  function saveDraft(user, { id, childId = null, step, data }) {
+    if (!canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getDrafts();
+    let d = list.find(x => x.id === id) || (childId && list.find(x => x.childId === childId));
+    const now = new Date().toISOString();
+    // Files are kept as references to stored documents, not re-saved inside the draft.
+    if (d) Object.assign(d, { step, data, updatedAt: now, updatedBy: user.name });
+    else { d = { id: id || newId('dr'), childId, step, data, createdAt: now, createdBy: user.name, updatedAt: now, updatedBy: user.name }; list.push(d); }
+    return write(draftsKey(school.id), list) ? settle({ ok: true, draft: d }) : settle({ ok: false, reason: 'storage', message: 'The draft is too large to keep on this device. Remove the photo or a document and try again.' });
+  }
+  function deleteDraft(user, id) {
+    if (!canManageChildren(user)) return false;
+    return write(draftsKey(school.id), getDrafts().filter(d => d.id !== id));
+  }
+
+  /* Full enrolment / edit. payload mirrors the five wizard steps. */
+  const SAFE_NAME = v => clean(v).slice(0, 80);
+  function validateEnrolment(p, { childId = null } = {}) {
+    const e = {};
+    const s1 = p.child || {};
+    if (!clean(s1.firstName)) e['child.firstName'] = 'Enter the child’s first name.';
+    if (!clean(s1.lastName)) e['child.lastName'] = 'Enter the child’s last name.';
+    if (!isDate(s1.dob) || s1.dob > today()) e['child.dob'] = 'Enter a date of birth that isn’t in the future.';
+    else if (ageParts(s1.dob).years > 12) e['child.dob'] = 'Check the date of birth — the child would be over 12.';
+    if (s1.gender && !GENDERS.some(([k]) => k === s1.gender)) e['child.gender'] = 'Choose an option from the list.';
+    if ((s1.languages || []).some(l => !LANGUAGES.includes(l))) e['child.languages'] = 'Choose languages from the list.';
+    if (s1.photo && (!/^data:image\/(png|jpeg|webp);base64,/.test(s1.photo) || s1.photo.length > 700000)) e['child.photo'] = 'Use a PNG, JPEG or WebP image under 500 KB.';
+
+    const gs = p.guardians || [];
+    if (!gs.length) e['guardians'] = 'Add at least one guardian.';
+    gs.forEach((g, i) => {
+      if (!clean(g.name)) e[`guardians.${i}.name`] = 'Enter the guardian’s name.';
+      if (!clean(g.relation)) e[`guardians.${i}.relation`] = 'Choose the relationship.';
+      if (!phoneOk(g.phone)) e[`guardians.${i}.phone`] = 'Enter a phone number with at least 10 digits.';
+      if (!emailOk(g.email)) e[`guardians.${i}.email`] = 'Enter a valid email or leave it blank.';
+      if (![1, 2].includes(Number(g.household))) e[`guardians.${i}.household`] = 'Choose a household.';
+    });
+    if (gs.length && gs.filter(g => g.primary).length !== 1) e['guardians'] = 'Choose exactly one primary contact.';
+
+    const em = p.emergency || [];
+    if (!em.length) e['emergency'] = 'Add at least one emergency contact.';
+    em.forEach((c, i) => {
+      if (!clean(c.name)) e[`emergency.${i}.name`] = 'Enter a name.';
+      if (!clean(c.relation)) e[`emergency.${i}.relation`] = 'Enter the relationship.';
+      if (!phoneOk(c.phone)) e[`emergency.${i}.phone`] = 'Enter a phone number with at least 10 digits.';
+    });
+    const pk = p.pickup || [];
+    if (!pk.some(x => x.status === 'authorised')) e['pickup'] = 'Authorise at least one person to collect the child.';
+    pk.forEach((x, i) => {
+      if (!clean(x.name)) e[`pickup.${i}.name`] = 'Enter a name.';
+      if (!clean(x.relation)) e[`pickup.${i}.relation`] = 'Enter the relationship.';
+      if (!PICKUP_STATUS[x.status]) e[`pickup.${i}.status`] = 'Choose a status.';
+      if (x.phone && !phoneOk(x.phone)) e[`pickup.${i}.phone`] = 'Enter a phone number with at least 10 digits.';
+    });
+    if (!['none', 'recorded', 'unknown'].includes(p.restrictionsDeclared)) e['restrictionsDeclared'] = 'Say whether any custody or contact restrictions apply.';
+    const rs = p.restrictions || [];
+    if (p.restrictionsDeclared === 'recorded' && !rs.length) e['restrictions'] = 'Add the restricted person, or change the answer above.';
+    rs.forEach((r, i) => {
+      if (!clean(r.name)) e[`restrictions.${i}.name`] = 'Enter the person’s name.';
+      if (!clean(r.reason)) e[`restrictions.${i}.reason`] = 'Give the reason (for example, the court order).';
+      if (r.effective && !isDate(r.effective)) e[`restrictions.${i}.effective`] = 'Enter a valid date or leave it blank.';
+      if (!RESTRICTION_STATUS[r.status]) e[`restrictions.${i}.status`] = 'Choose a status.';
+    });
+    // The same person can't be both allowed and barred from collecting the child.
+    const barred = rs.filter(r => r.status === 'active').map(r => norm(r.name));
+    pk.forEach((x, i) => { if (x.status === 'authorised' && barred.includes(norm(x.name))) e[`pickup.${i}.name`] = `${clean(x.name)} is also listed as a restricted person. Remove one of the two before saving.`; });
+
+    const h = p.health || {};
+    ['allergies', 'conditions', 'medications'].forEach(k => {
+      if (!DECLARATIONS[h[`${k}Declared`]]) e[`health.${k}Declared`] = 'Choose one answer.';
+      if (h[`${k}Declared`] === 'recorded' && !(h[k] || []).length) e[`health.${k}`] = 'Add at least one entry, or change the answer above.';
+    });
+    (h.allergies || []).forEach((a, i) => {
+      if (!clean(a.allergen)) e[`health.allergies.${i}.allergen`] = 'Enter the allergen.';
+      if (!['severe', 'moderate', 'mild'].includes(a.severity)) e[`health.allergies.${i}.severity`] = 'Choose a severity.';
+      if (a.severity === 'severe' && !clean(a.reaction)) e[`health.allergies.${i}.reaction`] = 'Describe the reaction for a severe allergy.';
+    });
+    (h.conditions || []).forEach((c, i) => { if (!clean(c.name)) e[`health.conditions.${i}.name`] = 'Enter the condition.'; });
+    (h.medications || []).forEach((m, i) => {
+      if (!clean(m.name)) e[`health.medications.${i}.name`] = 'Enter the medication.';
+      if (!clean(m.dose)) e[`health.medications.${i}.dose`] = 'Enter the dose or instructions.';
+      if (!MED_CONSENT[m.consent]) e[`health.medications.${i}.consent`] = 'Choose the consent status.';
+    });
+    if ((h.dietary || []).some(d => !DIETARY_OPTIONS.includes(d))) e['health.dietary'] = 'Choose dietary needs from the list.';
+    if ((h.dietary || []).includes('Other') && !clean(h.dietaryNotes)) e['health.dietaryNotes'] = 'Describe the other dietary need.';
+    (h.immunisations || []).forEach((m, i) => {
+      if (!clean(m.vaccine)) e[`health.immunisations.${i}.vaccine`] = 'Enter the vaccine.';
+      if (m.date && (!isDate(m.date) || m.date > today())) e[`health.immunisations.${i}.date`] = 'Enter a date that isn’t in the future.';
+    });
+    if (h.doctor?.phone && !phoneOk(h.doctor.phone)) e['health.doctor.phone'] = 'Enter a phone number with at least 10 digits.';
+
+    const cl = p.classSchedule || {};
+    const info = classByName(cl.cls) ? classInfo(cl.cls, childId) : null;
+    if (!info) e['classSchedule.cls'] = 'Choose a class.';
+    if (!isDate(cl.startDate)) e['classSchedule.startDate'] = 'Choose a start date.';
+    else if (!childId && cl.startDate < daysFromToday(-30)) e['classSchedule.startDate'] = 'A new enrolment can start at most 30 days ago.';
+    else if (cl.startDate > daysFromToday(366)) e['classSchedule.startDate'] = 'Choose a start date within the next year.';
+    if (!(cl.days || []).length) e['classSchedule.days'] = 'Choose at least one day.';
+    else if (cl.days.some(d => !schoolDays().includes(d))) e['classSchedule.days'] = 'Choose days the school is open.';
+    if (!SESSIONS[cl.session]) e['classSchedule.session'] = 'Choose a session.';
+    return { errors: e, info };
+  }
+
+  // Writes several keys as one unit: if any write fails, the earlier ones are put back.
+  function commit(writes) {
+    const before = writes.map(w => { try { return [w.key, localStorage.getItem(w.key)]; } catch { return [w.key, null]; } });
+    for (const w of writes) {
+      try { localStorage.setItem(w.key, JSON.stringify(w.value)); } catch {
+        before.forEach(([k, v]) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* best effort */ } });
+        return false;
+      }
+    }
+    writes.forEach(w => emit(w.key));
+    return true;
+  }
+
+  let enrolling = false;
+  async function enrolChild(user, payload, { childId = null, draftId = null, overrideDuplicate = false } = {}) {
+    if (!canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
+    // Guards against a double click submitting twice while the first save is in flight.
+    if (enrolling) return settle({ ok: false, reason: 'busy' });
+    enrolling = true;
+    try {
+      // Households first (their first read links every child), then one copy of the list is read, changed and written.
+      const households = getHouseholds();
+      const children = getChildren();
+      const existing = childId ? children.find(c => c.id === childId) : null;
+      if (childId && !existing) return settle({ ok: false, reason: 'missing' });
+      const { errors, info } = validateEnrolment(payload, { childId });
+      if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+      const dupes = findDuplicates(payload.child, childId);
+      if (dupes.length && !overrideDuplicate) return settle({ ok: false, reason: 'duplicate', duplicates: dupes });
+      const classChanged = !existing || existing.cls !== info.name || !['active', 'starting'].includes(existing.status);
+      if (classChanged && info.full) return settle({ ok: false, reason: 'full', info });
+
+      const guardians = getGuardians();
+      const docs = read(docsKey(school.id), []);
+      const now = new Date().toISOString();
+      const p = payload;
+
+      // Guardians: reuse an existing record when one was linked from a family search, otherwise create.
+      const hhIds = {};
+      const links = p.guardians.map(g => {
+        let rec = g.guardianId && guardians.find(x => x.id === g.guardianId);
+        if (rec) Object.assign(rec, { name: SAFE_NAME(g.name), phone: clean(g.phone), email: clean(g.email) });
+        else { rec = { id: newId('g'), name: SAFE_NAME(g.name), phone: clean(g.phone), email: clean(g.email), prefers: 'phone' }; guardians.push(rec); }
+        const slot = Number(g.household);
+        if (!hhIds[slot]) {
+          let hh = (slot === 1 ? p.householdIds?.[0] : p.householdIds?.[1]) && households.find(x => x.id === (slot === 1 ? p.householdIds[0] : p.householdIds[1]));
+          if (!hh) { hh = { id: newId('h'), label: `${SAFE_NAME(g.name).split(' ').slice(-1)[0]} household`, guardianIds: [] }; households.push(hh); }
+          hhIds[slot] = hh.id;
+        }
+        const hh = households.find(x => x.id === hhIds[slot]);
+        if (!hh.guardianIds.includes(rec.id)) hh.guardianIds.push(rec.id);
+        return { guardianId: rec.id, relation: clean(g.relation), primary: Boolean(g.primary), householdId: hh.id, livesWith: Boolean(g.livesWith), responsibility: Boolean(g.responsibility) };
+      });
+      const primaryRec = guardians.find(x => x.id === links.find(l => l.primary).guardianId);
+
+      // Alerts are the single safety source (S12 icons, S13 banner): rebuilt from the health and restriction answers.
+      const h = p.health;
+      const dietaryAlerts = (h.dietary || []).filter(d => d !== 'Other').map(d => ({ type: 'dietary', detail: d }));
+      if ((h.dietary || []).includes('Other') && clean(h.dietaryNotes)) dietaryAlerts.push({ type: 'dietary', detail: clean(h.dietaryNotes) });
+      const alerts = [
+        ...h.allergies.map(a => ({ type: 'allergy', detail: clean(a.allergen), severity: a.severity, reaction: clean(a.reaction), instructions: clean(a.instructions), planDocId: a.planDocId || null })),
+        ...h.conditions.map(c => ({ type: 'medical', detail: clean(c.name), severity: '', instructions: clean(c.notes) })),
+        ...dietaryAlerts,
+        ...p.restrictions.filter(r => r.status === 'active').map(r => ({ type: 'custody', restrictedPerson: SAFE_NAME(r.name), relation: clean(r.relation), detail: clean(r.reason), effective: clean(r.effective), status: 'active', docId: r.docId || null }))
+      ];
+      // Lifted restrictions are kept on record but not shown as alerts.
+      const liftedRestrictions = p.restrictions.filter(r => r.status === 'lifted').map(r => ({ name: SAFE_NAME(r.name), relation: clean(r.relation), reason: clean(r.reason), effective: clean(r.effective), docId: r.docId || null }));
+
+      // New uploads (photo excluded) arrive as { data, mime, size, name, category }; store them as child documents.
+      const childIdFinal = childId || newId('ch');
+      const saveDoc = (file, category) => {
+        if (!file?.data) return file?.docId || null;
+        if (!DOC_TYPES[file.mime] || file.size > DOC_MAX) throw new Error('file');
+        const d = { id: newId('doc'), childId: childIdFinal, name: clean(file.name) || category, category, expiry: '', fileName: clean(file.fileName), mime: file.mime, size: file.size, data: file.data, status: 'unverified', uploadedAt: now, uploadedBy: user.name };
+        docs.push(d);
+        return d.id;
+      };
+      try {
+        h.allergies.forEach((a, i) => { const al = alerts.filter(x => x.type === 'allergy')[i]; if (a.planFile) al.planDocId = saveDoc(a.planFile, 'Medical plan'); });
+        p.restrictions.forEach(r => { if (r.file) { const id = saveDoc(r.file, 'Court order'); const al = alerts.find(x => x.type === 'custody' && x.restrictedPerson === SAFE_NAME(r.name)); if (al) al.docId = id; else { const l = liftedRestrictions.find(x => x.name === SAFE_NAME(r.name)); if (l) l.docId = id; } } });
+        h.medications.forEach(m => { if (m.file) m.docId = saveDoc(m.file, 'Medical plan'); });
+      } catch { return settle({ ok: false, reason: 'invalid', errors: { files: 'Attachments must be PDF, JPEG or PNG files of 1 MB or less.' } }); }
+
+      const status = p.classSchedule.startDate > today() ? 'starting' : 'active';
+      const fields = {
+        firstName: SAFE_NAME(p.child.firstName), lastName: SAFE_NAME(p.child.lastName), preferredName: SAFE_NAME(p.child.preferredName), dob: p.child.dob,
+        gender: p.child.gender || '', languages: [...new Set(p.child.languages || [])], nationality: clean(p.child.nationality),
+        cls: info.name, startDate: p.classSchedule.startDate, schedule: { days: [...new Set(p.classSchedule.days)], session: p.classSchedule.session },
+        guardianLinks: links, guardian: { name: primaryRec.name, relation: links.find(l => l.primary).relation, phone: primaryRec.phone, email: primaryRec.email },
+        emergency: p.emergency.map(c => ({ name: SAFE_NAME(c.name), relation: clean(c.relation), phone: clean(c.phone) })),
+        alerts, restrictionsDeclared: p.restrictionsDeclared, liftedRestrictions,
+        healthDeclared: { allergies: h.allergiesDeclared, conditions: h.conditionsDeclared, medications: h.medicationsDeclared },
+        medications: h.medications.map(m => ({ name: clean(m.name), dose: clean(m.dose), schedule: clean(m.schedule), notes: clean(m.notes), storedAt: clean(m.storedAt), consent: m.consent, docId: m.docId || null })),
+        dietaryNotes: clean(h.dietaryNotes), immunisations: h.immunisations.map(m => ({ vaccine: clean(m.vaccine), date: clean(m.date), notes: clean(m.notes) })),
+        doctor: { name: clean(h.doctor?.name), clinic: clean(h.doctor?.clinic), phone: clean(h.doctor?.phone), notes: clean(h.doctor?.notes) }
+      };
+      if (p.child.photo !== undefined) fields.photo = p.child.photo || null;
+      const pickupAuthorised = p.pickup.map(x => ({ name: SAFE_NAME(x.name), relation: clean(x.relation), phone: clean(x.phone), idRef: clean(x.idRef), status: x.status }));
+
+      let child;
+      if (existing) {
+        child = existing;
+        const changed = Object.keys(fields).filter(k => JSON.stringify(existing[k]) !== JSON.stringify(fields[k]));
+        Object.assign(child, fields);
+        child.pickup = { ...existing.pickup, authorised: pickupAuthorised };
+        if (['active', 'starting'].includes(existing.status)) child.status = status;
+        child.history = [...child.history, stamp(user, 'edited', changed.length ? `Updated: ${changed.join(', ')}` : 'Saved with no changes')];
+      } else {
+        child = {
+          id: childIdFinal, ...fields, status, keyTeacher: info.teacher, careNotes: '', emergencyInstructions: '',
+          pickup: { authorised: pickupAuthorised, verification: '', passcode: '' }, withdrawal: null,
+          history: [stamp(user, 'enrolled', `Enrolled in ${info.name}`)]
+        };
+        if (child.photo === undefined) child.photo = null;
+        children.push(child);
+      }
+      // Any other children sharing an edited guardian keep their primary snapshot in step.
+      children.forEach(c => { if (c !== child && c.guardianLinks?.some(l => links.some(x => x.guardianId === l.guardianId))) syncPrimary(c, guardians); });
+
+      const writes = [
+        { key: guardiansKey(school.id), value: guardians },
+        { key: householdsKey(school.id), value: households },
+        { key: docsKey(school.id), value: docs },
+        { key: childrenKey(school.id), value: children }
+      ];
+      if (draftId) writes.push({ key: draftsKey(school.id), value: getDrafts().filter(d => d.id !== draftId) });
+      if (!commit(writes)) return settle({ ok: false, reason: 'storage', message: 'This enrolment couldn’t be saved on this device. Nothing was changed. Remove large files and try again.' });
+
+      logAudit(user, existing ? 'edit:enrolment' : 'enrol', child.id, existing ? 'Enrolment details updated' : `Enrolled in ${info.name}`);
+      // Only the class team hears about a new child; the notification names no health or custody details.
+      if (!existing || existing.cls !== child.cls) {
+        notifyUsers({ module: 'classroom-tracker', kind: 'enrolment', title: `${childName(child)} is joining ${child.cls}`, body: `Starts ${child.startDate} · ${SESSIONS[child.schedule.session]}. Open the profile for alerts and pickup details.`, recordType: 'child', recordId: child.id, dedupeKey: `enrol:${child.id}:${child.cls}` },
+          { toUserIds: educators.filter(e => e.cls === child.cls && e.userId).map(e => e.userId), exclude: [user.id] });
+      }
+      return settle({ ok: true, child, created: !existing });
+    } finally {
+      enrolling = false;
+    }
   }
 
   // Any child on record (including withdrawn), so past invoices and incidents keep their names.
@@ -1480,6 +1791,7 @@
       case 'incident': return getIncidents().some(i => i.id === n.recordId) ? go('safeguarding', { status: 'all', focus: n.recordId }) : missing;
       case 'announcement': return getAnnouncements().some(a => a.id === n.recordId) ? go('communication', { focus: n.recordId }) : missing;
       case 'class': return classByName(n.recordId) ? go('attendance', { cls: n.recordId, view: n.kind === 'ratio' ? 'ratio' : '' }) : missing;
+      case 'child': { const c = childById(n.recordId); return c && canAccess(user, 'children') && classScope(user).includes(c.cls) ? { href: routes.record(c.id) } : missing; }
       case 'broadcast': return { href: routes.dashboard };
       default:
         if (n.kind === 'upgrade-request') return { href: routes.plans({ plan: n.requiredPlan, module: n.page }) };
@@ -1587,7 +1899,28 @@
     childById,
     childName,
     ageParts,
-    saveChild,
+    GENDERS,
+    LANGUAGES,
+    COUNTRIES,
+    DIETARY_OPTIONS,
+    SESSIONS,
+    DECLARATIONS,
+    PICKUP_STATUS,
+    RESTRICTION_STATUS,
+    MED_CONSENT,
+    schoolDays,
+    classInfo,
+    classesInfo,
+    getHouseholds,
+    families,
+    findDuplicates,
+    getWaitlist,
+    addToWaitlist,
+    getDrafts,
+    saveDraft,
+    deleteDraft,
+    validateEnrolment,
+    enrolChild,
     moveChildren,
     withdrawChild,
     getChildPrefs,

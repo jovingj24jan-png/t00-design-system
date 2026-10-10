@@ -107,6 +107,7 @@
             <div class="menu-wrap">
               <button class="btn btn--icon" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="More actions for ${esc(store.childName(c))}" data-menu-btn>${icon('more-v')}</button>
               <div class="menu" role="menu" hidden>
+                <button type="button" role="menuitem" data-act="wizard">${icon('pencil', 'icon--sm')}Edit all details</button>
                 <button type="button" role="menuitem" data-act="move">${icon('move', 'icon--sm')}Move class</button>
                 <hr><button class="is-danger" type="button" role="menuitem" data-act="withdraw">${icon('user-minus', 'icon--sm')}Withdraw</button>
               </div>
@@ -149,7 +150,7 @@
         const go = (tabId, text) => `<button class="btn btn--sm btn--tertiary" type="button" data-goto="${tabId}">${esc(text)}${icon('arrow-right', 'icon--sm')}</button>`;
         const primary = c.guardians.find(g => g.primary) || c.guardians[0];
         return `<div class="cp-grid">
-          ${card('Child details', dl([['Preferred name', esc(c.preferredName)], ['Age', `${age.years} years, ${age.months} months`], ['Class', esc(c.cls)], ['Key teacher', esc(c.keyTeacher)], ['Start date', esc(day(c.startDate))], ['Status', `<span class="badge ${STATUS_BADGE[c.status]}">${esc(store.CHILD_STATUSES[c.status])}</span>`]]), { edit: 'identity', id: 'ov-child' })}
+          ${card('Child details', dl([['Preferred name', esc(c.preferredName)], ['Age', `${age.years} years, ${age.months} months`], ['Class', esc(c.cls)], ['Key teacher', esc(c.keyTeacher)], ['Start date', esc(day(c.startDate))], ['Schedule', c.schedule?.days?.length ? esc(`${c.schedule.days.map(d => d[0].toUpperCase() + d.slice(1)).join(', ')} · ${store.SESSIONS[c.schedule.session] || ''}`) : ''], ['Home languages', esc((c.languages || []).join(', '))], ['Gender', esc(store.GENDERS.find(([k]) => k === c.gender)?.[1] && c.gender ? store.GENDERS.find(([k]) => k === c.gender)[1] : '')], ['Nationality', esc(c.nationality)], ['Status', `<span class="badge ${STATUS_BADGE[c.status]}">${esc(store.CHILD_STATUSES[c.status])}</span>`]]), { edit: 'identity', id: 'ov-child' })}
           ${card('Family contact', primary ? dl([['Primary guardian', `${esc(primary.name)} <span class="cp-muted">(${esc(primary.relation)})</span>`], ['Phone', tel(primary.phone)], ['Prefers', esc(PREFERS[primary.prefers])], ['Other guardians', esc(c.guardians.filter(g => g !== primary).map(g => g.name).join(', '))]]) : empty('No guardian on record', 'Add a guardian in Family & Guardians.'), { edit: primary ? 'guardian' : null, editGuard: 'family', id: 'ov-family', action: go('family', 'All guardians') }).replace('data-edit="guardian"', `data-edit="guardian" data-guardian="${esc(primary?.id || '')}"`)}
           ${card('Safety', c.alerts.length ? `<p class="cp-muted">${c.alerts.length} active ${c.alerts.length === 1 ? 'alert' : 'alerts'} — shown above every tab.</p>` : '<p class="cp-muted">No safety alerts on record.</p>', { id: 'ov-safety', action: can('medical') ? go('medical', 'Medical & Dietary') : '' })}
           ${att ? card('Attendance', att.length ? dl([['Latest', `${esc(day(att[0].date))} · ${esc(att[0].mark[0].toUpperCase() + att[0].mark.slice(1))}`], ['Registers on record', String(att.length)]]) : '<p class="cp-muted">No registers recorded for this child yet.</p>', { id: 'ov-att', action: go('attendance', 'Attendance') }) : ''}
@@ -173,9 +174,9 @@
         const passOk = can('passcode');
         return `<div class="cp-grid">
           ${card('Emergency contacts', c.emergency.length ? `<ul class="cp-people">${c.emergency.map(e => `<li><b>${esc(e.name)}</b><span>${esc(e.relation)}</span>${tel(e.phone)}</li>`).join('')}</ul>` : empty('No emergency contacts', 'Add at least one person to call if guardians can’t be reached.'), { edit: 'emergency', id: 'em-contacts' })}
-          ${card('Authorised to collect', `${c.pickup.authorised.length ? `<ul class="cp-people">${c.pickup.authorised.map(p => `<li><b>${esc(p.name)}</b><span>${esc(p.relation)}</span>${tel(p.phone)}</li>`).join('')}</ul>` : empty('Nobody authorised yet', 'Only people on this list may collect the child.')}
+          ${card('Authorised to collect', `${c.pickup.authorised.length ? `<ul class="cp-people">${c.pickup.authorised.map(p => `<li><b>${esc(p.name)}</b><span>${esc(p.relation)}${p.idRef ? ` · ID ref ${esc(p.idRef)}` : ''}</span>${p.phone ? tel(p.phone) : ''}<span class="badge ${p.status === 'authorised' ? 'badge--success' : 'badge--warning'}">${esc(store.PICKUP_STATUS[p.status || 'authorised'])}</span></li>`).join('')}</ul>` : empty('Nobody authorised yet', 'Only people on this list may collect the child.')}
             ${c.pickup.verification ? `<p class="cp-note">${icon('info', 'icon--sm')}${esc(c.pickup.verification)}</p>` : ''}`, { edit: 'pickup', editGuard: 'emergency', id: 'em-pickup' })}
-          ${card('Pickup restrictions', custody.length ? `<ul class="cp-restrict">${custody.map(a => `<li>${icon('shield')}<div>${a.restrictedPerson ? `<b>Do not release to: ${esc(a.restrictedPerson)}</b>` : ''}<p>${esc(a.detail)}</p></div></li>`).join('')}</ul>` : '<p class="cp-muted">No pickup restrictions on record.</p>', { edit: 'custody', id: 'em-restrict' })}
+          ${card('Pickup restrictions', (custody.length ? `<ul class="cp-restrict">${custody.map(a => `<li>${icon('shield')}<div>${a.restrictedPerson ? `<b>Do not release to: ${esc(a.restrictedPerson)}</b>${a.relation ? ` (${esc(a.relation)})` : ''}` : ''}<p>${esc(a.detail)}${a.effective ? ` · from ${esc(day(a.effective))}` : ''}</p></div></li>`).join('')}</ul>` : `<p class="cp-muted">${c.restrictionsDeclared === 'none' ? 'No restrictions — confirmed with the family.' : 'No restrictions recorded. Not yet confirmed with the family.'}</p>`) + ((c.liftedRestrictions || []).length ? `<p class="cp-muted">Lifted: ${c.liftedRestrictions.map(r => esc(r.name)).join(', ')}</p>` : ''), { edit: 'custody', id: 'em-restrict' })}
           ${card('Pickup passcode', passOk && !c.pickup.passcode ? `<p class="cp-muted">No passcode set yet.${canEdit('passcode') ? ' Use the pencil to set one and tell the family in person.' : ' A school leader can set one.'}</p>` : passOk ? `
             <div class="cp-pass">
               <span class="cp-pass__value" data-pass aria-live="polite">${revealed ? `<span class="sr-only">Passcode </span>${esc(revealed.split('').join(' '))}` : '<span aria-label="Passcode hidden">••••</span>'}</span>
@@ -187,12 +188,15 @@
 
       medical: c => gate('medical', 'Medical & Dietary', () => {
         const of = t => c.alerts.filter(a => a.type === t);
-        const alertList = (list, emptyText) => list.length ? `<ul class="cp-med">${list.map(a => `<li class="cp-med__item cp-med__item--${a.type}">${icon({ allergy: 'allergy', medical: 'medical', dietary: 'leaf' }[a.type])}<div><p class="cp-med__main">${esc(a.detail)}${a.severity ? ` <span class="badge ${a.severity === 'severe' ? 'badge--error' : 'badge--warning'}">${esc(SEVERITY[a.severity])}</span>` : ''}</p>${a.instructions ? `<p>${esc(a.instructions)}</p>` : ''}</div></li>`).join('')}</ul>` : `<p class="cp-muted">${emptyText}</p>`;
+        const declared = k => ({ none: 'None — confirmed by family.', unknown: 'Not yet collected.', recorded: 'None recorded.' }[c.healthDeclared?.[k] || 'unknown']);
+        const alertList = (list, emptyText) => list.length ? `<ul class="cp-med">${list.map(a => `<li class="cp-med__item cp-med__item--${a.type}">${icon({ allergy: 'allergy', medical: 'medical', dietary: 'leaf' }[a.type])}<div><p class="cp-med__main">${esc(a.detail)}${a.severity ? ` <span class="badge ${a.severity === 'severe' ? 'badge--error' : 'badge--warning'}">${esc(SEVERITY[a.severity])}</span>` : ''}</p>${a.reaction ? `<p><b>Reaction:</b> ${esc(a.reaction)}</p>` : ''}${a.instructions ? `<p>${esc(a.instructions)}</p>` : ''}</div></li>`).join('')}</ul>` : `<p class="cp-muted">${emptyText}</p>`;
         return `<div class="cp-grid">
-          ${card('Allergies', alertList(of('allergy'), 'No allergies recorded.'), { edit: 'allergies', editGuard: 'medical', id: 'md-allergy' })}
-          ${card('Medical conditions', alertList(of('medical'), 'No medical conditions recorded.'), { edit: 'conditions', editGuard: 'medical', id: 'md-cond' })}
-          ${card('Medication', c.medications.length ? `<ul class="cp-people">${c.medications.map(m => `<li><b>${esc(m.name)}</b><span>${esc(m.dose)}</span><span>${esc(m.storedAt ? `Kept in: ${m.storedAt}` : '')}</span></li>`).join('')}</ul>` : '<p class="cp-muted">No medication recorded.</p>', { edit: 'medications', editGuard: 'medical', id: 'md-meds' })}
+          ${card('Allergies', alertList(of('allergy'), declared('allergies')), { edit: 'allergies', editGuard: 'medical', id: 'md-allergy' })}
+          ${card('Medical conditions', alertList(of('medical'), declared('conditions')), { edit: 'conditions', editGuard: 'medical', id: 'md-cond' })}
+          ${card('Medication', c.medications.length ? `<ul class="cp-people">${c.medications.map(m => `<li><b>${esc(m.name)}</b><span>${esc(m.dose)}${m.schedule ? ` · ${esc(m.schedule)}` : ''}</span><span>${esc(m.storedAt ? `Kept in: ${m.storedAt}` : '')}</span><span class="badge ${m.consent === 'given' ? 'badge--success' : 'badge--warning'}">${esc(store.MED_CONSENT[m.consent || 'pending'])}</span></li>`).join('')}</ul>` : `<p class="cp-muted">${declared('medications')}</p>`, { edit: 'medications', editGuard: 'medical', id: 'md-meds' })}
           ${card('Dietary needs', alertList(of('dietary'), 'No dietary needs recorded.'), { edit: 'dietary', editGuard: 'medical', id: 'md-diet' })}
+          ${card('Doctor', c.doctor?.name || c.doctor?.clinic ? dl([['Name', esc(c.doctor.name)], ['Clinic', esc(c.doctor.clinic)], ['Phone', c.doctor.phone ? tel(c.doctor.phone) : ''], ['Notes', esc(c.doctor.notes)]]) : '<p class="cp-muted">No doctor recorded.</p>', { id: 'md-doc' })}
+          ${card('Immunisations', (c.immunisations || []).length ? `<ul class="cp-mini">${c.immunisations.map(m => `<li><b>${esc(m.vaccine)}</b><span>${m.date ? esc(day(m.date)) : 'Date not given'}${m.notes ? ` · ${esc(m.notes)}` : ''}</span></li>`).join('')}</ul>` : '<p class="cp-muted">No immunisation records provided. This doesn’t mean a vaccine was given or missed.</p>', { id: 'md-imm' })}
           ${card('Emergency instructions & care notes', dl([['Emergency instructions', esc(c.emergencyInstructions)], ['Care notes', esc(c.careNotes)]]), { edit: 'care', editGuard: 'medical', id: 'md-care', cls: 'cp-card--wide' })}
         </div>`;
       }),
@@ -434,10 +438,10 @@
       emergency() { const c = child(); rowsEditor({ section: 'emergency', title: 'Emergency contacts', rows: c.emergency, max: 4, addLabel: 'Add contact', cols: [{ key: 'name', label: 'Name', required: true }, { key: 'relation', label: 'Relationship', required: true }, { key: 'phone', label: 'Phone', type: 'tel', required: true }] }); },
       pickup() {
         const c = child();
-        rowsEditor({ section: 'pickup', title: 'Authorised pickup', rows: c.pickup.authorised, max: 8, addLabel: 'Add person', cols: [{ key: 'name', label: 'Name', required: true }, { key: 'relation', label: 'Relationship', required: true }, { key: 'phone', label: 'Phone', type: 'tel', required: true }],
+        rowsEditor({ section: 'pickup', title: 'Authorised pickup', rows: c.pickup.authorised, max: 8, addLabel: 'Add person', cols: [{ key: 'name', label: 'Name', required: true }, { key: 'relation', label: 'Relationship', required: true }, { key: 'phone', label: 'Phone', type: 'tel', required: true }, { key: 'idRef', label: 'ID reference' }, { key: 'status', label: 'Status', required: true, options: Object.entries(store.PICKUP_STATUS), default: 'authorised' }],
           extra: field('kd-verification', 'Identity check instructions', textarea('verification', c.pickup.verification)), collect: form => ({ verification: form.elements.verification.value }) });
       },
-      custody() { const c = child(); rowsEditor({ section: 'custody', title: 'Pickup restrictions', rows: c.alerts.filter(a => a.type === 'custody'), max: 4, addLabel: 'Add restriction', cols: [{ key: 'restrictedPerson', label: 'Do not release to', placeholder: 'Name, if the order names a person' }, { key: 'detail', label: 'Restriction or court-order note', required: true }] }); },
+      custody() { const c = child(); rowsEditor({ section: 'custody', title: 'Pickup restrictions', rows: c.alerts.filter(a => a.type === 'custody'), max: 4, addLabel: 'Add restriction', cols: [{ key: 'restrictedPerson', label: 'Do not release to', placeholder: 'Name, if the order names a person' }, { key: 'relation', label: 'Relationship' }, { key: 'detail', label: 'Restriction or court-order note', required: true }, { key: 'effective', label: 'Effective from', type: 'date' }] }); },
       passcode() {
         kids.dialog({
           label: 'Child profile / Pickup passcode', title: 'Set a new pickup passcode', desc: 'The current code is never shown here. Tell the family the new code in person or by phone.',
@@ -446,9 +450,9 @@
           async onSubmit(form) { return done(await store.updateChildSection(store.currentUser(), childId, 'passcode', { passcode: form.elements.passcode.value })); }
         });
       },
-      allergies() { rowsEditor({ section: 'allergies', title: 'Allergies', rows: child().alerts.filter(a => a.type === 'allergy'), addLabel: 'Add allergy', cols: [{ key: 'detail', label: 'Allergy', required: true, placeholder: 'e.g. Peanuts — EpiPen in office' }, { key: 'severity', label: 'Severity', required: true, options: [['', 'Choose'], ...Object.entries(SEVERITY)] }, { key: 'instructions', label: 'What staff should do' }] }); },
+      allergies() { rowsEditor({ section: 'allergies', title: 'Allergies', rows: child().alerts.filter(a => a.type === 'allergy'), addLabel: 'Add allergy', cols: [{ key: 'detail', label: 'Allergy', required: true, placeholder: 'e.g. Peanuts — EpiPen in office' }, { key: 'severity', label: 'Severity', required: true, options: [['', 'Choose'], ...Object.entries(SEVERITY)] }, { key: 'reaction', label: 'Reaction' }, { key: 'instructions', label: 'What staff should do' }] }); },
       conditions() { rowsEditor({ section: 'conditions', title: 'Medical conditions', rows: child().alerts.filter(a => a.type === 'medical'), addLabel: 'Add condition', cols: [{ key: 'detail', label: 'Condition', required: true }, { key: 'instructions', label: 'What staff should do' }] }); },
-      medications() { rowsEditor({ section: 'medications', title: 'Medication', rows: child().medications, addLabel: 'Add medication', cols: [{ key: 'name', label: 'Medication', required: true }, { key: 'dose', label: 'Dose and when' }, { key: 'storedAt', label: 'Kept in' }] }); },
+      medications() { rowsEditor({ section: 'medications', title: 'Medication', rows: child().medications, addLabel: 'Add medication', cols: [{ key: 'name', label: 'Medication', required: true }, { key: 'dose', label: 'Dose and instructions', required: true }, { key: 'schedule', label: 'Schedule' }, { key: 'storedAt', label: 'Kept in' }, { key: 'consent', label: 'Consent to administer', required: true, options: Object.entries(store.MED_CONSENT), default: 'pending' }] }); },
       dietary() { rowsEditor({ section: 'dietary', title: 'Dietary needs', rows: child().alerts.filter(a => a.type === 'dietary'), addLabel: 'Add dietary need', cols: [{ key: 'detail', label: 'Dietary need', required: true }] }); },
       care() {
         const c = child();
@@ -615,6 +619,7 @@
       if (act) {
         closeMenu();
         const c = store.childById(childId);
+        if (act.dataset.act === 'wizard') { location.href = routes.page('enrol', { id: childId }); return; }
         if (act.dataset.act === 'move') kids.moveDialog(user, [c]);
         if (act.dataset.act === 'withdraw') kids.withdrawDialog(user, c);
         return;

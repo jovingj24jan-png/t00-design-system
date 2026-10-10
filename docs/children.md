@@ -97,3 +97,42 @@ with a link to compare plans; after an upgrade the real data appears.
 
 Builds a white A4 summary (identity, contacts, emergency contacts, authorised pickup, and medical and
 custody details only for permitted roles) and calls `window.print()`. The passcode is never printed.
+
+# S14 Enrol / edit child — `app.html?page=enrol[&id=<childId>][&draft=<draftId>]` (`enrol.js`)
+
+Five steps: **Child details → Guardians & households → Emergency & pickup → Health → Class & schedule**.
+Desktop shows a step list (tick = all required fields valid; never ticked just for visiting), tablet a
+compact row, phones a "Step n of 5" header with a progress bar. Sticky footer: Back · Save draft ·
+Next (Save child / Save changes on the last step). Same wizard in edit mode (S12 row menu → Edit,
+S13 ⋮ → Edit all details).
+
+## Rules enforced by `store.enrolChild()` (re-checked on save, not just in the form)
+
+- **Required:** first/last name, DOB (not future); ≥1 guardian with name, relationship, phone, exactly
+  one primary contact; ≥1 emergency contact; ≥1 *authorised* pickup person; an explicit answer to
+  restrictions, allergies, conditions and medications (Recorded / None — confirmed / Not yet
+  collected). Severe allergies need a reaction; medications need a dose and a consent status.
+- **Not assumed:** guardians are not automatically pickup-authorised; parental responsibility is only
+  recorded when ticked; "not yet collected" is never shown as "none"; no immunisation record means
+  nothing either way.
+- **Conflict:** an authorised pickup person who is also an active restricted person blocks the save.
+- **Duplicates:** same normalised first + last name and DOB. Shown live on step 1 with links to the
+  matching S13 profiles; on save, a leader must tick a confirmation to enrol a different child.
+- **Capacity:** occupancy is counted from active + starting-soon children (the edited child excluded).
+  A full class can't be saved — "Add to waitlist" creates an S09 entry instead (not enrolled).
+- **Atomic save:** guardians, households, documents, the child record and draft removal are written as
+  one unit with rollback; a double click creates one child. The class teacher gets a notification
+  naming the child and class only.
+
+## Data
+
+| Record | Key | Notes |
+| --- | --- | --- |
+| Class capacity | S17 class record, else `nexora-class-config:<school>` | Demo config: Nursery is full. |
+| Households | `nexora-households:<school>` | Seeded from existing guardian links; `guardianLinks[].householdId`, `livesWith`, `responsibility`. |
+| Waitlist (S09) | `nexora-waitlist:<school>` | One open entry per child + class. |
+| Drafts | `nexora-enrol-drafts:<school>` | Never counted as children; listed on S12 with a Draft badge, Resume and Discard. |
+| Child fields added | on the child record | `gender`, `languages`, `nationality`, `schedule{days, session}`, `healthDeclared`, `restrictionsDeclared`, `liftedRestrictions`, `immunisations`, `doctor`, `dietaryNotes`; allergies add `reaction`, `planDocId`; custody adds `relation`, `effective`, `docId`; pickup adds `idRef`, `status`; medications add `schedule`, `consent`, `docId`. |
+
+Related pages: **S09 Waitlist** `app.html?page=waitlist`, **S15 Families** `app.html?page=families`,
+**S18 Class rosters** `app.html?page=roster[&cls=<class>]`.

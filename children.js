@@ -282,6 +282,7 @@
           </div>
         </div>
 
+        ${manage ? '<section class="kids-drafts" aria-labelledby="kids-drafts-title" data-drafts hidden></section>' : ''}
         <section class="kids-results" aria-labelledby="page-title" data-results aria-busy="true"></section>
         <div class="kids-tip" id="kids-tip" role="tooltip" hidden></div>
         ${manage ? `<a class="fab fab--fixed kids-fab" href="${routes.page('enrol')}" aria-label="Enrol child">${icon('plus')}</a>` : ''}
@@ -484,6 +485,7 @@
       renderFilterButtons();
       renderChips();
 
+      renderDrafts();
       resultsEl.removeAttribute('aria-busy');
       if (!list.length) resultsEl.innerHTML = emptyHtml(!all.length);
       else if (state.view === 'grid') {
@@ -495,6 +497,21 @@
       resultsEl.querySelectorAll('[data-indeterminate]').forEach(i => { i.indeterminate = true; });
       renderBulk();
     }
+
+    function renderDrafts() {
+      const box = $('[data-drafts]');
+      if (!box) return;
+      const drafts = store.getDrafts().filter(d => !d.childId || scope.includes(store.childById(d.childId)?.cls));
+      box.hidden = !drafts.length;
+      const nameOf = d => `${d.data?.child?.firstName || ''} ${d.data?.child?.lastName || ''}`.trim() || 'Unnamed child';
+      box.innerHTML = drafts.length ? `<h2 class="kids-drafts__title" id="kids-drafts-title">Drafts (${drafts.length})</h2><ul class="kids-drafts__list">${drafts.map(d => `<li class="kids-draft"><span class="badge badge--warning">Draft</span><div class="kids-draft__main"><b>${esc(nameOf(d))}</b><span>${d.childId ? 'Changes to an enrolled child' : 'New enrolment'} · step ${d.step + 1} of 5 · saved ${esc(new Date(d.updatedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))} by ${esc(d.updatedBy)}</span></div><a class="btn btn--sm btn--secondary" href="${routes.page('enrol', { id: d.childId || '', draft: d.id })}">Resume</a><button class="btn btn--sm btn--ghost" type="button" data-discard="${esc(d.id)}" aria-label="Discard draft for ${esc(nameOf(d))}">Discard</button></li>`).join('')}</ul>` : '';
+    }
+    $('[data-drafts]')?.addEventListener('click', e => {
+      const b = e.target.closest('[data-discard]');
+      if (!b) return;
+      dialog({ label: 'Children / Drafts', title: 'Discard this draft?', desc: 'The draft is deleted. Enrolled children are not affected.', body: '', submit: 'Discard draft', danger: true,
+        async onSubmit() { const ok = store.deleteDraft(user, b.dataset.discard); if (ok) { window.NexoraToast?.show('Draft discarded'); update(); } return ok ? { ok: true } : { ok: false, reason: 'storage' }; } });
+    });
 
     function renderBulk() {
       const n = state.selected.size;
@@ -664,7 +681,7 @@
 
     let queued = false;
     store.subscribe(({ key }) => {
-      if (!loaded || (key && !key.startsWith('nexora-children:'))) return;
+      if (!loaded || (key && !key.startsWith('nexora-children:') && !key.startsWith('nexora-enrol-drafts:'))) return;
       if (queued) return;
       queued = true;
       requestAnimationFrame(() => {
@@ -678,119 +695,6 @@
 
     takeFlash();
     load();
-    return true;
-  }
-
-  /* ------------------------------------------------------------------ S14 Enrol / edit */
-
-  function enrolPage(main, user) {
-    const id = params.get('id');
-    const child = id ? store.childById(id) : null;
-    const scope = store.classScope(user);
-    if (id && !child) {
-      main.innerHTML = `<article class="panel record"><div class="kids-empty"><span class="state-icon" aria-hidden="true">${icon('search')}</span><h1 class="kids-empty__title">We couldn’t find that child</h1><p>The record may have been removed, or the link is incomplete.</p><a class="btn btn--primary" href="${routes.page('children')}">All children</a></div></article>`;
-      return true;
-    }
-    const v = child || { firstName: '', lastName: '', dob: '', cls: '', startDate: store.today(), guardian: { name: '', relation: 'Mother', phone: '', email: '' }, alerts: [] };
-    const alertOf = type => v.alerts.find(a => a.type === type);
-    const f = (key, label, control, opts) => field(`ke-${key}`, label, control, opts).replace(`data-error-for="ke-${key}"`, `data-error-for="${key}"`);
-    document.title = `${child ? `Edit ${name(child)}` : 'Enrol child'} · Nexora`;
-    main.innerHTML = `
-      <div class="kids kids--form">
-        <nav class="kids-crumbs" aria-label="Breadcrumb"><a href="${routes.page('children')}">Children</a>${child ? ` / <a href="${routes.record(child.id)}">${esc(name(child))}</a>` : ''} / <span aria-current="page">${child ? 'Edit' : 'Enrol child'}</span></nav>
-        <form class="panel kids-form" novalidate data-form>
-          <header class="kids-form__head">
-            <h1 class="kids-head__title" id="page-title" tabindex="-1">${child ? `Edit ${esc(name(child))}` : 'Enrol child'}</h1>
-            <p class="kids-head__sub">${child ? 'Changes save to the child’s record and appear on the Children page straight away.' : 'Add a new child to the school. Fields marked * are required.'}</p>
-          </header>
-          <fieldset class="kids-form__section"><legend>Child</legend>
-            <div class="kids-form__grid">
-              ${f('firstName', 'First name', `<input class="input" id="ke-firstName" name="firstName" value="${esc(v.firstName)}" required autocomplete="off">`, { required: true })}
-              ${f('lastName', 'Last name', `<input class="input" id="ke-lastName" name="lastName" value="${esc(v.lastName)}" required autocomplete="off">`, { required: true })}
-              ${f('dob', 'Date of birth', `<input class="input" type="date" id="ke-dob" name="dob" value="${esc(v.dob)}" max="${store.today()}" required>`, { required: true })}
-              ${f('cls', 'Class', `<select class="input" id="ke-cls" name="cls" required><option value="">Choose a class</option>${scope.map(c => `<option${c === v.cls ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select>`, { required: true })}
-              ${f('startDate', 'Start date', `<input class="input" type="date" id="ke-startDate" name="startDate" value="${esc(v.startDate)}" required>`, { required: true, hint: 'A future date shows the child as Starting soon.' })}
-            </div>
-          </fieldset>
-          <fieldset class="kids-form__section"><legend>Primary guardian</legend>
-            <div class="kids-form__grid">
-              ${f('guardianName', 'Full name', `<input class="input" id="ke-guardianName" name="guardianName" value="${esc(v.guardian.name)}" required autocomplete="off">`, { required: true })}
-              ${f('guardianRelation', 'Relation', `<select class="input" id="ke-guardianRelation" name="guardianRelation">${['Mother', 'Father', 'Guardian', 'Grandparent'].map(r => `<option${r === v.guardian.relation ? ' selected' : ''}>${r}</option>`).join('')}</select>`)}
-              ${f('guardianPhone', 'Phone', `<input class="input" type="tel" id="ke-guardianPhone" name="guardianPhone" value="${esc(v.guardian.phone)}" required inputmode="tel" placeholder="+91 98400 00000">`, { required: true })}
-              ${f('guardianEmail', 'Email', `<input class="input" type="email" id="ke-guardianEmail" name="guardianEmail" value="${esc(v.guardian.email)}" placeholder="name@example.com">`, { hint: 'Optional.' })}
-            </div>
-          </fieldset>
-          <fieldset class="kids-form__section"><legend>Safety alerts</legend>
-            <p class="field__hint">Tick each alert that applies and describe it exactly as staff should read it.</p>
-            <div class="kids-form__alerts">
-              ${Object.entries(store.ALERT_TYPES).map(([type, label]) => {
-                const a = alertOf(type);
-                return `<div class="kids-form__alert kids-form__alert--${type}">
-                  <label class="check"><input type="checkbox" name="alert-${type}"${a ? ' checked' : ''} data-alert-toggle="${type}">${icon(ALERT_ICON[type], 'icon--sm')}${esc(label)}</label>
-                  <label class="sr-only" for="ke-alert-${type}">${esc(label)} details</label>
-                  <input class="input" id="ke-alert-${type}" name="alertDetail-${type}" value="${esc(a?.detail || '')}" placeholder="${type === 'allergy' ? 'e.g. Severe peanut allergy — EpiPen in office' : type === 'medical' ? 'e.g. Asthma — inhaler in class bag' : type === 'custody' ? 'e.g. Collection by mother only' : 'e.g. Vegetarian'}"${a ? '' : ' disabled'}>
-                </div>`;
-              }).join('')}
-            </div>
-            <p class="field__hint field__hint--error" data-error-for="alerts" hidden></p>
-          </fieldset>
-          <p class="field__hint field__hint--error" data-form-error role="alert" hidden></p>
-          <div class="kids-form__foot">
-            <a class="btn btn--secondary" href="${child ? routes.record(child.id) : routes.page('children')}">Cancel</a>
-            <button class="btn btn--primary" type="submit">${child ? 'Save changes' : 'Enrol child'}</button>
-          </div>
-        </form>
-      </div>`;
-
-    const form = main.querySelector('[data-form]');
-    form.addEventListener('change', e => {
-      const t = e.target.closest('[data-alert-toggle]');
-      if (!t) return;
-      const input = form.elements[`alertDetail-${t.dataset.alertToggle}`];
-      input.disabled = !t.checked;
-      if (t.checked) input.focus();
-    });
-    let busy = false;
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-      if (busy) return;
-      const data = Object.fromEntries(['firstName', 'lastName', 'dob', 'cls', 'startDate', 'guardianName', 'guardianRelation', 'guardianPhone', 'guardianEmail'].map(k => [k, form.elements[k].value]));
-      const missingDetail = Object.keys(store.ALERT_TYPES).find(t => form.elements[`alert-${t}`].checked && !form.elements[`alertDetail-${t}`].value.trim());
-      data.alerts = Object.keys(store.ALERT_TYPES).filter(t => form.elements[`alert-${t}`].checked).map(t => ({ type: t, detail: form.elements[`alertDetail-${t}`].value }));
-      form.querySelectorAll('[data-error-for]').forEach(h => { h.hidden = true; });
-      form.querySelectorAll('[aria-invalid="true"]').forEach(i => i.setAttribute('aria-invalid', 'false'));
-      const formError = form.querySelector('[data-form-error]');
-      formError.hidden = true;
-      const btn = form.querySelector('[type="submit"]');
-      busy = true;
-      const label = btn.innerHTML;
-      btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>Saving…';
-      btn.setAttribute('aria-busy', 'true');
-      let r = missingDetail ? { ok: false, reason: 'invalid', errors: { [`alertDetail-${missingDetail}`]: `Describe the ${store.ALERT_TYPES[missingDetail].toLowerCase()} alert, or untick it.` } } : await store.saveChild(user, data, child?.id);
-      busy = false;
-      btn.innerHTML = label;
-      btn.removeAttribute('aria-busy');
-      if (r.ok) {
-        flash(child ? 'Changes saved' : 'Child enrolled', child ? `${name(r.child)}’s record is up to date.` : `${name(r.child)} joined ${r.child.cls}${r.child.status === 'starting' ? ` (starts ${date(r.child.startDate)})` : ''}.`);
-        location.href = child ? routes.record(r.child.id) : routes.page('children');
-        return;
-      }
-      if (r.errors) {
-        let first = null;
-        Object.entries(r.errors).forEach(([k, msg]) => {
-          const hint = form.querySelector(`[data-error-for="${k}"]`) || (k.startsWith('alertDetail') ? form.querySelector('[data-error-for="alerts"]') : null);
-          if (hint) { hint.innerHTML = `${icon('info')}${esc(msg)}`; hint.hidden = false; }
-          const input = form.elements[k];
-          input?.setAttribute('aria-invalid', 'true');
-          first = first || input;
-        });
-        first?.focus();
-        return;
-      }
-      formError.innerHTML = `${icon('info')}${esc(r.reason === 'duplicate' ? `${name(r.child)} (born ${date(r.child.dob)}) is already on record.` : FAIL[r.reason] || FAIL.storage)}`;
-      formError.hidden = false;
-    });
-    main.querySelector('#page-title').focus();
     return true;
   }
 
@@ -909,7 +813,6 @@
 
   function render(key, main, user) {
     if (key === 'children') return childrenPage(main, user);
-    if (key === 'enrol') return enrolPage(main, user);
     if (key === 'compose') return composePage(main, user);
     return false;
   }
