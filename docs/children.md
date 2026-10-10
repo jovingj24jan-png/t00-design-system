@@ -136,3 +136,34 @@ S13 ⋮ → Edit all details).
 
 Related pages: **S09 Waitlist** `app.html?page=waitlist`, **S15 Families** `app.html?page=families`,
 **S18 Class rosters** `app.html?page=roster[&cls=<class>]`.
+
+# S15 Families — `app.html?page=families` · S16 Family detail — `app.html?page=family&id=<familyId>` (`families.js`)
+
+A **family** groups one or more **households** (two homes = two households, one family). Guardians and
+children are never copied: a family's guardians are its households' guardians, and its children are the
+children linked to those households. Families are reconciled on read, so every household (including ones
+S14 creates) belongs to exactly one active family; households joined by a shared child join one family.
+
+| Record | Key | Notes |
+| --- | --- | --- |
+| Families | `nexora-families:<school>` | `{ id, name, householdIds, primaryGuardianId, notes, status: 'active'|'merged', mergedInto, mergedFrom, history }` |
+| Parent-app accounts | `nexora-parent-app:<school>` | Per guardian `{ status: 'invited'|'active', invitedAt, activatedAt, history }` plus an `invitations` log (family IDs, recipients, per-guardian result, skipped). |
+
+- **Parent-app status** is derived: Active if any guardian activated, Invited if an invite was issued and
+  nobody activated, otherwise Not invited. Inviting never downgrades Active. Demo seeds give each status;
+  **prototype invites are recorded, not delivered** (results say "issued (demo — not delivered)").
+- **Invites** (row menu, S16, bulk bar) always confirm first, list each guardian once even when linked to
+  several selected families, skip active accounts and guardians with no phone or email, and toast the
+  number of families actually invited.
+- **Balance** column and filter appear only when Fees is in the plan and the role can open Fees; amounts
+  come from the fee ledger of the family's children.
+- **Add family** links existing guardians and children by ID and blocks a new guardian whose phone already
+  belongs to someone on record.
+- **Merge** (exactly two selected): side-by-side comparison, "Keep details from A/B" plus field choices
+  (surviving family, name, primary contact), a review step, then commit. Households move to the survivor
+  by ID — guardians and children combine without duplicates, two homes stay separate, invoices and
+  invitation history are untouched. The other family becomes `merged` (`mergedInto` the survivor; its
+  S16 link points there). One write: a failed merge changes nothing. Audited.
+- Teachers see families with a child in their classes; only leaders add, edit, invite or merge.
+
+Test hook: `app.html?page=families&fail=1` shows the error state with Retry.

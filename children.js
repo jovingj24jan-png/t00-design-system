@@ -128,6 +128,8 @@
       btn.removeAttribute('aria-busy');
       btn.innerHTML = original;
       if (r.ok) { close(); return; }
+      // A multi-step dialog (e.g. review, then confirm) stays open without an error.
+      if (r.keepOpen) { if (r.submitLabel) btn.textContent = r.submitLabel; return; }
       if (r.errors) { showErrors(r.errors); return; }
       formError.innerHTML = `${icon('info')}${esc(r.message || 'This couldn’t be saved. Nothing was changed. Please try again.')}`;
       formError.hidden = false;

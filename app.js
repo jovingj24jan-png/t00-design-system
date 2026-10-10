@@ -41,7 +41,8 @@
   if (window.NexoraNotifications?.render(key, main, user)) { /* notification centre / S63 */ }
   else if (key === 'classes') renderClasses();
   else if (key === 'settings') renderSettings();
-  else if (window.NexoraEnrol?.render(key, main, user)) { /* S14 enrol, S09 waitlist, S15 families, S18 rosters */ }
+  else if (window.NexoraFamilies?.render(key, main, user)) { /* S15 families, S16 family detail */ }
+  else if (window.NexoraEnrol?.render(key, main, user)) { /* S14 enrol, S09 waitlist, S18 rosters */ }
   else if (window.NexoraChildren?.render(key, main, user)) { /* S12 children, S31 compose */ }
   else if (!window.NexoraModules?.render(key, main, user)) renderPage();
 

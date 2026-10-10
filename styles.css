@@ -3123,3 +3123,45 @@ html[lang="en"] .rs-progress__label { text-transform: uppercase; letter-spacing:
   .wiz-card.is-entering .wiz-fields, .wiz-card.is-entering .wiz-card__head { animation: none !important; }
   .wiz-progress span, .wiz-bar span { transition: none; }
 }
+
+/* ==========================================================================
+   S15 Families + S16 family detail (families.js)
+   ========================================================================== */
+.fam-stack { display: inline-flex; align-items: center; }
+.fam-av { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--color-surface); background: var(--color-surface-3); color: var(--color-text); font: 700 11px/1 var(--font-display); object-fit: cover; flex-shrink: 0; }
+.fam-av + .fam-av { margin-inline-start: -8px; }
+.fam-av--child { background: var(--color-accent); color: var(--color-on-primary); }
+.fam-av--guardian { background: var(--color-info-light); color: var(--color-info); }
+.fam-av--more { background: var(--color-bg-raised); color: var(--color-text-secondary); font-family: var(--font-mono); }
+.fam-av--lg { width: 64px; height: 64px; font-size: 22px; background: var(--color-accent); color: var(--color-on-primary); }
+.fam-people { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.fam-names { font-size: 13.5px; color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.fam-sub { display: block; font-size: 12px; color: var(--color-text-muted); }
+.fam-status { display: inline-flex; align-items: center; gap: 4px; }
+.fam-due { font-weight: 650; color: var(--color-warning); }
+.fam-table .data-table td { vertical-align: middle; }
+.fam-row { cursor: pointer; }
+.fam-row.has-menu { position: relative; z-index: 5; }
+.fam-filter { flex: 0 1 200px; }
+.fam-filter .input { height: 44px; }
+.fam-sk { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-border); }
+.fam-big { font: 700 24px/1.2 var(--font-display); }
+.fam-recips { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: var(--space-2) 0; padding-inline-start: var(--space-5); list-style: disc; font-size: 14px; }
+.fam-compare { display: grid; gap: var(--space-3); margin-bottom: var(--space-4); }
+.fam-col { display: grid; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-bg-raised); min-width: 0; }
+.fam-col__tag { font: 600 11px/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-muted); }
+.fam-col__name { font: 650 var(--fs-h5)/1.3 var(--font-display); }
+.fam-quick { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
+.fam-merge .wiz-radios { margin-bottom: var(--space-3); }
+.fam-confirm { margin-top: var(--space-3); }
+.fam-fs { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 0; border: 0; }
+.fam-pick { display: flex; gap: var(--space-2); }
+.fam-pick .input { flex: 1; min-width: 0; }
+.fam-picked { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+@media (min-width: 768px) { .fam-compare { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 768px) and (max-width: 1023px) { .fam-names--kids { display: none; } .fam-table .data-table th, .fam-table .data-table td { padding-inline: 10px; } }
+@media (max-width: 767px) {
+  .fam-filter { flex: 1 1 140px; }
+  .fam-table .fam-people { justify-content: flex-end; }
+  .fam-names { display: none; }
+}

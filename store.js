@@ -195,7 +195,8 @@
     children: { name: 'Children', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Every child in the school: find anyone in seconds and see safety alerts at a glance.' },
     enrol: { name: 'Enrol child', icon: 'user-plus', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Add a child to the school, or edit an existing child’s details.' },
     waitlist: { name: 'Waitlist', icon: 'clock', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Children waiting for a seat in a full class.' },
-    families: { name: 'Families', icon: 'users', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Households, guardians and the children they’re linked to.' },
+    families: { name: 'Families', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Families as a unit: households, guardians, children and parent-app access.' },
+    family: { name: 'Family', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'One family: households, guardians, children, parent app and balance.' },
     roster: { name: 'Class rosters', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Who is in each class, with capacity and schedules.' },
     compose: { name: 'Message families', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Write to selected families. Prototype: messages are saved, not delivered.' },
     classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Every class in your school, with level, section and capacity.' },
@@ -1402,6 +1403,229 @@
     }
   }
 
+
+  /* ---------------------------------------------------------------- S15 families, S16 family detail, parent app
+     A family groups one or more households (two homes = two households, one family). Guardians and
+     children are not copied: a family's guardians are its households' guardians and its children are
+     the children linked to those households. Families are reconciled on read, so a household created
+     by S14 always belongs to exactly one active family.
+     Parent-app accounts are per guardian ({ status: 'invited' | 'active', history[] }); a family is
+     Active when any guardian has activated, Invited when an invite was issued and nobody has
+     activated, otherwise Not invited. Prototype: invites are recorded, not delivered. */
+
+  const familiesKey = id => `nexora-families:${id}`;
+  const parentAppKey = id => `nexora-parent-app:${id}`;
+  const FAMILY_MANAGERS = ['Director', 'Admin', 'Super Admin'];
+  const canManageFamilies = user => FAMILY_MANAGERS.includes(user.role);
+  const APP_STATUS = { active: 'Active', invited: 'Invited', 'not-invited': 'Not invited' };
+
+  // Seeded demo accounts so every status appears; everything after this comes from real actions.
+  function getParentApp() {
+    return seeded(parentAppKey(school.id), () => {
+      const accounts = {};
+      getGuardians().forEach((g, i) => {
+        if (i % 5 === 0) accounts[g.id] = { status: 'active', invitedAt: atToday(10, 0, -40), activatedAt: atToday(19, 30, -38), history: [{ at: atToday(10, 0, -40), event: 'invited', by: 'Mrs. Rao', result: 'issued' }, { at: atToday(19, 30, -38), event: 'activated' }] };
+        else if (i % 5 === 2) accounts[g.id] = { status: 'invited', invitedAt: atToday(11, 0, -6), history: [{ at: atToday(11, 0, -6), event: 'invited', by: 'Mrs. Rao', result: 'issued' }] };
+      });
+      return { accounts, invitations: [] };
+    });
+  }
+
+  function getFamilyRecords() {
+    const households = getHouseholds();
+    const children = getChildren();
+    let list = read(familiesKey(school.id), null);
+    const fresh = !list;
+    list = list || [];
+    let changed = fresh;
+    const owner = new Map();
+    list.filter(f => f.status === 'active').forEach(f => f.householdIds.forEach(h => owner.set(h, f)));
+    // Households joined by a shared child are one family (two homes).
+    const siblingsOf = hid => {
+      const out = new Set();
+      children.forEach(c => { const hs = [...new Set(c.guardianLinks.map(l => l.householdId).filter(Boolean))]; if (hs.includes(hid)) hs.forEach(h => out.add(h)); });
+      return out;
+    };
+    households.forEach(h => {
+      if (owner.has(h.id)) return;
+      const linked = [...siblingsOf(h.id)].map(x => owner.get(x)).find(Boolean);
+      if (linked) { linked.householdIds.push(h.id); owner.set(h.id, linked); changed = true; return; }
+      const f = { id: `f-${list.length + 1}-${h.id}`, name: h.label.replace(/ household$/i, ' family'), householdIds: [h.id], primaryGuardianId: h.guardianIds[0] || null, notes: '', status: 'active', mergedInto: null, createdAt: new Date().toISOString(), history: [] };
+      list.push(f);
+      owner.set(h.id, f);
+      changed = true;
+    });
+    if (changed) { try { localStorage.setItem(familiesKey(school.id), JSON.stringify(list)); } catch { /* in memory */ } }
+    return list;
+  }
+
+  const accountOf = (app, gid) => app.accounts[gid] || { status: 'not-invited', history: [] };
+  function familyStatus(guardianIds, app = getParentApp()) {
+    const st = guardianIds.map(id => accountOf(app, id).status);
+    return st.includes('active') ? 'active' : st.includes('invited') ? 'invited' : 'not-invited';
+  }
+
+  // Resolved view of one family: households, guardians (deduplicated by ID), children, status, balance.
+  function resolveFamily(f, ctx) {
+    const households = f.householdIds.map(id => ctx.households.find(h => h.id === id)).filter(Boolean);
+    const gids = [...new Set(households.flatMap(h => h.guardianIds))];
+    const guardians = gids.map(id => ctx.guardians.find(g => g.id === id)).filter(Boolean).map(g => ({ ...g, account: accountOf(ctx.app, g.id) }));
+    const kidsIn = ctx.children.filter(c => c.guardianLinks?.some(l => f.householdIds.includes(l.householdId)));
+    const primary = guardians.find(g => g.id === f.primaryGuardianId) || guardians[0] || null;
+    const lines = ctx.ledger.filter(l => kidsIn.some(c => c.id === l.studentId));
+    return {
+      ...f, households: households.map(h => ({ ...h, guardianIds: h.guardianIds.filter(id => gids.includes(id)) })), guardians,
+      children: kidsIn.map(c => ({ id: c.id, name: childName(c), firstName: c.firstName, lastName: c.lastName, cls: c.cls, status: c.status, photo: c.photo || null })),
+      primary, appStatus: familyStatus(gids, ctx.app),
+      balance: lines.reduce((s, l) => s + l.balance, 0), invoiceIds: lines.map(l => l.id)
+    };
+  }
+  function listFamilies({ includeMerged = false } = {}) {
+    const ctx = { households: getHouseholds(), guardians: getGuardians(), children: getChildren(), app: getParentApp(), ledger: feeLedger() };
+    return getFamilyRecords().filter(f => includeMerged || f.status === 'active').map(f => resolveFamily(f, ctx));
+  }
+  const familyById = id => {
+    const rec = getFamilyRecords().find(f => f.id === id);
+    if (!rec) return null;
+    // A merged family resolves to the family it now lives in.
+    if (rec.status === 'merged') return { merged: true, mergedInto: rec.mergedInto, name: rec.name };
+    return listFamilies().find(f => f.id === id) || null;
+  };
+
+  /* Add / edit family. */
+  function saveFamily(user, input, familyId = null) {
+    if (!canManageFamilies(user)) return settle({ ok: false, reason: 'forbidden' });
+    const errors = {};
+    const name = clean(input.name);
+    if (!name) errors.name = 'Give the family a name.';
+    const families = getFamilyRecords();
+    if (familyId) {
+      const f = families.find(x => x.id === familyId && x.status === 'active');
+      if (!f) return settle({ ok: false, reason: 'missing' });
+      const view = listFamilies().find(x => x.id === familyId);
+      if (input.primaryGuardianId && !view.guardians.some(g => g.id === input.primaryGuardianId)) errors.primaryGuardianId = 'Choose a guardian in this family.';
+      if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+      const before = { name: f.name, primaryGuardianId: f.primaryGuardianId, notes: f.notes };
+      Object.assign(f, { name, primaryGuardianId: input.primaryGuardianId || f.primaryGuardianId, notes: clean(input.notes).slice(0, 1000) });
+      f.history = [...(f.history || []), { at: new Date().toISOString(), by: user.name, event: 'edited', detail: Object.keys(before).filter(k => before[k] !== f[k]).join(', ') || 'no changes' }];
+      if (!write(familiesKey(school.id), families)) return settle({ ok: false, reason: 'storage' });
+      logAudit(user, 'edit:family', familyId, name);
+      return settle({ ok: true, family: f });
+    }
+    // New family: existing guardians are linked by ID; new guardians are checked against existing phone numbers.
+    const guardians = getGuardians();
+    const picked = (input.existingGuardianIds || []).filter(id => guardians.some(g => g.id === id));
+    const newOnes = (input.newGuardians || []).map((g, i) => ({ i, name: clean(g.name), phone: clean(g.phone), email: clean(g.email), relation: clean(g.relation) }));
+    newOnes.forEach(g => {
+      if (!g.name) errors[`newGuardians.${g.i}.name`] = 'Enter the guardian’s name.';
+      if (!phoneOk(g.phone)) errors[`newGuardians.${g.i}.phone`] = 'Enter a phone number with at least 10 digits.';
+      else {
+        const same = guardians.find(x => x.phone.replace(/\D/g, '').slice(-10) === g.phone.replace(/\D/g, '').slice(-10));
+        if (same) errors[`newGuardians.${g.i}.phone`] = `${same.name} already has this number. Link the existing guardian instead.`;
+      }
+      if (!emailOk(g.email)) errors[`newGuardians.${g.i}.email`] = 'Enter a valid email or leave it blank.';
+      if (!g.relation) errors[`newGuardians.${g.i}.relation`] = 'Choose the relationship to the children.';
+    });
+    if (!picked.length && !newOnes.length) errors.guardians = 'Add at least one guardian.';
+    const children = getChildren();
+    const childIds = (input.childIds || []).filter(id => children.some(c => c.id === id));
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+
+    const households = getHouseholds();
+    const created = newOnes.map(g => ({ id: newId('g'), name: g.name, phone: g.phone, email: g.email, prefers: 'phone', relation: g.relation }));
+    const hh = { id: newId('h'), label: `${name.replace(/ family$/i, '')} household`, guardianIds: [...picked, ...created.map(g => g.id)] };
+    const relationOf = gid => created.find(g => g.id === gid)?.relation || clean(input.existingRelations?.[gid]) || 'Guardian';
+    childIds.forEach(cid => {
+      const c = children.find(x => x.id === cid);
+      hh.guardianIds.forEach(gid => {
+        if (c.guardianLinks.some(l => l.guardianId === gid)) return;
+        c.guardianLinks.push({ guardianId: gid, relation: relationOf(gid), primary: false, householdId: hh.id, livesWith: null, responsibility: null });
+      });
+      c.history = [...c.history, stamp(user, 'edited', `Linked to the ${name}`)];
+    });
+    const f = { id: newId('f'), name, householdIds: [hh.id], primaryGuardianId: hh.guardianIds[0], notes: clean(input.notes).slice(0, 1000), status: 'active', mergedInto: null, createdAt: new Date().toISOString(), history: [{ at: new Date().toISOString(), by: user.name, event: 'created' }] };
+    const ok = commit([
+      { key: guardiansKey(school.id), value: [...guardians, ...created.map(({ relation, ...g }) => g)] },
+      { key: householdsKey(school.id), value: [...households, hh] },
+      { key: childrenKey(school.id), value: children },
+      { key: familiesKey(school.id), value: [...families, f] }
+    ]);
+    if (!ok) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'add:family', f.id, name);
+    return settle({ ok: true, family: f });
+  }
+
+  /* Invitations: one per eligible guardian across the selected families (deduplicated); active accounts are skipped. */
+  function invitePreview(familyIds) {
+    const fams = listFamilies().filter(f => familyIds.includes(f.id));
+    const seen = new Set();
+    const recipients = [];
+    const skipped = [];
+    fams.forEach(f => f.guardians.forEach(g => {
+      if (seen.has(g.id)) return;
+      seen.add(g.id);
+      if (g.account.status === 'active') skipped.push({ guardianId: g.id, name: g.name, familyId: f.id, reason: 'Already active' });
+      else if (!g.phone && !g.email) skipped.push({ guardianId: g.id, name: g.name, familyId: f.id, reason: 'No phone or email' });
+      else recipients.push({ guardianId: g.id, name: g.name, familyId: f.id, resend: g.account.status === 'invited' });
+    }));
+    const eligibleFamilies = [...new Set(recipients.map(r => r.familyId))];
+    return { families: fams, recipients, skipped, eligibleFamilies };
+  }
+  function inviteFamilies(user, familyIds) {
+    if (!canManageFamilies(user)) return settle({ ok: false, reason: 'forbidden' });
+    const p = invitePreview(familyIds);
+    if (!p.recipients.length) return settle({ ok: false, reason: 'none', skipped: p.skipped });
+    const app = getParentApp();
+    const now = new Date().toISOString();
+    const results = p.recipients.map(r => {
+      const g = getGuardians().find(x => x.id === r.guardianId);
+      // Demo channel: issuing = recording the invite. Without a contact route there is nothing to issue to.
+      const ok = Boolean(g && (g.phone || g.email));
+      return { ...r, ok, result: ok ? 'issued (demo — not delivered)' : 'failed: no contact route' };
+    });
+    results.filter(r => r.ok).forEach(r => {
+      const acc = app.accounts[r.guardianId] || { status: 'not-invited', history: [] };
+      // Never downgrade an active account.
+      if (acc.status !== 'active') acc.status = 'invited';
+      acc.invitedAt = now;
+      acc.history = [...(acc.history || []), { at: now, event: 'invited', by: user.name, result: 'issued', familyId: r.familyId }];
+      app.accounts[r.guardianId] = acc;
+    });
+    const invitedFamilies = [...new Set(results.filter(r => r.ok).map(r => r.familyId))];
+    app.invitations.unshift({ id: newId('inv'), at: now, by: user.name, familyIds, recipients: results.map(r => ({ guardianId: r.guardianId, familyId: r.familyId, ok: r.ok, result: r.result })), skipped: p.skipped });
+    if (!write(parentAppKey(school.id), app)) return settle({ ok: false, reason: 'storage' });
+    invitedFamilies.forEach(fid => logAudit(user, 'invite:parent-app', fid, `${results.filter(r => r.ok && r.familyId === fid).length} guardian(s)`));
+    return settle({ ok: true, invitedFamilies, results, skipped: p.skipped });
+  }
+
+  /* Merge: `keepId` survives, `mergeId` is marked merged into it. Only the families record changes:
+     households (and so guardians and children) move across by ID; nothing is deleted. */
+  function mergeFamilies(user, { keepId, mergeId, name, primaryGuardianId, notes }) {
+    if (!canManageFamilies(user)) return settle({ ok: false, reason: 'forbidden' });
+    if (!keepId || !mergeId || keepId === mergeId) return settle({ ok: false, reason: 'invalid', message: 'Choose two different families.' });
+    const families = getFamilyRecords();
+    const keep = families.find(f => f.id === keepId);
+    const gone = families.find(f => f.id === mergeId);
+    if (!keep || !gone || keep.status !== 'active' || gone.status !== 'active') return settle({ ok: false, reason: 'stale', message: 'One of these families changed or was already merged. Refresh and try again.' });
+    const both = listFamilies().filter(f => f.id === keepId || f.id === mergeId);
+    const gids = new Set(both.flatMap(f => f.guardians.map(g => g.id)));
+    if (primaryGuardianId && !gids.has(primaryGuardianId)) return settle({ ok: false, reason: 'invalid', message: 'The primary contact must be one of the two families’ guardians.' });
+    if (!clean(name)) return settle({ ok: false, reason: 'invalid', message: 'Choose the family name to keep.' });
+    const at = new Date().toISOString();
+    const before = { keep: JSON.parse(JSON.stringify(keep)), gone: JSON.parse(JSON.stringify(gone)) };
+    keep.householdIds = [...new Set([...keep.householdIds, ...gone.householdIds])];
+    keep.name = clean(name);
+    keep.primaryGuardianId = primaryGuardianId || keep.primaryGuardianId;
+    keep.notes = clean(notes ?? keep.notes);
+    keep.mergedFrom = [...(keep.mergedFrom || []), gone.id];
+    keep.history = [...(keep.history || []), { at, by: user.name, event: 'merged', detail: `Merged ${gone.name} (${gone.id}) into this family` }];
+    Object.assign(gone, { status: 'merged', mergedInto: keep.id, mergedAt: at, mergedBy: user.name, householdIds: before.gone.householdIds });
+    gone.history = [...(gone.history || []), { at, by: user.name, event: 'merged', detail: `Merged into ${keep.name} (${keep.id})` }];
+    if (!commit([{ key: familiesKey(school.id), value: families }])) return settle({ ok: false, reason: 'storage', message: 'The merge couldn’t be saved. Nothing was changed.' });
+    logAudit(user, 'merge:family', keep.id, `${gone.name} (${gone.id}) merged into ${keep.name} (${keep.id})`);
+    return settle({ ok: true, family: keep, merged: gone });
+  }
+
   // Any child on record (including withdrawn), so past invoices and incidents keep their names.
   const studentById = id => { const c = childById(id); return c ? { id: c.id, name: childName(c), cls: c.cls } : null; };
 
@@ -1921,6 +2145,15 @@
     deleteDraft,
     validateEnrolment,
     enrolChild,
+    APP_STATUS,
+    canManageFamilies,
+    getParentApp,
+    listFamilies,
+    familyById,
+    saveFamily,
+    invitePreview,
+    inviteFamilies,
+    mergeFamilies,
     moveChildren,
     withdrawChild,
     getChildPrefs,

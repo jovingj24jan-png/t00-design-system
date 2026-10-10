@@ -1,5 +1,5 @@
 /* S14 enrol / edit child (app.html?page=enrol[&id=<childId>][&draft=<draftId>]) — a five-step wizard
-   over the shared store — plus the pages it feeds: S09 waitlist, S15 families, S18 class rosters.
+   over the shared store — plus the pages it feeds: S09 waitlist and S18 class rosters (S15 is families.js).
    NexoraEnrol.render(key, main, user) → true when handled. The final save goes through
    store.enrolChild(), which re-validates everything (duplicates, capacity, pickup conflicts). */
 (() => {
@@ -784,33 +784,6 @@
     return true;
   }
 
-  /* ------------------------------------------------------------------ S15 Families */
-
-  function familiesPage(main, user) {
-    const scope = store.classScope(user);
-    let q = '';
-    const draw = () => {
-      // Teachers see only families with a child in their classes.
-      const list = store.families(q).filter(f => user.role !== 'Teacher' || f.children.some(c => scope.includes(c.cls)));
-      main.querySelector('[data-list]').innerHTML = list.length ? list.map(f => `<li class="cp-card fam-card">
-        <h2 class="cp-card__title">${esc(f.label)}</h2>
-        <ul class="cp-people">${f.guardians.map(g => `<li><b>${esc(g.name)}</b><span>${esc(g.phone)}${g.email ? ` · ${esc(g.email)}` : ''}</span></li>`).join('')}</ul>
-        <p class="cp-muted">${f.children.length ? f.children.map(c => `<a href="${routes.record(c.id)}">${esc(c.name)}</a> (${esc(c.cls)}${c.status !== 'active' ? `, ${esc(store.CHILD_STATUSES[c.status])}` : ''})`).join(', ') : 'No children linked'}</p>
-      </li>`).join('') : '<li class="kids-empty"><p class="kids-empty__title">No families match</p></li>';
-      main.querySelector('[data-count]').textContent = `(${list.length})`;
-    };
-    document.title = 'Families · Nexora';
-    main.classList.add('kids-page');
-    main.innerHTML = `<div class="kids">
-      <header class="kids-head"><div class="kids-head__text"><h1 class="kids-head__title" id="page-title" tabindex="-1">Families <span class="kids-head__count" data-count></span></h1><p class="kids-head__sub">Households and their guardians. Siblings share one family record.</p></div></header>
-      <div class="input-wrap input-wrap--lead kids-search">${icon('search')}<label class="sr-only" for="fam-q">Search families</label><input class="input" id="fam-q" type="search" placeholder="Search by guardian, phone or child name" data-q></div>
-      <ul class="cp-grid" data-list></ul></div>`;
-    main.querySelector('[data-q]').addEventListener('input', e => { q = e.target.value; draw(); });
-    draw();
-    store.subscribe(({ key }) => { if (!key || /^nexora-(households|guardians|children)/.test(key)) draw(); });
-    return true;
-  }
-
   /* ------------------------------------------------------------------ S18 Class rosters */
 
   function rosterPage(main, user) {
@@ -837,7 +810,6 @@
   function render(key, main, user) {
     if (key === 'enrol') return wizard(main, user);
     if (key === 'waitlist') return waitlistPage(main, user);
-    if (key === 'families') return familiesPage(main, user);
     if (key === 'roster') return rosterPage(main, user);
     return false;
   }
