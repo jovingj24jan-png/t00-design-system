@@ -39,7 +39,7 @@
   document.title = `${page.name} · Nexora`;
   main.classList.add('record-page');
   if (window.NexoraNotifications?.render(key, main, user)) { /* notification centre / S63 */ }
-  else if (key === 'classes') renderClasses();
+  else if (window.NexoraClasses?.render(key, main, user)) { /* S17 classes */ }
   else if (key === 'settings') renderSettings();
   else if (window.NexoraFamilies?.render(key, main, user)) { /* S15 families, S16 family detail */ }
   else if (window.NexoraEnrol?.render(key, main, user)) { /* S14 enrol, S09 waitlist, S18 rosters */ }
@@ -60,32 +60,6 @@
         </dl>
         <div class="well"><span class="tech-label">Prototype page</span><p class="ts-small" style="margin-top:var(--space-2)">This page exists to demonstrate role permissions. Its content is not built yet.</p></div>
         <div class="nf__actions"><a class="btn btn--primary" href="${routes.dashboard}">Back to dashboard</a><a class="btn btn--secondary" href="${routes.page('notifications')}">Notifications</a></div>
-      </article>`;
-  }
-
-  // S17 Classes — the class records the S05 setup saves (same store, same IDs).
-  function renderClasses() {
-    const classes = store.getClasses(store.school.id);
-    const manage = store.canManagePlan(user);
-    main.innerHTML = `
-      <article class="panel record school-page" aria-labelledby="page-title">
-        <header class="panel__head">
-          <span class="panel__num">S17<i class="marker" aria-hidden="true"></i></span>
-          <div><h1 class="panel__title" id="page-title">Classes</h1><p class="panel__sub">${esc(page.summary)}</p></div>
-          <span class="tech-label">Page / Classes</span>
-        </header>
-        ${classes.length ? `
-          <ul class="school-list">
-            ${classes.map(c => {
-              const n = store.classStudentCount(store.school.id, c.name);
-              return `<li class="school-list__item">
-                <div><p class="school-list__title">${esc(c.name)}</p><p class="school-list__sub">${esc(c.level)}${c.section ? ` · Section ${esc(c.section)}` : ''}</p></div>
-                <dl class="school-list__facts"><div><dt>Capacity</dt><dd>${c.capacity ?? 'Not set'}</dd></div><div><dt>Students</dt><dd>${n}</dd></div></dl>
-              </li>`;
-            }).join('')}
-          </ul>`
-          : `<div class="state-tile__body state-tile__center" style="padding:var(--space-8) 0"><span class="state-icon" aria-hidden="true"><svg class="icon"><use href="#i-grid"/></svg></span><h2 class="card__title">No classes yet</h2><p class="card__meta">${manage ? 'Add your classes in school setup.' : 'Your school admin hasn’t added classes yet.'}</p></div>`}
-        <div class="nf__actions">${manage ? `<a class="btn btn--primary" href="${routes.setup}#step-4">${classes.length ? 'Edit classes in setup' : 'Add classes'}</a>` : ''}<a class="btn btn--secondary" href="${routes.dashboard}">Back to dashboard</a></div>
       </article>`;
   }
 

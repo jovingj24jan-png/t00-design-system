@@ -199,3 +199,51 @@ Sections are collapsible `<details>`: Guardians, Households, Children, Custody &
 then English, and reports the fallback. S31 renders one version per guardian in their saved language,
 shows every version for review before saving, and stores the rendered text per recipient. Changing a
 guardian's language never sends anything; it affects the next template message.
+
+# S17 Classes — `app.html?page=classes` (`classes.js`)
+
+## Class registry (single source of truth)
+
+`nexora-class-registry:<school>` holds every class:
+`{ id, name, level, colour, ageMin, ageMax, mixedAge, room, capacity, ratio: { adults, children },
+staffIds (first = lead), status: 'active' | 'archived', createdAt, updatedAt, archivedAt, archivedBy }`.
+It is seeded from the demo roster (capacities from the old class config, ratio `1 : <level rule>`,
+staff from each educator's `home`), and classes made in the S05 setup wizard join it once by name.
+Everything that used to read the static class list now reads the registry: `store.rosterClasses`
+(active classes), `classScope`, `classesInfo` / `classInfo` (S14 capacity and lead teacher),
+announcement audiences, today's register seed, notifications and the ratio.
+
+Children still point at a class by **name** (`child.cls`). A rename updates children (with a history
+entry), today's register and the waitlist in one `commit()`.
+
+## Card figures
+
+- **Enrolled** = active + starting-soon children (the same count S14 uses for capacity).
+- **Capacity bar** (`store.capacityState`): below 90% neutral, 90% to under 100% amber, 100% or more red.
+  Shows the real count above capacity with a warning. A missing or zero capacity shows "capacity not set"
+  and never divides.
+- **Present today** = present + late marks in today's S19 register, or "Attendance not recorded".
+- **Ratio** (`store.classRatio`): rule "A adults : C children" → children per adult = C ÷ A;
+  `required = ceil(childrenPresent ÷ (C ÷ A))`; met when `adultsPresent >= required`. Adults present =
+  staff assigned to the class **and** marked present in staff attendance **and** counted in this class
+  (someone assigned to two classes counts in their first active class only). Assigning staff never marks
+  them present. "Ratio unavailable" when the register isn't taken, no staff are assigned, or staff
+  attendance isn't recorded.
+
+## Rules enforced in `store.saveClass()` / `store.archiveClass()`
+
+- Director, Admin and Super Admin only (Teachers see their own classes read-only).
+- Name required, trimmed, unique (case-insensitive, including archived classes so history stays clear);
+  level, colour tag, room required; ages whole numbers with oldest > youngest; capacity 1–200;
+  ratio adults and children positive whole numbers; staff must exist.
+- Lowering capacity below current enrolment returns `over-capacity` unless `confirmOverCapacity` is
+  set (the modal's "Save anyway"). Children are never moved.
+- Duplicate opens the modal prefilled as "<name> (Copy)"; it gets a new ID on save and copies no
+  children, registers or history. Nothing is created until it is saved.
+- Archive re-counts enrolled children at the moment of archiving and returns `has-children` with the
+  count if any. The UI checks when the action is chosen and again on confirm. Archived classes leave
+  every active list, enrolment choice and audience but still resolve by name for history.
+
+## Test hook
+
+`?fail=1` makes the first load fail so the error state can be checked.

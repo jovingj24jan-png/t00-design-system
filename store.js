@@ -201,7 +201,7 @@
     family: { name: 'Family', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'One family: households, guardians, children, parent app and balance.' },
     roster: { name: 'Class rosters', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Who is in each class, with capacity and schedules.' },
     compose: { name: 'Message families', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Write to selected families. Prototype: messages are saved, not delivered.' },
-    classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Every class in your school, with level, section and capacity.' },
+    classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Manage classrooms, capacity and today’s staffing.' },
     settings: { name: 'Settings', icon: 'grid', roles: ['Director', 'Admin', 'Super Admin'], summary: 'School details, academic year, school hours and preferences.' },
     notifications: { name: 'Notifications', icon: 'bell', roles: roles.slice(), summary: 'Updates and requests sent to you.' },
     'notification-settings': { name: 'Notification settings', icon: 'bell', roles: roles.slice(), summary: 'Choose which modules send you notifications.' }
@@ -468,8 +468,8 @@
     return value;
   }
 
-  // Classes the demo roster belongs to, with the level each ratio rule applies to.
-  const rosterClasses = [
+  // Classes the demo roster is seeded with. The live list is the S17 class registry (getClassRegistry).
+  const ROSTER_SEED_CLASSES = [
     { name: 'Montessori A', level: 'Montessori' },
     { name: 'UKG A', level: 'UKG' },
     { name: 'UKG B', level: 'UKG' },
@@ -490,7 +490,6 @@
     ...students.map(s => ({ id: s.id, name: s.name, cls: s.cls })),
     ...Object.entries(ROSTER_NAMES).flatMap(([cls, names]) => names.map(name => ({ id: `r${++rosterSeq}`, name, cls })))
   ];
-  const classByName = name => rosterClasses.find(c => c.name === name) || null;
 
   /* ---------------------------------------------------------------- Children (S12 list, S13 record, S14 enrol)
      One record per child, seeded from the demo roster on first read and kept in localStorage:
@@ -587,7 +586,7 @@
   // Moves one or more children together: if any child can't move, nothing is saved.
   function moveChildren(user, ids, cls) {
     if (!canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
-    if (!classByName(cls)) return settle({ ok: false, reason: 'invalid', errors: { cls: 'Choose a class to move to.' } });
+    if (classByName(cls)?.status !== 'active') return settle({ ok: false, reason: 'invalid', errors: { cls: 'Choose a class to move to.' } });
     const list = getChildren();
     const targets = ids.map(id => list.find(c => c.id === id));
     if (!targets.length || targets.some(c => !c)) return settle({ ok: false, reason: 'missing' });
@@ -598,7 +597,7 @@
       if (c.cls === cls) return;
       c.history = [...c.history, stamp(user, 'moved', `Moved from ${c.cls} to ${cls}`)];
       // A key teacher from the old class hands over to the new class's lead educator.
-      if (!c.keyTeacher || educators.some(e => e.name === c.keyTeacher && e.cls === c.cls)) c.keyTeacher = educators.find(e => e.cls === cls)?.name || '';
+      if (!c.keyTeacher || staffOf(c.cls).some(e => e.name === c.keyTeacher)) c.keyTeacher = staffOf(cls)[0]?.name || '';
       c.cls = cls;
       moved += 1;
     });
@@ -711,7 +710,7 @@
     const set = (k, v) => { if (c[k] === undefined) { c[k] = v; changed = true; } };
     const seed = PROFILE_SEED[childName(c)] || {};
     set('preferredName', '');
-    set('keyTeacher', educators.find(e => e.cls === c.cls)?.name || '');
+    set('keyTeacher', staffOf(c.cls)[0]?.name || '');
     if (!c.guardianLinks) {
       const findOrAdd = g => {
         const key = `${g.name.toLowerCase()}|${String(g.phone).replace(/\D/g, '')}`;
@@ -1099,12 +1098,11 @@
   function classInfo(name, excludeId = null) {
     const c = classByName(name);
     if (!c) return null;
-    const s17 = getClasses(school.id).find(x => x.name.toLowerCase() === name.toLowerCase());
-    const capacity = s17?.capacity ?? getClassConfig()[name] ?? null;
+    const capacity = Number.isInteger(c.capacity) && c.capacity > 0 ? c.capacity : null;
     const occupancy = getChildren().filter(k => k.cls === name && ['active', 'starting'].includes(k.status) && k.id !== excludeId).length;
-    return { name, level: c.level, teacher: educators.find(e => e.cls === name)?.name || '', capacity, occupancy, remaining: capacity == null ? null : Math.max(0, capacity - occupancy), full: capacity != null && occupancy >= capacity };
+    return { name, level: c.level, teacher: staffOf(name)[0]?.name || '', archived: c.status === 'archived', capacity, occupancy, remaining: capacity == null ? null : Math.max(0, capacity - occupancy), full: capacity != null && occupancy >= capacity };
   }
-  const classesInfo = (excludeId = null) => rosterClasses.map(c => classInfo(c.name, excludeId));
+  const classesInfo = (excludeId = null) => activeClasses().map(c => classInfo(c.name, excludeId));
 
   /* Households: seeded from the existing guardian links (siblings share one), saved without an event. */
   function getHouseholds() {
@@ -1150,7 +1148,7 @@
     const errors = {};
     if (!v.firstName || !v.lastName) errors.name = 'Enter the child’s first and last name.';
     if (!isDate(v.dob) || v.dob >= today()) errors.dob = 'Enter a date of birth in the past.';
-    if (!classByName(v.cls)) errors.cls = 'Choose the class requested.';
+    if (classByName(v.cls)?.status !== 'active') errors.cls = 'Choose the class requested.';
     if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
     const list = getWaitlist();
     // One open entry per child and class: re-adding updates it instead of duplicating.
@@ -1256,7 +1254,9 @@
     if (h.doctor?.phone && !phoneOk(h.doctor.phone)) e['health.doctor.phone'] = 'Enter a phone number with at least 10 digits.';
 
     const cl = p.classSchedule || {};
-    const info = classByName(cl.cls) ? classInfo(cl.cls, childId) : null;
+    // Only active classes take children; an existing child may stay in the class they are already in.
+    const target = classByName(cl.cls);
+    const info = target && (target.status === 'active' || (childId && childById(childId)?.cls === cl.cls)) ? classInfo(cl.cls, childId) : null;
     if (!info) e['classSchedule.cls'] = 'Choose a class.';
     if (!isDate(cl.startDate)) e['classSchedule.startDate'] = 'Choose a start date.';
     else if (!childId && cl.startDate < daysFromToday(-30)) e['classSchedule.startDate'] = 'A new enrolment can start at most 30 days ago.';
@@ -1399,7 +1399,7 @@
       // Only the class team hears about a new child; the notification names no health or custody details.
       if (!existing || existing.cls !== child.cls) {
         notifyUsers({ module: 'classroom-tracker', kind: 'enrolment', title: `${childName(child)} is joining ${child.cls}`, body: `Starts ${child.startDate} · ${SESSIONS[child.schedule.session]}. Open the profile for alerts and pickup details.`, recordType: 'child', recordId: child.id, dedupeKey: `enrol:${child.id}:${child.cls}` },
-          { toUserIds: educators.filter(e => e.cls === child.cls && e.userId).map(e => e.userId), exclude: [user.id] });
+          { toUserIds: staffOf(child.cls).filter(e => e.userId).map(e => e.userId), exclude: [user.id] });
       }
       return settle({ ok: true, child, created: !existing });
     } finally {
@@ -1886,21 +1886,78 @@
   // Any child on record (including withdrawn), so past invoices and incidents keep their names.
   const studentById = id => { const c = childById(id); return c ? { id: c.id, name: childName(c), cls: c.cls } : null; };
 
-  // Educators assigned to each class. Ms. Lakshmi is the demo Teacher account.
+  // Staff on record. `home` only seeds the class registry; assignments live on each class (staffIds).
+  // Ms. Lakshmi is the demo Teacher account.
   const educators = [
-    { id: 'ed-lakshmi', name: 'Ms. Lakshmi', userId: 'u-teacher', cls: 'Montessori A' },
-    { id: 'ed-deepa', name: 'Ms. Deepa', cls: 'Montessori A' },
-    { id: 'ed-arjun', name: 'Mr. Arjun', cls: 'UKG A' },
-    { id: 'ed-kavitha', name: 'Ms. Kavitha', cls: 'UKG B' },
-    { id: 'ed-sunita', name: 'Ms. Sunita', cls: 'LKG A' },
-    { id: 'ed-priya', name: 'Ms. Priya', cls: 'Nursery' },
-    { id: 'ed-anjali', name: 'Ms. Anjali', cls: 'Nursery' }
+    { id: 'ed-lakshmi', name: 'Ms. Lakshmi', userId: 'u-teacher', home: 'Montessori A' },
+    { id: 'ed-deepa', name: 'Ms. Deepa', home: 'Montessori A' },
+    { id: 'ed-arjun', name: 'Mr. Arjun', home: 'UKG A' },
+    { id: 'ed-kavitha', name: 'Ms. Kavitha', home: 'UKG B' },
+    { id: 'ed-sunita', name: 'Ms. Sunita', home: 'LKG A' },
+    { id: 'ed-priya', name: 'Ms. Priya', home: 'Nursery' },
+    { id: 'ed-anjali', name: 'Ms. Anjali', home: 'Nursery' }
   ];
+  educators.forEach(e => Object.defineProperty(e, 'cls', { get: () => classesOfStaff(e.id)[0] || '', enumerable: false }));
+
+  /* ---------------------------------------------------------------- S17 class registry (single source of truth)
+     { id, name, level, colour, ageMin, ageMax, mixedAge, room, capacity, ratio: { adults, children },
+       staffIds: [educatorId, …] (first = lead), status: 'active' | 'archived', createdAt, updatedAt, archivedAt }
+     Children keep pointing at a class by name (c.cls), so a rename updates them in the same write.
+     Seeded from the demo roster classes; classes added in the S05 setup wizard join by name.
+     Archived classes leave every active list and enrolment choice but still resolve by name, so past
+     invoices, registers and withdrawn children keep their class. */
+
+  const classRegistryKey = id => `nexora-class-registry:${id}`;
+  const CLASS_COLOURS = { amber: 'Amber', sage: 'Sage', sky: 'Sky', rose: 'Rose', slate: 'Slate' };
+  const SEED_CLASS_DETAILS = {
+    'Montessori A': { room: 'Room 1 · Garden room', ageMin: 3, ageMax: 6, mixedAge: true, colour: 'amber' },
+    'UKG A': { room: 'Room 2', ageMin: 4, ageMax: 5, mixedAge: false, colour: 'sky' },
+    'UKG B': { room: 'Room 3', ageMin: 4, ageMax: 5, mixedAge: false, colour: 'sage' },
+    'LKG A': { room: 'Room 4', ageMin: 3, ageMax: 4, mixedAge: false, colour: 'rose' },
+    Nursery: { room: 'Room 5 · Nest', ageMin: 2, ageMax: 3, mixedAge: false, colour: 'slate' }
+  };
+  const LEVEL_AGES = { Toddler: [1, 2], Nursery: [2, 3], LKG: [3, 4], UKG: [4, 5], Montessori: [3, 6] };
+
+  function getClassRegistry() {
+    let list = read(classRegistryKey(school.id), null);
+    let changed = false;
+    if (!list) {
+      const rules = getRatioRules();
+      const capacities = getClassConfig();
+      list = ROSTER_SEED_CLASSES.map((c, i) => ({
+        id: `cl-${i + 1}`, name: c.name, level: c.level, ...SEED_CLASS_DETAILS[c.name],
+        capacity: capacities[c.name] ?? null, ratio: { adults: 1, children: Number(rules[c.level]) || 8 },
+        staffIds: educators.filter(e => e.home === c.name).map(e => e.id), status: 'active', createdAt: atToday(8, 0, -200), updatedAt: atToday(8, 0, -200), archivedAt: null
+      }));
+      changed = true;
+    }
+    // Classes created in the setup wizard (S05 step 4) join the registry once, by name.
+    getClasses(school.id).forEach(s => {
+      if (list.some(c => c.name.toLowerCase() === s.name.toLowerCase())) return;
+      const [a, b] = LEVEL_AGES[s.level] || [2, 6];
+      list.push({ id: newId('cl'), name: s.name, level: s.level, colour: 'slate', ageMin: a, ageMax: b, mixedAge: s.level === 'Montessori', room: s.section ? `Section ${s.section}` : '', capacity: s.capacity ?? null, ratio: { adults: 1, children: Number(getRatioRules()[s.level]) || 8 }, staffIds: [], status: 'active', createdAt: s.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString(), archivedAt: null });
+      changed = true;
+    });
+    if (changed) { try { localStorage.setItem(classRegistryKey(school.id), JSON.stringify(list)); } catch { /* in memory */ } }
+    return list;
+  }
+  const activeClasses = () => getClassRegistry().filter(c => c.status === 'active');
+  // Resolves archived classes too, so history keeps working.
+  const classByName = name => getClassRegistry().find(c => c.name === name) || null;
+  const classById = id => getClassRegistry().find(c => c.id === id) || null;
+  // Staff assigned to a class, lead first.
+  const staffOf = name => { const c = classByName(name); return c ? c.staffIds.map(id => educators.find(e => e.id === id)).filter(Boolean) : []; };
+  const classesOfStaff = staffId => activeClasses().filter(c => c.staffIds.includes(staffId)).map(c => c.name);
+  // An adult can only be in one room: a member of staff counts towards the ratio of their first active class only.
+  const countedClassOf = staffId => activeClasses().find(c => c.staffIds.includes(staffId))?.name || null;
+
 
   // Classes a user's data is limited to: a Teacher sees only the classes they're assigned to.
   function classScope(user) {
-    if (user.role === 'Teacher') return [...new Set(educators.filter(e => e.userId === user.id).map(e => e.cls))];
-    return rosterClasses.map(c => c.name);
+    const names = activeClasses().map(c => c.name);
+    if (user.role !== 'Teacher') return names;
+    const mine = educators.filter(e => e.userId === user.id).map(e => e.id);
+    return names.filter(n => staffOf(n).some(e => mine.includes(e.id)));
   }
 
   // Configured children-per-educator limits by class level (demo configuration).
@@ -1915,10 +1972,10 @@
       if (date !== today()) return {};
       // Today's demo: every register taken by 09:10 except UKG B.
       const reg = {};
-      rosterClasses.filter(c => c.name !== 'UKG B').forEach((c, i) => {
+      activeClasses().filter(c => c.name !== 'UKG B').forEach((c, i) => {
         const marks = {};
         activeRoster().filter(s => s.cls === c.name).forEach(s => { marks[s.id] = SEED_MARKS[s.id] || 'present'; });
-        reg[c.name] = { takenAt: atToday(8, 40 + i * 6), takenBy: educators.find(e => e.cls === c.name).name, marks };
+        reg[c.name] = { takenAt: atToday(8, 40 + i * 6), takenBy: staffOf(c.name)[0]?.name || 'Class teacher', marks };
       });
       return reg;
     });
@@ -1945,30 +2002,142 @@
     if (!educators.some(e => e.id === educatorId) || !['present', 'absent'].includes(status)) return settle({ ok: false, reason: 'invalid' });
     const att = { ...getStaffAttendance(), [educatorId]: status };
     if (!write(staffAttKey(school.id, today()), att)) return settle({ ok: false, reason: 'storage' });
-    events.ratio(educators.find(e => e.id === educatorId).cls);
+    classesOfStaff(educatorId).forEach(cls => events.ratio(cls));
     return settle({ ok: true });
   }
 
-  // Live ratio for one class: children on site (present + late) per educator on duty.
-  // status: 'ok' | 'breach' | 'unavailable' (with a reason) — never a guessed ratio.
-  function classRatio(cls, { register = getRegister(), staff = getStaffAttendance(), rules = getRatioRules() } = {}) {
+  /* Live ratio for one class (S17 card, S19, dashboard). Children present = present + late marks in
+     today's register; adults present = staff assigned to the class, marked present, and counted here
+     (someone assigned to two classes counts in their first only). With the rule "A adults : C children",
+     required = ceil(children / (C / A)) and the ratio is met when adults present >= required.
+     status: 'ok' | 'breach' | 'unavailable' (with a reason) — never a guessed ratio. `limit` is children
+     per adult, kept for older readers. */
+  function classRatio(cls, { register = getRegister(), staff = getStaffAttendance() } = {}) {
     const c = classByName(cls);
     const base = { cls, level: c?.level || '' };
-    const limit = c ? Number(rules[c.level]) : NaN;
-    if (!c || !Number.isFinite(limit) || limit <= 0) return { ...base, status: 'unavailable', reason: 'No ratio limit set' };
+    const adults = Number(c?.ratio?.adults);
+    const per = Number(c?.ratio?.children);
+    if (!c || !Number.isInteger(adults) || adults <= 0 || !Number.isInteger(per) || per <= 0) return { ...base, status: 'unavailable', reason: 'No ratio set' };
+    const limit = per / adults;
+    const rule = { ...base, limit, ratio: { adults, children: per } };
     const entry = register[cls];
-    if (!entry) return { ...base, limit, status: 'unavailable', reason: 'Register not taken yet' };
-    const assigned = educators.filter(e => e.cls === cls);
-    if (!assigned.length) return { ...base, limit, status: 'unavailable', reason: 'No educators assigned' };
-    if (assigned.some(e => !staff[e.id])) return { ...base, limit, status: 'unavailable', reason: 'Staff attendance not recorded' };
+    if (!entry) return { ...rule, status: 'unavailable', reason: 'Register not taken yet' };
+    const assigned = staffOf(cls);
+    if (!assigned.length) return { ...rule, status: 'unavailable', reason: 'No staff assigned' };
+    if (assigned.some(e => !staff[e.id])) return { ...rule, status: 'unavailable', reason: 'Staff attendance not recorded' };
     const children = Object.values(entry.marks).filter(m => m !== 'absent').length;
-    const onDuty = assigned.filter(e => staff[e.id] === 'present').length;
-    const breach = children > 0 && children > onDuty * limit;
-    return { ...base, limit, children, educators: onDuty, assigned: assigned.length, status: breach ? 'breach' : 'ok' };
+    const onDuty = assigned.filter(e => staff[e.id] === 'present' && countedClassOf(e.id) === cls).length;
+    const required = Math.ceil(children / limit);
+    return { ...rule, children, educators: onDuty, assigned: assigned.length, required, status: onDuty >= required ? 'ok' : 'breach' };
   }
   function ratioStatus(user) {
-    const ctx = { register: getRegister(), staff: getStaffAttendance(), rules: getRatioRules() };
+    const ctx = { register: getRegister(), staff: getStaffAttendance() };
     return classScope(user).map(cls => classRatio(cls, ctx));
+  }
+
+
+  /* S17 class operations. Enrolled = active + starting-soon children (the same count S14 uses for
+     capacity); present today = present + late marks in today's S19 register. */
+  const canManageClasses = user => MANAGE_PLAN_ROLES.includes(user.role);
+  const enrolledIn = name => getChildren().filter(c => c.cls === name && ['active', 'starting'].includes(c.status));
+  // Capacity bar: below 90% neutral, 90% to under 100% amber, 100% or more red. Never divides by zero.
+  const capacityState = (enrolled, capacity) => {
+    if (!Number.isInteger(capacity) || capacity <= 0) return { pct: null, tone: 'unknown' };
+    const pct = (enrolled / capacity) * 100;
+    return { pct, tone: pct >= 100 ? 'full' : pct >= 90 ? 'near' : 'ok' };
+  };
+
+  function classCards() {
+    const register = getRegister();
+    const staff = getStaffAttendance();
+    return activeClasses().map(c => {
+      const enrolled = enrolledIn(c.name).length;
+      const entry = register[c.name];
+      const present = entry ? Object.values(entry.marks).filter(m => m !== 'absent').length : null;
+      return { ...c, staff: staffOf(c.name), enrolled, capacityInfo: capacityState(enrolled, c.capacity), present, attendanceTakenAt: entry?.takenAt || null, ratioToday: classRatio(c.name, { register, staff }) };
+    });
+  }
+
+  function validateClass(input, list, classId) {
+    const int = v => (String(v ?? '').trim() === '' ? NaN : Number(v));
+    const v = {
+      name: clean(input.name).replace(/\s+/g, ' '), level: clean(input.level), colour: clean(input.colour), room: clean(input.room).slice(0, 60),
+      ageMin: int(input.ageMin), ageMax: int(input.ageMax), mixedAge: Boolean(input.mixedAge), capacity: int(input.capacity),
+      ratio: { adults: int(input.ratioAdults), children: int(input.ratioChildren) },
+      staffIds: [...new Set((input.staffIds || []).filter(Boolean))]
+    };
+    const errors = {};
+    if (!v.name) errors.name = 'Enter the class name.';
+    else if (v.name.length > 60) errors.name = 'Keep the name under 60 characters.';
+    else {
+      const clash = list.find(c => c.id !== classId && c.name.toLowerCase() === v.name.toLowerCase());
+      if (clash) errors.name = clash.status === 'archived' ? `An archived class is already called “${clash.name}”. Choose another name so its history stays clear.` : `A class called “${clash.name}” already exists.`;
+    }
+    if (!CLASS_LEVELS.includes(v.level)) errors.level = 'Choose a level.';
+    if (!CLASS_COLOURS[v.colour]) errors.colour = 'Choose a colour tag.';
+    if (!v.room) errors.room = 'Enter the room.';
+    if (!Number.isInteger(v.ageMin) || v.ageMin < 0 || v.ageMin > 12) errors.ageMin = 'Enter a whole number of years from 0 to 12.';
+    if (!Number.isInteger(v.ageMax) || v.ageMax < 1 || v.ageMax > 12) errors.ageMax = 'Enter a whole number of years from 1 to 12.';
+    else if (Number.isInteger(v.ageMin) && v.ageMax <= v.ageMin) errors.ageMax = 'The oldest age must be greater than the youngest.';
+    if (!Number.isInteger(v.capacity) || v.capacity <= 0) errors.capacity = 'Capacity must be a whole number of at least 1.';
+    else if (v.capacity > 200) errors.capacity = 'Capacity looks too high. Enter 200 or fewer.';
+    if (!Number.isInteger(v.ratio.adults) || v.ratio.adults <= 0) errors.ratioAdults = 'Enter a whole number of adults (at least 1).';
+    if (!Number.isInteger(v.ratio.children) || v.ratio.children <= 0) errors.ratioChildren = 'Enter a whole number of children (at least 1).';
+    if (v.staffIds.some(id => !educators.some(e => e.id === id))) errors.staffIds = 'One of the selected staff is no longer on record.';
+    return { v, errors };
+  }
+
+  // Create (no id) or edit. A rename moves children, today's register and the waitlist in the same commit.
+  function saveClass(user, input, classId = null) {
+    if (!canManageClasses(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getClassRegistry();
+    const before = classId ? list.find(c => c.id === classId && c.status === 'active') : null;
+    if (classId && !before) return settle({ ok: false, reason: 'missing' });
+    const { v, errors } = validateClass(input, list, classId);
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const enrolled = before ? enrolledIn(before.name).length : 0;
+    // Lowering capacity below enrolment needs an explicit confirmation; nobody is moved or removed.
+    if (before && v.capacity < enrolled && !input.confirmOverCapacity) return settle({ ok: false, reason: 'over-capacity', enrolled, capacity: v.capacity });
+
+    const now = new Date().toISOString();
+    const writes = [];
+    let cls;
+    if (before) {
+      const oldName = before.name;
+      Object.assign(before, v, { updatedAt: now });
+      cls = before;
+      if (oldName !== v.name) {
+        const children = getChildren();
+        children.forEach(c => { if (c.cls === oldName) { c.cls = v.name; c.history = [...c.history, stamp(user, 'edited', `Class renamed from ${oldName} to ${v.name}`)]; } });
+        writes.push({ key: childrenKey(school.id), value: children });
+        const reg = getRegister();
+        if (reg[oldName]) { reg[v.name] = reg[oldName]; delete reg[oldName]; writes.push({ key: registerKey(school.id, today()), value: reg }); }
+        const wl = getWaitlist();
+        if (wl.some(w => w.cls === oldName)) { wl.forEach(w => { if (w.cls === oldName) w.cls = v.name; }); writes.push({ key: waitlistKey(school.id), value: wl }); }
+      }
+    } else {
+      cls = { id: newId('cl'), ...v, status: 'active', createdAt: now, updatedAt: now, archivedAt: null };
+      list.push(cls);
+    }
+    writes.unshift({ key: classRegistryKey(school.id), value: list });
+    if (!commit(writes)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, classId ? 'edit:class' : 'add:class', cls.id, cls.name);
+    return settle({ ok: true, cls });
+  }
+
+  // Archive: only with no active or starting-soon children, checked here at the moment of archiving.
+  function archiveClass(user, classId) {
+    if (!canManageClasses(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getClassRegistry();
+    const c = list.find(x => x.id === classId);
+    if (!c) return settle({ ok: false, reason: 'missing' });
+    if (c.status === 'archived') return settle({ ok: false, reason: 'archived' });
+    const kids = enrolledIn(c.name);
+    if (kids.length) return settle({ ok: false, reason: 'has-children', count: kids.length, cls: c.name });
+    Object.assign(c, { status: 'archived', archivedAt: new Date().toISOString(), archivedBy: user.name });
+    if (!write(classRegistryKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'archive:class', c.id, c.name);
+    return settle({ ok: true, cls: c });
   }
 
   /* Admission enquiries (Admissions module) */
@@ -2066,7 +2235,7 @@
   }
 
   /* Announcements (Parent Communication module) */
-  const AUDIENCES = ['All families', 'All staff', ...rosterClasses.map(c => c.name)];
+  const audiences = () => ['All families', 'All staff', ...activeClasses().map(c => c.name)];
   const announcementsKey = id => `nexora-announcements:${id}`;
   const getAnnouncements = (schoolId = school.id) => seeded(announcementsKey(schoolId), () => [
     { id: 'an1', title: 'Diwali celebration on Friday', body: 'Children may come in traditional clothes. Please send a small diya for the class display.', audience: 'All families', createdBy: 'Mrs. Rao', createdAt: atToday(16, 0, -1) },
@@ -2075,7 +2244,7 @@
   function postAnnouncement(user, data) {
     if (!can(user, 'communication')) return settle({ ok: false, reason: 'forbidden' });
     const a = { id: newId('an'), title: String(data.title || '').trim().slice(0, 120), body: String(data.body || '').trim().slice(0, 1000), audience: data.audience, createdBy: user.name, createdAt: new Date().toISOString() };
-    if (!a.title || !a.body || !AUDIENCES.includes(a.audience)) return settle({ ok: false, reason: 'invalid' });
+    if (!a.title || !a.body || !audiences().includes(a.audience)) return settle({ ok: false, reason: 'invalid' });
     // Prototype: saved here only. Nothing is sent to families.
     if (!write(announcementsKey(school.id), [a, ...getAnnouncements()])) return settle({ ok: false, reason: 'storage' });
     events.announcement(user, a);
@@ -2209,7 +2378,7 @@
     const nursery = classRatio('Nursery');
     if (nursery.status === 'breach') add(
       { module: 'attendance', kind: 'ratio', title: 'Nursery is over its ratio', body: `${nursery.children} children with ${nursery.educators} educator on duty (limit ${nursery.limit}).`, recordType: 'class', recordId: 'Nursery', severity: 'critical', dedupeKey: `ratio:Nursery:${today()}` },
-      { toRoles: STAFF_RATIO_ROLES, toUserIds: educators.filter(e => e.cls === 'Nursery' && e.userId).map(e => e.userId), createdAt: atToday(9, 2) });
+      { toRoles: STAFF_RATIO_ROLES, toUserIds: staffOf('Nursery').filter(e => e.userId).map(e => e.userId), createdAt: atToday(9, 2) });
     add({ module: 'attendance', kind: 'mention', title: 'Ms. Deepa updated your register', body: 'Montessori A: Ananya Iyer marked absent.', recordType: 'class', recordId: 'Montessori A', mentions: ['u-teacher'], dedupeKey: `register-edit:Montessori A:${daysFromToday(-1)}` },
       { toUserIds: ['u-teacher'], createdAt: atToday(9, 15, -1) });
     return out;
@@ -2298,7 +2467,7 @@
         { toRoles: rolesFor('safeguarding'), exclude: [user.id] });
     },
     announcement(user, a) {
-      const classUsers = educators.filter(e => e.cls === a.audience && e.userId && e.userId !== user.id).map(e => e.userId);
+      const classUsers = staffOf(a.audience).filter(e => e.userId && e.userId !== user.id).map(e => e.userId);
       notifyUsers({ module: 'communication', kind: 'announcement', title: `Announcement: ${a.title}`, body: `${a.audience} · from ${user.name}`, recordType: 'announcement', recordId: a.id, dedupeKey: `announcement:${a.id}`, actorId: user.id },
         { toRoles: rolesFor('communication'), exclude: [user.id, ...classUsers] });
       // The class's own educators are mentioned, so it shows in their Mentions tab.
@@ -2309,7 +2478,7 @@
         { toRoles: roles.slice(), exclude: [user.id] });
     },
     register(user, cls) {
-      const owners = educators.filter(e => e.cls === cls && e.userId && e.userId !== user.id).map(e => e.userId);
+      const owners = staffOf(cls).filter(e => e.userId && e.userId !== user.id).map(e => e.userId);
       if (owners.length) notifyUsers({ module: 'attendance', kind: 'mention', title: `${user.name} updated your register`, body: `${cls} register saved at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.`, recordType: 'class', recordId: cls, mentions: owners, dedupeKey: `register:${cls}:${Date.now()}`, actorId: user.id }, { toUserIds: owners });
       events.ratio(cls);
     },
@@ -2318,7 +2487,7 @@
       const r = classRatio(cls);
       if (r.status !== 'breach') return;
       notifyUsers({ module: 'attendance', kind: 'ratio', title: `${cls} is over its ratio`, body: `${r.children} children with ${r.educators} educator${r.educators === 1 ? '' : 's'} on duty (limit ${r.limit}).`, recordType: 'class', recordId: cls, severity: 'critical', dedupeKey: `ratio:${cls}:${today()}` },
-        { toRoles: STAFF_RATIO_ROLES, toUserIds: educators.filter(e => e.cls === cls && e.userId).map(e => e.userId) });
+        { toRoles: STAFF_RATIO_ROLES, toUserIds: staffOf(cls).filter(e => e.userId).map(e => e.userId) });
     }
   };
 
@@ -2463,7 +2632,20 @@
     getConsents,
     saveConsent,
     attendanceFor,
-    rosterClasses,
+    get rosterClasses() { return activeClasses(); },
+    getClassRegistry,
+    activeClasses,
+    classById,
+    classByName,
+    staffOf,
+    classesOfStaff,
+    CLASS_COLOURS,
+    canManageClasses,
+    classCards,
+    capacityState,
+    enrolledIn,
+    saveClass,
+    archiveClass,
     studentById,
     educators,
     classScope,
@@ -2490,7 +2672,7 @@
     getIncidents,
     logIncident,
     resolveIncident,
-    AUDIENCES,
+    get AUDIENCES() { return audiences(); },
     getAnnouncements,
     postAnnouncement,
     getBroadcasts,

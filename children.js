@@ -202,7 +202,8 @@
     const canMessage = store.canAccess(user, 'communication') && store.isEntitled('communication');
     const scope = store.classScope(user);
     const prefs = store.getChildPrefs(user);
-    const state = { q: '', cls: new Set(), age: new Set(), status: new Set(), alerts: new Set(), view: prefs.view === 'list' ? 'list' : 'grid', selected: new Set() };
+    // ?cls= (from S17 “View children”) presets the class filter.
+    const state = { q: '', cls: new Set([params.get('cls')].filter(c => c && scope.includes(c))), age: new Set(), status: new Set(), alerts: new Set(), view: prefs.view === 'list' ? 'list' : 'grid', selected: new Set() };
     let loaded = false;
     let failOnce = params.get('fail') === '1';
 

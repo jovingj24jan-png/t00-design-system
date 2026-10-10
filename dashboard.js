@@ -179,7 +179,7 @@
             ${rows.map(r => {
               const label = r.status === 'breach' ? 'Over ratio' : r.status === 'ok' ? 'Within ratio' : 'Unavailable';
               const detail = r.status === 'unavailable' ? esc(r.reason)
-                : `${plural(r.children, 'child', 'children')} · ${plural(r.educators, 'educator')} on duty${r.status === 'breach' ? ` · needs ${Math.ceil(r.children / r.limit) - r.educators} more` : ''}`;
+                : `${plural(r.children, 'child', 'children')} · ${plural(r.educators, 'educator')} on duty${r.status === 'breach' ? ` · needs ${r.required - r.educators} more` : ''}`;
               return `
                 <li><a class="ratio-row ratio-row--${r.status}" href="${pageUrl('attendance', { view: 'ratio', cls: r.cls })}">
                   <span class="ratio-row__main"><span class="ratio-row__cls">${esc(r.cls)}</span><span class="ratio-row__detail">${detail}</span></span>
