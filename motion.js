@@ -143,8 +143,10 @@
      [selector, primitive, ms between siblings that match in the same render] */
 
   const CHOREOGRAPHY = [
-    ['.dash-head__greet, .nf__title, .denied__title, .pr-hero__title, .pp-head__title, .nc-head__title, .auth__title', 'chars'],
+    ['.nf__title, .denied__title, .pr-hero__title, .pp-head__title, .nc-head__title, .auth__title', 'chars'],
     ['.dash-head__date, .dash-head__chips', 'fade-in'],
+    ['.dash-head__greet', 'blur', 0, 80],
+    ['.dash-head__tagline', 'fade-up', 0, 200],
     ['.auth__brand', 'slide-in'],
     ['.auth__wrap, .wz-steps', 'fade-up', 0, 160],
     ['.auth__art', 'blur', 0, 260],

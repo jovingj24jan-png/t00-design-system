@@ -66,6 +66,41 @@
     ribbon(sheen, 'wsh', WAVE_TOP, WAVE_BOT, { strands: 26, fill: 0, strength: 1, tMax: 0.5 });
   }
 
+  /* ------------------------------------------------- Light streaks */
+
+  // Each streak: a wide blurred glow under a thin bright core, sweeping in from the top-right.
+  // [path, glow width, glow opacity, core width, palette]
+  const STREAKS = [
+    ['M560 -90 C840 120 1120 250 1720 320', 60, 0.6, 3.2, ['pink', 'violet', 'electric']],
+    ['M720 -110 C980 110 1240 300 1740 470', 54, 0.8, 3, ['electric', 'electric', 'core']],
+    ['M860 -120 C1060 60 1300 180 1740 200', 46, 0.45, 1.6, ['violet', 'electric', 'core']],
+    ['M300 160 C760 250 1120 150 1740 30', 40, 0.22, 1.2, ['electric', 'violet', 'pink']],
+    ['M1020 960 C1220 700 1440 560 1760 520', 56, 0.6, 2.4, ['electric', 'violet', 'core']]
+  ];
+
+  function drawStreaks(host, after) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const el = (tag, attrs, parent) => {
+      const n = document.createElementNS(NS, tag);
+      Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v));
+      if (parent) parent.appendChild(n);
+      return n;
+    };
+    const svg = el('svg', { class: 'backdrop__streaks', viewBox: '0 0 1600 900', preserveAspectRatio: 'xMidYMid slice', focusable: 'false' });
+    const defs = el('defs', {}, svg);
+    const glow = el('filter', { id: 'st-glow', x: '-30%', y: '-30%', width: '160%', height: '160%' }, defs);
+    el('feGaussianBlur', { stdDeviation: 14 }, glow);
+    const soft = el('filter', { id: 'st-soft', x: '-10%', y: '-10%', width: '120%', height: '120%' }, defs);
+    el('feGaussianBlur', { stdDeviation: 1.4 }, soft);
+    STREAKS.forEach(([d, glowW, glowA, coreW, [a, b, c]], i) => {
+      const g = el('linearGradient', { id: `st-g${i}`, gradientUnits: 'userSpaceOnUse', x1: 200, y1: 0, x2: 1760, y2: 0 }, defs);
+      [[0, 'clear', 0], [0.22, a, 0.7], [0.5, b, 1], [0.78, c, 1], [1, b, 0.6]].forEach(([offset, tone, alpha]) => el('stop', { offset, class: `st-${tone}`, 'stop-opacity': alpha }, g));
+      el('path', { d, fill: 'none', stroke: `url(#st-g${i})`, 'stroke-width': glowW, 'stroke-linecap': 'round', opacity: glowA, filter: 'url(#st-glow)' }, svg);
+      el('path', { d, fill: 'none', stroke: `url(#st-g${i})`, 'stroke-width': coreW, 'stroke-linecap': 'round', opacity: 0.9, filter: 'url(#st-soft)' }, svg);
+    });
+    after.after(svg);
+  }
+
   function ensureMarkup() {
     let host = document.querySelector('[data-backdrop]');
     if (!host) {
@@ -82,9 +117,11 @@
       aurora.className = 'backdrop__aurora';
       host.prepend(aurora);
     }
+    if (!host.querySelector('.backdrop__streaks')) drawStreaks(host, aurora);
     // Layered parallax (ScrollTransform in motion.js): far layers drift less than near ones.
-    const speeds = { aurora: '-0.04', back: '-0.08', front: '-0.14', sheen: '-0.14' };
+    const speeds = { aurora: '-0.04', streaks: '-0.1', back: '-0.08', front: '-0.14', sheen: '-0.14' };
     aurora.dataset.scrollSpeed = speeds.aurora;
+    host.querySelector('.backdrop__streaks').dataset.scrollSpeed = speeds.streaks;
     host.querySelectorAll('[data-wave]').forEach(svg => { svg.dataset.scrollSpeed = speeds[svg.dataset.wave]; });
   }
 
