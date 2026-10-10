@@ -196,6 +196,8 @@
     enrol: { name: 'Enrol child', icon: 'user-plus', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Add a child to the school, or edit an existing child’s details.' },
     waitlist: { name: 'Waitlist', icon: 'clock', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Children waiting for a seat in a full class.' },
     families: { name: 'Families', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Families as a unit: households, guardians, children and parent-app access.' },
+    statement: { name: 'Family statement', icon: 'wallet', roles: ['Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Invoices and payments for one family, with a running balance.' },
+    messages: { name: 'Family messages', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Messages sent to one family’s guardians.' },
     family: { name: 'Family', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'One family: households, guardians, children, parent app and balance.' },
     roster: { name: 'Class rosters', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Who is in each class, with capacity and schedules.' },
     compose: { name: 'Message families', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Write to selected families. Prototype: messages are saved, not delivered.' },
@@ -629,14 +631,14 @@
   // S31 drafts: messages composed to families. Prototype only — nothing is delivered.
   const messagesKey = id => `nexora-family-messages:${id}`;
   const getFamilyMessages = (schoolId = school.id) => read(messagesKey(schoolId), []);
-  function saveFamilyMessage(user, { recipients, subject, body }) {
+  function saveFamilyMessage(user, { recipients, subject, body, templateId = null }) {
     if (!can(user, 'communication')) return settle({ ok: false, reason: 'forbidden' });
     const errors = {};
     if (!recipients?.length) errors.recipients = 'Add at least one family.';
     if (!String(subject || '').trim()) errors.subject = 'Give the message a subject.';
     if (!String(body || '').trim()) errors.body = 'Write the message.';
     if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
-    const msg = { id: newId('msg'), recipients, subject: subject.trim(), body: body.trim(), status: 'queued', createdAt: new Date().toISOString(), createdBy: user.name };
+    const msg = { id: newId('msg'), recipients, subject: subject.trim(), body: body.trim(), templateId, status: 'queued', createdAt: new Date().toISOString(), createdBy: user.name };
     return write(messagesKey(school.id), [msg, ...getFamilyMessages()]) ? settle({ ok: true, message: msg }) : settle({ ok: false, reason: 'storage' });
   }
 
@@ -903,6 +905,8 @@
     const guardians = getGuardians();
     let g = guardianId && guardians.find(x => x.id === guardianId);
     if (g) Object.assign(g, { name: values.name, phone: values.phone, email: values.email, prefers: values.prefers });
+    // S13 keeps one preferred channel; it is added to any channels already chosen on S16.
+    if (g && Array.isArray(g.channels)) g.channels = [...new Set([...g.channels, values.prefers === 'phone' ? 'sms' : values.prefers])];
     else {
       g = { id: newId('g'), name: values.name, phone: values.phone, email: values.email, prefers: values.prefers };
       guardians.push(g);
@@ -1626,6 +1630,259 @@
     return settle({ ok: true, family: keep, merged: gone });
   }
 
+
+  /* ---------------------------------------------------------------- S16 family details
+     Guardians gain `language` and `channels` (preferred contact channels). A channel is only
+     "available" when its service exists: the parent app once the guardian's account is active;
+     email/SMS/WhatsApp have no delivery service in this prototype, so they stay "preferred, not
+     connected". Households gain `address`, `invoiceRecipientId`, `reportRecipientId`.
+     Legal notes are restricted to the safeguarding roles: every read and write checks the role here,
+     so a page can't get them by asking. */
+
+  const legalKey = id => `nexora-legal-notes:${id}`;
+  const GUARDIAN_LANGUAGES = { en: 'English', ta: 'தமிழ் (Tamil)', ar: 'العربية (Arabic)', hi: 'हिन्दी (Hindi)' };
+  const CHANNELS = { app: 'Parent app', email: 'Email', sms: 'SMS', whatsapp: 'WhatsApp' };
+  const schoolLanguage = () => getSettings(school.id).preferences?.language || 'en';
+  const canSeeLegal = user => Boolean(pages.safeguarding?.roles.includes(user.role));
+  const guardianLanguage = g => (GUARDIAN_LANGUAGES[g?.language] ? g.language : schoolLanguage());
+  const guardianChannels = g => (Array.isArray(g?.channels) ? g.channels : g?.prefers === 'whatsapp' ? ['whatsapp'] : g?.prefers === 'email' ? ['email'] : ['sms']);
+  // Preferred ≠ available: only the parent app can deliver here, and only to an activated account.
+  function channelState(g, ch, app = getParentApp()) {
+    if (ch === 'app') return accountOf(app, g.id).status === 'active' ? { ok: true, note: 'Active account' } : { ok: false, note: 'No active parent-app account' };
+    if (ch === 'email' && !g.email) return { ok: false, note: 'No email address' };
+    return { ok: false, note: 'Not connected in this prototype' };
+  }
+
+  // The family a guardian or household belongs to must be the family being edited.
+  function familyContext(familyId) {
+    const families = getFamilyRecords();
+    const fam = families.find(f => f.id === familyId && f.status === 'active');
+    return fam ? { families, fam } : null;
+  }
+
+  /* Guardians: add (new or existing record by ID) or edit, within one household of the family. */
+  function saveFamilyGuardian(user, familyId, input, guardianId = null) {
+    if (!canManageFamilies(user)) return settle({ ok: false, reason: 'forbidden' });
+    const ctx = familyContext(familyId);
+    if (!ctx) return settle({ ok: false, reason: 'missing' });
+    const households = getHouseholds();
+    const guardians = getGuardians();
+    const children = getChildren();
+    const famHh = households.filter(h => ctx.fam.householdIds.includes(h.id));
+    const errors = {};
+    const v = {
+      linkId: clean(input.linkId), name: clean(input.name), phone: clean(input.phone), email: clean(input.email), relation: clean(input.relation),
+      language: clean(input.language), channels: [...new Set((input.channels || []).filter(c => CHANNELS[c]))], householdId: clean(input.householdId), primary: Boolean(input.primary)
+    };
+    const existing = guardianId ? guardians.find(g => g.id === guardianId) : v.linkId ? guardians.find(g => g.id === v.linkId) : null;
+    if ((guardianId || v.linkId) && !existing) return settle({ ok: false, reason: 'missing' });
+    if (!existing || guardianId) {
+      if (!v.name) errors.name = 'Enter the guardian’s full name.';
+      if (!phoneOk(v.phone)) errors.phone = 'Enter a phone number with at least 10 digits.';
+      else {
+        const same = guardians.find(g => g.id !== guardianId && g.phone.replace(/\D/g, '').slice(-10) === v.phone.replace(/\D/g, '').slice(-10));
+        if (same) errors.phone = `${same.name} already has this number. Use “Link an existing guardian” instead.`;
+      }
+      if (!emailOk(v.email)) errors.email = 'Enter a valid email or leave it blank.';
+      if (!GUARDIAN_LANGUAGES[v.language]) errors.language = 'Choose a language.';
+      if (!v.channels.length) errors.channels = 'Choose at least one way to contact them.';
+      if (v.channels.includes('email') && !v.email) errors.email = 'Add an email address to use email as a channel.';
+    }
+    if (!guardianId) {
+      if (!v.relation) errors.relation = 'Choose the relationship to the children.';
+      if (!famHh.some(h => h.id === v.householdId)) errors.householdId = 'Choose a household in this family.';
+      if (existing && famHh.some(h => h.guardianIds.includes(existing.id))) errors.linkId = `${existing.name} is already in this family.`;
+    }
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+
+    let g = existing;
+    if (guardianId) Object.assign(g, { name: v.name, phone: v.phone, email: v.email, language: v.language, channels: v.channels, prefers: v.channels.includes('whatsapp') ? 'whatsapp' : v.channels.includes('email') ? 'email' : 'phone' });
+    else if (!g) { g = { id: newId('g'), name: v.name, phone: v.phone, email: v.email, language: v.language, channels: v.channels, prefers: v.channels.includes('whatsapp') ? 'whatsapp' : v.channels.includes('email') ? 'email' : 'phone' }; guardians.push(g); }
+    if (!guardianId) {
+      // Joining a household links the guardian to that household's children, with the stated relationship.
+      const hh = households.find(h => h.id === v.householdId);
+      hh.guardianIds.push(g.id);
+      children.filter(c => c.guardianLinks.some(l => l.householdId === hh.id)).forEach(c => {
+        if (c.guardianLinks.some(l => l.guardianId === g.id && l.householdId === hh.id)) return;
+        c.guardianLinks.push({ guardianId: g.id, relation: v.relation, primary: false, householdId: hh.id, livesWith: null, responsibility: null });
+        c.history = [...c.history, stamp(user, 'edited', `Guardian added: ${g.name}`)];
+      });
+    }
+    if (v.primary) ctx.fam.primaryGuardianId = g.id;
+    children.forEach(c => { if (c.guardianLinks?.some(l => l.guardianId === g.id)) syncPrimary(c, guardians); });
+    if (!commit([{ key: guardiansKey(school.id), value: guardians }, { key: householdsKey(school.id), value: households }, { key: childrenKey(school.id), value: children }, { key: familiesKey(school.id), value: ctx.families }])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, guardianId ? 'edit:guardian' : 'add:guardian', familyId, g.name);
+    return settle({ ok: true, guardian: g });
+  }
+
+  function setFamilyPrimary(user, familyId, guardianId) {
+    if (!canManageFamilies(user)) return settle({ ok: false, reason: 'forbidden' });
+    const ctx = familyContext(familyId);
+    if (!ctx) return settle({ ok: false, reason: 'missing' });
+    if (!listFamilies().find(f => f.id === familyId).guardians.some(g => g.id === guardianId)) return settle({ ok: false, reason: 'invalid', message: 'Choose a guardian in this family.' });
+    ctx.fam.primaryGuardianId = guardianId;
+    ctx.fam.history = [...(ctx.fam.history || []), { at: new Date().toISOString(), by: user.name, event: 'primary', detail: guardianId }];
+    if (!write(familiesKey(school.id), ctx.families)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'edit:family-primary', familyId, guardianId);
+    return settle({ ok: true });
+  }
+
+  /* Households: label, address and who receives invoices and reports (must be guardians of that household). */
+  function saveFamilyHousehold(user, familyId, input, householdId = null) {
+    if (!canManageFamilies(user)) return settle({ ok: false, reason: 'forbidden' });
+    const ctx = familyContext(familyId);
+    if (!ctx) return settle({ ok: false, reason: 'missing' });
+    const households = getHouseholds();
+    const v = { label: clean(input.label), address: clean(input.address).slice(0, 300), invoiceRecipientId: clean(input.invoiceRecipientId), reportRecipientId: clean(input.reportRecipientId) };
+    const errors = {};
+    if (!v.label) errors.label = 'Give the household a name.';
+    if (v.address && v.address.length < 8) errors.address = 'Enter a full address, or leave it blank.';
+    let hh = householdId ? households.find(h => h.id === householdId && ctx.fam.householdIds.includes(h.id)) : null;
+    if (householdId && !hh) return settle({ ok: false, reason: 'missing' });
+    const members = hh ? hh.guardianIds : [];
+    if (v.invoiceRecipientId && !members.includes(v.invoiceRecipientId)) errors.invoiceRecipientId = 'Choose a guardian who lives in this household.';
+    if (v.reportRecipientId && !members.includes(v.reportRecipientId)) errors.reportRecipientId = 'Choose a guardian who lives in this household.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    if (hh) Object.assign(hh, v);
+    else { hh = { id: newId('h'), guardianIds: [], ...v, invoiceRecipientId: '', reportRecipientId: '' }; households.push(hh); ctx.fam.householdIds.push(hh.id); }
+    if (!commit([{ key: householdsKey(school.id), value: households }, { key: familiesKey(school.id), value: ctx.families }])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, householdId ? 'edit:household' : 'add:household', familyId, v.label);
+    return settle({ ok: true, household: hh });
+  }
+
+  // Children in a household: adding links each household guardian (with a relationship); removing never
+  // leaves a child without any guardian.
+  function setHouseholdChildren(user, familyId, householdId, { childIds = [], relations = {} }) {
+    if (!canManageFamilies(user)) return settle({ ok: false, reason: 'forbidden' });
+    const ctx = familyContext(familyId);
+    if (!ctx) return settle({ ok: false, reason: 'missing' });
+    const households = getHouseholds();
+    const hh = households.find(h => h.id === householdId && ctx.fam.householdIds.includes(h.id));
+    if (!hh) return settle({ ok: false, reason: 'missing' });
+    const children = getChildren();
+    const famKids = new Set(listFamilies().find(f => f.id === familyId).children.map(c => c.id));
+    const want = new Set(childIds.filter(id => famKids.has(id)));
+    const errors = {};
+    children.filter(c => want.has(c.id) && !c.guardianLinks.some(l => l.householdId === hh.id)).forEach(() => {
+      hh.guardianIds.forEach(gid => { if (!clean(relations[gid])) errors[`relations.${gid}`] = 'Choose this guardian’s relationship to the children being added.'; });
+    });
+    if (!hh.guardianIds.length && want.size) errors.childIds = 'Add a guardian to this household before linking children.';
+    const losing = children.filter(c => famKids.has(c.id) && !want.has(c.id) && c.guardianLinks.some(l => l.householdId === hh.id));
+    losing.forEach(c => { if (c.guardianLinks.every(l => l.householdId === hh.id)) errors.childIds = `${childName(c)} would have no guardian left. Link them to another household first.`; });
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    children.forEach(c => {
+      if (want.has(c.id) && !c.guardianLinks.some(l => l.householdId === hh.id)) {
+        hh.guardianIds.forEach(gid => c.guardianLinks.push({ guardianId: gid, relation: clean(relations[gid]), primary: false, householdId: hh.id, livesWith: null, responsibility: null }));
+        c.history = [...c.history, stamp(user, 'edited', `Linked to ${hh.label}`)];
+      }
+      if (losing.includes(c)) {
+        c.guardianLinks = c.guardianLinks.filter(l => l.householdId !== hh.id);
+        if (!c.guardianLinks.some(l => l.primary)) c.guardianLinks[0].primary = true;
+        syncPrimary(c);
+        c.history = [...c.history, stamp(user, 'edited', `Removed from ${hh.label}`)];
+      }
+    });
+    if (!write(childrenKey(school.id), children)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'edit:household-children', familyId, hh.label);
+    return settle({ ok: true });
+  }
+
+  function unlinkHouseholdGuardian(user, familyId, householdId, guardianId) {
+    if (!canManageFamilies(user)) return settle({ ok: false, reason: 'forbidden' });
+    const ctx = familyContext(familyId);
+    if (!ctx) return settle({ ok: false, reason: 'missing' });
+    if (ctx.fam.primaryGuardianId === guardianId) return settle({ ok: false, reason: 'invalid', message: 'This is the family’s primary contact. Make someone else primary first.' });
+    const households = getHouseholds();
+    const hh = households.find(h => h.id === householdId && ctx.fam.householdIds.includes(h.id));
+    if (!hh || !hh.guardianIds.includes(guardianId)) return settle({ ok: false, reason: 'missing' });
+    const children = getChildren();
+    const orphan = children.find(c => c.guardianLinks.length && c.guardianLinks.every(l => l.guardianId === guardianId));
+    if (orphan) return settle({ ok: false, reason: 'invalid', message: `${childName(orphan)} would have no guardian left.` });
+    hh.guardianIds = hh.guardianIds.filter(id => id !== guardianId);
+    ['invoiceRecipientId', 'reportRecipientId'].forEach(k => { if (hh[k] === guardianId) hh[k] = ''; });
+    children.forEach(c => {
+      if (!c.guardianLinks.some(l => l.guardianId === guardianId && l.householdId === hh.id)) return;
+      c.guardianLinks = c.guardianLinks.filter(l => !(l.guardianId === guardianId && l.householdId === hh.id));
+      if (!c.guardianLinks.some(l => l.primary)) c.guardianLinks[0].primary = true;
+      syncPrimary(c);
+    });
+    if (!commit([{ key: householdsKey(school.id), value: households }, { key: childrenKey(school.id), value: children }])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'unlink:household-guardian', familyId, guardianId);
+    return settle({ ok: true });
+  }
+
+  /* Custody & legal notes: role-checked on every read and write; the children's own custody alerts are included. */
+  function getLegalNotes(user, familyId) {
+    if (!canSeeLegal(user)) return { ok: false, reason: 'forbidden' };
+    const fam = listFamilies().find(f => f.id === familyId);
+    if (!fam) return { ok: false, reason: 'missing' };
+    const notes = read(legalKey(school.id), []).filter(n => n.familyId === familyId);
+    const custody = getChildren().filter(c => fam.children.some(k => k.id === c.id)).flatMap(c => c.alerts.filter(a => a.type === 'custody').map(a => ({ child: childName(c), childId: c.id, ...a })));
+    return { ok: true, notes, custody };
+  }
+  function saveLegalNote(user, familyId, input, noteId = null) {
+    if (!canSeeLegal(user)) return settle({ ok: false, reason: 'forbidden' });
+    if (!familyContext(familyId)) return settle({ ok: false, reason: 'missing' });
+    const v = { title: clean(input.title), detail: clean(input.detail).slice(0, 2000), effective: clean(input.effective), review: clean(input.review), instructions: clean(input.instructions).slice(0, 1000), docRef: clean(input.docRef) };
+    const errors = {};
+    if (!v.title) errors.title = 'Give the note a title.';
+    if (!v.detail) errors.detail = 'Describe the order or arrangement.';
+    if (v.effective && !isDate(v.effective)) errors.effective = 'Enter a valid date.';
+    if (v.review && (!isDate(v.review) || (v.effective && v.review < v.effective))) errors.review = 'The review date must be after the effective date.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const all = read(legalKey(school.id), []);
+    let note = noteId && all.find(n => n.id === noteId && n.familyId === familyId);
+    if (noteId && !note) return settle({ ok: false, reason: 'missing' });
+    const at = new Date().toISOString();
+    if (note) Object.assign(note, v, { updatedAt: at, updatedBy: user.name });
+    else { note = { id: newId('ln'), familyId, ...v, createdAt: at, createdBy: user.name }; all.push(note); }
+    if (!write(legalKey(school.id), all)) return settle({ ok: false, reason: 'storage' });
+    // The audit trail records that a note changed, never its content.
+    logAudit(user, noteId ? 'edit:legal-note' : 'add:legal-note', familyId, 'Restricted note');
+    return settle({ ok: true, note });
+  }
+
+  /* Templates: one per language; a missing translation falls back to the school language, then English. */
+  const TEMPLATES = {
+    'pickup-change': { label: 'Change to pickup time', en: { subject: 'Pickup time for {child}', body: 'Dear {guardian},\n\nPlease note a change to {child}’s pickup time. Contact the office if this doesn’t suit you.\n\n{school}' }, ta: { subject: '{child} அழைத்துச் செல்லும் நேரம்', body: 'அன்புள்ள {guardian},\n\n{child} அவர்களை அழைத்துச் செல்லும் நேரத்தில் மாற்றம் உள்ளது. இது உங்களுக்கு ஏற்றதாக இல்லையென்றால் அலுவலகத்தைத் தொடர்பு கொள்ளவும்.\n\n{school}' }, ar: { subject: 'موعد استلام {child}', body: 'عزيزي/عزيزتي {guardian}،\n\nيرجى ملاحظة تغيير في موعد استلام {child}. تواصلوا مع المكتب إذا لم يناسبكم الموعد.\n\n{school}' } },
+    'fee-reminder': { label: 'Fee reminder', en: { subject: 'Fee reminder for {child}', body: 'Dear {guardian},\n\nThis is a reminder that this term’s fees for {child} are due. Thank you.\n\n{school}' }, ta: { subject: '{child} கட்டண நினைவூட்டல்', body: 'அன்புள்ள {guardian},\n\n{child} அவர்களின் இந்த பருவக் கட்டணம் செலுத்த வேண்டிய நேரம் வந்துவிட்டது. நன்றி.\n\n{school}' } },
+    'event-invite': { label: 'Event invitation', en: { subject: 'You’re invited: family morning', body: 'Dear {guardian},\n\nWe’d love you to join {child} and the class for our family morning.\n\n{school}' } }
+  };
+  function renderTemplate(templateId, language, vars) {
+    const t = TEMPLATES[templateId];
+    if (!t) return null;
+    const used = t[language] ? language : t[schoolLanguage()] ? schoolLanguage() : 'en';
+    const fill = s => s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null && vars[k] !== '' ? vars[k] : m));
+    return { language: used, requested: language, fallback: used !== language, subject: fill(t[used].subject), body: fill(t[used].body) };
+  }
+
+  /* Messages that reached any of a family's guardians, newest first. */
+  function familyThreads(familyId, limit = 0) {
+    const fam = listFamilies({ includeMerged: true }).find(f => f.id === familyId);
+    if (!fam) return [];
+    const ids = new Set(fam.guardians.map(g => g.id));
+    const phones = new Set(fam.guardians.map(g => g.phone.replace(/\D/g, '').slice(-10)));
+    const list = getFamilyMessages().filter(m => m.recipients.some(r => ids.has(r.guardianId) || (!r.guardianId && phones.has(String(r.phone || '').replace(/\D/g, '').slice(-10)))))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return limit ? list.slice(0, limit) : list;
+  }
+
+  /* Account: invoices and payments for the family's children. */
+  function familyAccount(familyId) {
+    const fam = listFamilies().find(f => f.id === familyId);
+    if (!fam) return null;
+    const kidIds = new Set(fam.children.map(c => c.id));
+    const lines = feeLedger().filter(l => kidIds.has(l.studentId));
+    const payments = getPayments().filter(p => kidIds.has(p.studentId)).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt?.localeCompare(a.createdAt || '') || 0);
+    const entries = [
+      ...lines.map(l => ({ date: l.dueDate, kind: 'invoice', label: `${l.student?.name || ''} · ${l.term}`, amount: l.amount, ref: l.id })),
+      ...payments.map(p => ({ date: p.date, kind: 'payment', label: `${studentById(p.studentId)?.name || ''} · ${p.method}${p.reference ? ` · ${p.reference}` : ''}`, amount: -p.amount, ref: p.id }))
+    ].sort((a, b) => a.date.localeCompare(b.date) || (a.kind === 'invoice' ? -1 : 1));
+    let running = 0;
+    entries.forEach(e => { running += e.amount; e.balance = running; });
+    return { balance: lines.reduce((s, l) => s + l.balance, 0), invoices: lines, payments, lastPayment: payments[0] || null, entries };
+  }
+
   // Any child on record (including withdrawn), so past invoices and incidents keep their names.
   const studentById = id => { const c = childById(id); return c ? { id: c.id, name: childName(c), cls: c.cls } : null; };
 
@@ -2154,6 +2411,24 @@
     invitePreview,
     inviteFamilies,
     mergeFamilies,
+    GUARDIAN_LANGUAGES,
+    CHANNELS,
+    schoolLanguage,
+    canSeeLegal,
+    guardianLanguage,
+    guardianChannels,
+    channelState,
+    saveFamilyGuardian,
+    setFamilyPrimary,
+    saveFamilyHousehold,
+    setHouseholdChildren,
+    unlinkHouseholdGuardian,
+    getLegalNotes,
+    saveLegalNote,
+    TEMPLATES,
+    renderTemplate,
+    familyThreads,
+    familyAccount,
     moveChildren,
     withdrawChild,
     getChildPrefs,

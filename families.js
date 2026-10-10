@@ -1,4 +1,5 @@
-/* S15 families (app.html?page=families) and S16 family detail (app.html?page=family&id=<familyId>).
+/* S15 families (app.html?page=families), S16 family detail (app.html?page=family&id=<familyId>),
+   family statement (?page=statement&family=) and family messages (?page=messages&family=[&msg=]).
    NexoraFamilies.render(key, main, user) → true when handled. Data: store.listFamilies() — households,
    guardians, children and parent-app status resolved from the shared records, never copied.
    Test hook: ?fail=1 makes the first load of S15 fail so the error state can be checked. */
@@ -412,57 +413,349 @@
 
   /* ------------------------------------------------------------------ S16 family detail */
 
+  const day = d => (d ? new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
+  const telHref = p => `tel:${String(p).replace(/[^\d+]/g, '')}`;
+  const section = (id, title, body, { tools = '', cls = '' } = {}) => `
+    <details class="fd-section ${cls}" open data-section="${id}">
+      <summary class="fd-section__head"><h2 class="fd-section__title" id="fd-${id}">${esc(title)}</h2><span class="fd-section__chev" aria-hidden="true"></span></summary>
+      ${tools ? `<div class="fd-section__tools">${tools}</div>` : ''}
+      <div class="fd-section__body">${body}</div>
+    </details>`;
+
+  function guardianDialog(user, fam, guardian = null) {
+    const all = store.getGuardians();
+    const famIds = new Set(fam.guardians.map(g => g.id));
+    const g = guardian;
+    const channels = g ? store.guardianChannels(g) : ['sms'];
+    const langSel = `<select class="input" id="kd-language" name="language">${Object.entries(store.GUARDIAN_LANGUAGES).map(([k, l]) => `<option value="${k}"${(g ? store.guardianLanguage(g) : store.schoolLanguage()) === k ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+    const chanBoxes = `<fieldset class="wiz-chips"><legend class="field__label">Preferred contact channels *</legend><div class="fd-checks">${Object.entries(store.CHANNELS).map(([k, l]) => `<label class="check"><input type="checkbox" name="channels" value="${k}"${channels.includes(k) ? ' checked' : ''}>${esc(l)}</label>`).join('')}</div><p class="field__hint">Preferred channels are saved even when the school can’t use them yet. Only an active parent-app account can receive messages in this prototype.</p><p class="field__hint field__hint--error" data-error-for="channels" hidden></p></fieldset>`;
+    const d = kids.dialog({
+      label: 'Family / Guardians', title: g ? `Edit ${g.name}` : 'Add guardian',
+      desc: g ? 'Changes apply everywhere this guardian appears, including siblings in other families.' : 'Add someone new, or link a guardian who is already on record so they aren’t duplicated.',
+      body: `${g ? '' : `<fieldset class="wiz-radios"><legend class="field__label">Who is this?</legend><div class="wiz-radios__opts"><label class="radio"><input type="radio" name="mode" value="new" checked>Someone new</label><label class="radio"><input type="radio" name="mode" value="link">Link an existing guardian</label></div></fieldset>
+        <div class="field" data-link-row hidden><label class="field__label" for="kd-linkId">Existing guardian</label><select class="input" id="kd-linkId" name="linkId"><option value="">Choose</option>${all.filter(x => !famIds.has(x.id)).map(x => `<option value="${esc(x.id)}">${esc(x.name)} · ${esc(x.phone)}</option>`).join('')}</select><p class="field__hint field__hint--error" data-error-for="linkId" hidden></p></div>`}
+        <div class="kids-form__grid" data-person>
+          ${kids.field('kd-name', 'Full name', `<input class="input" id="kd-name" name="name" value="${esc(g?.name || '')}" required autocomplete="off">`, { required: true })}
+          ${kids.field('kd-phone', 'Phone', `<input class="input" type="tel" id="kd-phone" name="phone" value="${esc(g?.phone || '')}" required>`, { required: true })}
+          ${kids.field('kd-email', 'Email', `<input class="input" type="email" id="kd-email" name="email" value="${esc(g?.email || '')}">`, { hint: 'Needed to use email as a channel.' })}
+          ${kids.field('kd-language', 'Preferred language', langSel, { required: true, hint: 'Template messages to this guardian use this language.' })}
+        </div>
+        <div data-person>${chanBoxes}</div>
+        ${g ? '' : `<div class="kids-form__grid">
+          ${kids.field('kd-relation', 'Relationship to the children', `<select class="input" id="kd-relation" name="relation"><option value="">Choose</option>${RELATIONS.map(r => `<option>${r}</option>`).join('')}</select>`, { required: true })}
+          ${kids.field('kd-householdId', 'Household', `<select class="input" id="kd-householdId" name="householdId"><option value="">Choose</option>${fam.households.map(h => `<option value="${esc(h.id)}">${esc(h.label)}</option>`).join('')}</select>`, { required: true, hint: 'They’re linked to the children of this household.' })}
+        </div>`}
+        <label class="check"><input type="checkbox" name="primary"${g && fam.primary?.id === g.id ? ' checked disabled' : ''}>Primary contact for the family</label>`,
+      submit: g ? 'Save guardian' : 'Add guardian',
+      async onSubmit(form) {
+        const link = form.elements.mode?.value === 'link';
+        const input = {
+          linkId: link ? form.elements.linkId.value : '', name: form.elements.name.value, phone: form.elements.phone.value, email: form.elements.email.value,
+          language: form.elements.language.value, channels: [...form.querySelectorAll('[name="channels"]:checked')].map(i => i.value),
+          relation: form.elements.relation?.value || '', householdId: form.elements.householdId?.value || '', primary: form.elements.primary.checked
+        };
+        if (link && !input.linkId) return { ok: false, errors: { linkId: 'Choose a guardian.' } };
+        const r = await store.saveFamilyGuardian(store.currentUser(), fam.id, input, g?.id || null);
+        if (r.ok) window.NexoraToast?.show('Changes saved successfully', `${r.guardian.name}${g ? ' updated' : ' added to the family'}.`);
+        return r.ok ? r : { ...r, message: r.errors ? null : FAIL[r.reason] };
+      }
+    });
+    d.el.classList.add('cp-modal');
+    d.form.addEventListener('change', e => {
+      if (e.target.name !== 'mode') return;
+      const link = e.target.value === 'link';
+      d.form.querySelector('[data-link-row]').hidden = !link;
+      d.form.querySelectorAll('[data-person]').forEach(x => { x.hidden = link; });
+    });
+  }
+
+  function householdDialog(user, fam, hh = null) {
+    const members = hh ? fam.guardians.filter(g => hh.guardianIds.includes(g.id)) : [];
+    const opts = (sel) => `<option value="">Not set</option>${members.map(g => `<option value="${esc(g.id)}"${sel === g.id ? ' selected' : ''}>${esc(g.name)}</option>`).join('')}`;
+    kids.dialog({
+      label: 'Family / Households', title: hh ? `Edit ${hh.label}` : 'Add household', desc: hh ? 'Each household can have its own invoice and report recipient.' : 'Add a second home for separated or shared arrangements. Then add its guardians and children.',
+      body: `${kids.field('kd-label', 'Household name', `<input class="input" id="kd-label" name="label" value="${esc(hh?.label || '')}" required placeholder="e.g. Mum’s home">`, { required: true })}
+        ${kids.field('kd-address', 'Address', `<textarea class="input" id="kd-address" name="address" rows="2">${esc(hh?.address || '')}</textarea>`)}
+        ${hh ? `<div class="kids-form__grid">${kids.field('kd-invoiceRecipientId', 'Receives invoices', `<select class="input" id="kd-invoiceRecipientId" name="invoiceRecipientId">${opts(hh.invoiceRecipientId)}</select>`)}${kids.field('kd-reportRecipientId', 'Receives reports', `<select class="input" id="kd-reportRecipientId" name="reportRecipientId">${opts(hh.reportRecipientId)}</select>`)}</div>` : ''}`,
+      submit: hh ? 'Save household' : 'Add household',
+      async onSubmit(form) {
+        const r = await store.saveFamilyHousehold(store.currentUser(), fam.id, { label: form.elements.label.value, address: form.elements.address.value, invoiceRecipientId: form.elements.invoiceRecipientId?.value || '', reportRecipientId: form.elements.reportRecipientId?.value || '' }, hh?.id || null);
+        if (r.ok) window.NexoraToast?.show('Changes saved successfully', r.household.label);
+        return r.ok ? r : { ...r, message: r.errors ? null : FAIL[r.reason] };
+      }
+    });
+  }
+
+  function householdChildrenDialog(user, fam, hh) {
+    const members = fam.guardians.filter(g => hh.guardianIds.includes(g.id));
+    const kidsHere = new Set(store.getChildren().filter(c => c.guardianLinks?.some(l => l.householdId === hh.id)).map(c => c.id));
+    kids.dialog({
+      label: 'Family / Households', title: `Children in ${hh.label}`, desc: 'Ticking a child links them to this household’s guardians. Unticking removes only this household’s links.',
+      body: `<fieldset class="wiz-chips"><legend class="field__label">Children</legend><div class="fd-checks">${fam.children.map(c => `<label class="check"><input type="checkbox" name="childIds" value="${esc(c.id)}"${kidsHere.has(c.id) ? ' checked' : ''}>${esc(c.name)}</label>`).join('')}</div><p class="field__hint field__hint--error" data-error-for="childIds" hidden></p></fieldset>
+        ${members.length ? `<p class="field__hint">For children you add, record each guardian’s relationship:</p><div class="kids-form__grid">${members.map(g => kids.field(`kd-rel-${g.id}`, g.name, `<select class="input" id="kd-rel-${esc(g.id)}" name="relations.${esc(g.id)}"><option value="">Choose</option>${RELATIONS.map(r => `<option>${r}</option>`).join('')}</select>`).replace(`data-error-for="rel-${g.id}"`, `data-error-for="relations.${g.id}"`)).join('')}</div>` : ''}`,
+      submit: 'Save children',
+      async onSubmit(form) {
+        const relations = Object.fromEntries(members.map(g => [g.id, form.elements[`relations.${g.id}`]?.value || '']));
+        const r = await store.setHouseholdChildren(store.currentUser(), fam.id, hh.id, { childIds: [...form.querySelectorAll('[name="childIds"]:checked')].map(i => i.value), relations });
+        if (r.ok) window.NexoraToast?.show('Changes saved successfully', hh.label);
+        return r.ok ? r : { ...r, message: r.errors ? null : FAIL[r.reason] };
+      }
+    });
+  }
+
+  function legalDialog(user, fam, note = null) {
+    kids.dialog({
+      label: 'Family / Restricted', title: note ? 'Edit legal note' : 'Add legal note', desc: 'Restricted — visible to Director and Safeguarding lead. Never copied into messages or notifications.',
+      body: `${kids.field('kd-title', 'Title', `<input class="input" id="kd-title" name="title" value="${esc(note?.title || '')}" required placeholder="e.g. Residence order">`, { required: true })}
+        ${kids.field('kd-detail', 'Order or arrangement', `<textarea class="input" id="kd-detail" name="detail" rows="3" required>${esc(note?.detail || '')}</textarea>`, { required: true })}
+        <div class="kids-form__grid">${kids.field('kd-effective', 'Effective from', `<input class="input" type="date" id="kd-effective" name="effective" value="${esc(note?.effective || '')}">`)}${kids.field('kd-review', 'Review by', `<input class="input" type="date" id="kd-review" name="review" value="${esc(note?.review || '')}">`)}</div>
+        ${kids.field('kd-instructions', 'Handling instructions', `<textarea class="input" id="kd-instructions" name="instructions" rows="2">${esc(note?.instructions || '')}</textarea>`)}
+        ${kids.field('kd-docRef', 'Document reference', `<input class="input" id="kd-docRef" name="docRef" value="${esc(note?.docRef || '')}" placeholder="e.g. Court order no. / filing cabinet ref.">`, { hint: 'A reference only. Upload the document on the child’s profile.' })}`,
+      submit: 'Save note',
+      async onSubmit(form) {
+        const r = await store.saveLegalNote(store.currentUser(), fam.id, Object.fromEntries(['title', 'detail', 'effective', 'review', 'instructions', 'docRef'].map(k => [k, form.elements[k].value])), note?.id || null);
+        if (r.ok) window.NexoraToast?.show('Changes saved successfully', 'Restricted note saved.');
+        return r.ok ? r : { ...r, message: r.errors ? null : FAIL[r.reason] };
+      }
+    });
+  }
+
   function detailPage(main, user) {
     const id = params.get('id');
     const manage = store.canManageFamilies(user);
     const billOk = canSeeBalance(user);
+    const legalOk = store.canSeeLegal(user);
+    const msgOk = store.canAccess(user, 'communication') && store.isEntitled('communication');
     const scope = store.classScope(user);
+    let failOnce = params.get('fail') === '1';
+    let loaded = false;
+
+    const childCard = c => {
+      const full = store.childById(c.id);
+      const age = store.ageParts(full.dob);
+      const med = store.canView(user, 'medical') ? full.alerts.filter(a => a.type !== 'custody') : [];
+      return `<li class="fd-child"><a class="fd-child__link" href="${routes.record(c.id)}">
+        ${full.photo ? `<img class="fam-av fam-av--md" src="${esc(full.photo)}" alt="">` : `<span class="fam-av fam-av--md fam-av--child" aria-hidden="true">${esc(initials(c.name))}</span>`}
+        <span class="fd-child__main"><b>${esc(c.name)}</b>${full.preferredName ? `<span class="cp-muted">“${esc(full.preferredName)}”</span>` : ''}<span class="cp-muted">${age.years}y ${age.months}m · ${esc(full.cls)}${full.keyTeacher ? ` · ${esc(full.keyTeacher)}` : ''}</span></span>
+        <span class="fd-child__end"><span class="badge ${full.status === 'active' ? 'badge--success' : full.status === 'starting' ? 'badge--info' : ''}">${esc(store.CHILD_STATUSES[full.status])}</span>${med.length ? `<span class="fd-flags" aria-label="Safety alerts: ${esc(med.map(a => store.ALERT_TYPES[a.type]).join(', '))}">${[...new Set(med.map(a => a.type))].map(t => `<span class="kid-alert kid-alert--${t} fd-flag" aria-hidden="true">${icon({ allergy: 'allergy', medical: 'medical', dietary: 'leaf' }[t], 'icon--sm')}</span>`).join('')}</span>` : ''}</span>
+      </a></li>`;
+    };
+
     const draw = () => {
+      if (!loaded) return;
       const f = id ? store.familyById(id) : null;
       if (f?.merged) {
-        main.innerHTML = `<article class="panel record"><div class="kids-empty"><h1 class="kids-empty__title">${esc(f.name)} was merged</h1><p>This family is now part of another family record.</p><a class="btn btn--primary" href="${routes.page('family', { id: f.mergedInto })}">Open the merged family</a></div></article>`;
+        main.innerHTML = `<article class="panel record"><div class="kids-empty"><h1 class="kids-empty__title" id="page-title" tabindex="-1">${esc(f.name)} was merged</h1><p>This family is now part of another family record.</p><a class="btn btn--primary" href="${routes.page('family', { id: f.mergedInto })}">Open the merged family</a></div></article>`;
         return;
       }
       if (!f || (user.role === 'Teacher' && !f.children.some(c => scope.includes(c.cls)))) {
         main.innerHTML = `<article class="panel record"><div class="kids-empty"><h1 class="kids-empty__title" id="page-title" tabindex="-1">We couldn’t find that family</h1><p>It may have been removed, or it isn’t one of your classes’ families.</p><a class="btn btn--primary" href="${routes.page('families')}">All families</a></div></article>`;
         return;
       }
-      const app = store.getParentApp();
-      const history = app.invitations.filter(inv => inv.familyIds.includes(f.id) || (f.mergedFrom || []).some(m => inv.familyIds.includes(m)));
-      const lines = billOk ? store.feeLedger().filter(l => f.invoiceIds.includes(l.id)) : [];
       document.title = `${f.name} · Nexora`;
-      main.innerHTML = `<div class="cp">
+      const app = store.getParentApp();
+      const addresses = f.households.filter(h => h.address).map(h => `${h.label}: ${h.address}`);
+      const relationsOf = gid => [...new Set(store.getChildren().flatMap(c => c.guardianLinks?.filter(l => l.guardianId === gid && f.children.some(k => k.id === c.id)).map(l => l.relation) || []))];
+      const legal = legalOk ? store.getLegalNotes(user, f.id) : null;
+      const threads = msgOk ? store.familyThreads(f.id, 5) : [];
+      const acct = billOk ? store.familyAccount(f.id) : null;
+      const p = f.primary;
+      const open = id2 => main.querySelector(`[data-section="${id2}"]`)?.open ?? true;
+      const prevOpen = Object.fromEntries([...main.querySelectorAll('[data-section]')].map(s => [s.dataset.section, s.open]));
+
+      const guardiansHtml = f.guardians.length ? `<ul class="fd-cards">${f.guardians.map(g => {
+        const isPrimary = g.id === p?.id;
+        const chans = store.guardianChannels(g);
+        return `<li class="fd-card"><div class="fd-card__top">
+            <span class="fam-av fam-av--md fam-av--guardian" aria-hidden="true">${esc(initials(g.name))}</span>
+            <div class="fd-card__id"><b>${esc(g.name)}</b><span class="cp-muted">${esc(relationsOf(g.id).join(', ') || 'Relationship not recorded')}</span></div>
+            ${manage ? `<button class="btn btn--icon-ghost fd-star${isPrimary ? ' is-on' : ''}" type="button" data-star="${esc(g.id)}" aria-pressed="${isPrimary}" aria-label="${isPrimary ? `${esc(g.name)} is the primary contact` : `Make ${esc(g.name)} the primary contact`}"${isPrimary ? ' disabled' : ''}>${icon('star')}</button>` : isPrimary ? `<span class="fd-star is-on" role="img" aria-label="Primary contact">${icon('star')}</span>` : ''}
+          </div>
+          ${isPrimary ? '<span class="badge badge--primary">Primary contact</span>' : ''}
+          <dl class="cp-dl">
+            <div><dt>Phone</dt><dd>${g.phone ? `<a href="${telHref(g.phone)}">${esc(g.phone)}</a>` : '<span class="cp-muted">Not provided</span>'}</dd></div>
+            <div><dt>Email</dt><dd>${g.email ? `<a href="mailto:${esc(g.email)}">${esc(g.email)}</a>` : '<span class="cp-muted">Not provided</span>'}</dd></div>
+            <div><dt>Language</dt><dd>${esc(store.GUARDIAN_LANGUAGES[store.guardianLanguage(g)])}${g.language ? '' : ' <span class="cp-muted">(school default)</span>'}</dd></div>
+            <div><dt>Parent app</dt><dd>${statusBadge(g.account.status)}</dd></div>
+          </dl>
+          <ul class="fd-chans" aria-label="Contact preferences for ${esc(g.name)}">${chans.map(ch => { const st = store.channelState(g, ch, app); return `<li class="fd-chan${st.ok ? ' is-ok' : ''}">${icon(st.ok ? 'check-circle' : 'info', 'icon--sm')}<span><b>${esc(store.CHANNELS[ch])}</b> · preferred${st.ok ? ', available' : ` — ${esc(st.note)}`}</span></li>`; }).join('')}</ul>
+          ${manage ? `<button class="btn btn--sm btn--secondary" type="button" data-edit-g="${esc(g.id)}">${icon('pencil', 'icon--sm')}Edit</button>` : ''}
+        </li>`;
+      }).join('')}</ul>` : '<div class="kids-empty"><p class="kids-empty__title">No guardians linked</p></div>';
+
+      const householdsHtml = `<ul class="fd-cards">${f.households.map(h => {
+        const members = f.guardians.filter(g => h.guardianIds.includes(g.id));
+        const kidsHere = store.getChildren().filter(c => c.guardianLinks?.some(l => l.householdId === h.id) && f.children.some(k => k.id === c.id));
+        const nameOf = gid => f.guardians.find(g => g.id === gid)?.name;
+        return `<li class="fd-card"><div class="fd-card__top"><span class="fam-av fam-av--md" aria-hidden="true">${icon('home', 'icon--sm')}</span><div class="fd-card__id"><b>${esc(h.label)}</b><span class="cp-muted">${h.address ? esc(h.address) : 'No address recorded'}</span></div></div>
+          <dl class="cp-dl">
+            <div><dt>Guardians</dt><dd>${members.length ? members.map(g => `<span class="fd-member">${esc(g.name)}${manage && h.guardianIds.length ? ` <button class="btn btn--sm btn--ghost fd-unlink" type="button" data-unlink-g="${esc(g.id)}" data-hh="${esc(h.id)}" aria-label="Remove ${esc(g.name)} from ${esc(h.label)}">${icon('x', 'icon--sm')}</button>` : ''}</span>`).join('') : '<span class="cp-muted">None yet</span>'}</dd></div>
+            <div><dt>Children</dt><dd>${kidsHere.length ? kidsHere.map(c => esc(store.childName(c))).join(', ') : '<span class="cp-muted">None linked</span>'}</dd></div>
+            <div><dt>Receives invoices</dt><dd>${esc(nameOf(h.invoiceRecipientId) || '') || '<span class="cp-muted">Not set</span>'}</dd></div>
+            <div><dt>Receives reports</dt><dd>${esc(nameOf(h.reportRecipientId) || '') || '<span class="cp-muted">Not set</span>'}</dd></div>
+          </dl>
+          ${manage ? `<div class="wiz-adds"><button class="btn btn--sm btn--secondary" type="button" data-edit-h="${esc(h.id)}">${icon('pencil', 'icon--sm')}Edit</button><button class="btn btn--sm btn--secondary" type="button" data-kids-h="${esc(h.id)}">${icon('users', 'icon--sm')}Children</button></div>` : ''}
+        </li>`;
+      }).join('')}</ul>${f.households.length === 1 ? '<p class="cp-muted">One household. Add another for separated or shared arrangements.</p>' : ''}`;
+
+      const legalHtml = legal?.ok ? `<p class="fd-restricted">${icon('lock', 'icon--sm')}Restricted — visible to Director and Safeguarding lead</p>
+        ${legal.custody.length ? `<ul class="cp-restrict">${legal.custody.map(a => `<li>${icon('shield')}<div><b>${esc(a.child)}${a.restrictedPerson ? ` — do not release to ${esc(a.restrictedPerson)}` : ''}</b><p>${esc(a.detail)}${a.effective ? ` · from ${esc(day(a.effective))}` : ''}</p></div></li>`).join('')}</ul>` : '<p class="cp-muted">No custody restrictions on the children’s records.</p>'}
+        ${legal.notes.length ? `<ul class="cp-mini fd-notes">${legal.notes.map(n => `<li><b>${esc(n.title)}</b><span>${esc(n.detail)}</span><span class="cp-muted">${n.effective ? `From ${esc(day(n.effective))}` : ''}${n.review ? ` · review by ${esc(day(n.review))}` : ''}${n.docRef ? ` · ref ${esc(n.docRef)}` : ''}</span>${n.instructions ? `<span>Handling: ${esc(n.instructions)}</span>` : ''}<button class="btn btn--sm btn--ghost" type="button" data-edit-note="${esc(n.id)}">${icon('pencil', 'icon--sm')}Edit</button></li>`).join('')}</ul>` : '<p class="cp-muted">No legal notes recorded.</p>'}` : '';
+
+      const msgsHtml = threads.length ? `<ul class="cp-mini fd-threads">${threads.map(m => `<li><a href="${routes.page('messages', { family: f.id, msg: m.id })}"><b>${esc(m.subject)}</b></a><span>${esc(m.recipients.filter(r => f.guardians.some(g => g.id === r.guardianId) || !r.guardianId).map(r => r.name).join(', '))} · from ${esc(m.createdBy)} · ${esc(when(m.createdAt))}</span><span class="cp-muted">${m.status === 'queued' ? 'Saved to outbox — prototype, not delivered' : esc(m.status)}</span></li>`).join('')}</ul><a class="btn btn--sm btn--tertiary" href="${routes.page('messages', { family: f.id })}">View all messages${icon('arrow-right', 'icon--sm')}</a>` : '<div class="kids-empty"><p class="kids-empty__title">No messages yet</p><p>Messages sent to this family’s guardians appear here.</p></div>';
+
+      // Invitation history includes families merged into this one; merge events and notes stay visible.
+      const invites = app.invitations.filter(inv => inv.familyIds.includes(f.id) || (f.mergedFrom || []).some(m => inv.familyIds.includes(m)));
+      const merges = (f.history || []).filter(x => x.event === 'merged');
+      const historyHtml = `${invites.length ? `<ul class="cp-mini">${invites.map(inv => `<li><b>Parent-app invitations · ${esc(when(inv.at))}</b><span>${inv.recipients.filter(x => x.ok).length} invited${inv.recipients.some(x => !x.ok) ? `, ${inv.recipients.filter(x => !x.ok).length} failed` : ''}${inv.skipped.length ? ` · ${inv.skipped.length} skipped` : ''} · by ${esc(inv.by)} · prototype, not delivered</span></li>`).join('')}</ul>` : '<p class="cp-muted">No parent-app invitations sent from Nexora yet.</p>'}${merges.map(x => `<p class="cp-muted">Merged ${esc(when(x.at))}: ${esc(x.detail)} (${esc(x.by)})</p>`).join('')}${f.notes ? `<p>${esc(f.notes)}</p>` : ''}`;
+      const acctHtml = acct ? (acct.invoices.length ? `<div class="cp-stats"><div class="cp-stat"><span class="cp-stat__n">${money(acct.balance)}</span><span>${acct.balance > 0 ? 'Outstanding' : 'Settled'}</span></div><div class="cp-stat"><span class="cp-stat__n">${acct.lastPayment ? money(acct.lastPayment.amount) : '—'}</span><span>${acct.lastPayment ? `Last payment · ${esc(day(acct.lastPayment.date))}` : 'No payment recorded in Nexora'}</span></div></div><a class="btn btn--sm btn--tertiary" href="${routes.page('statement', { family: f.id })}">View statement${icon('arrow-right', 'icon--sm')}</a>` : '<div class="kids-empty"><p class="kids-empty__title">No billing records</p><p>Invoices for this family’s children will appear here.</p></div>') : '';
+
+      main.innerHTML = `<div class="cp fd">
         <nav class="kids-crumbs" aria-label="Breadcrumb"><a href="${routes.page('families')}">Families</a> / <span aria-current="page">${esc(f.name)}</span></nav>
-        <header class="panel cp-head fam-head">
-          <div class="cp-head__id"><span class="fam-av fam-av--lg" aria-hidden="true">${esc(initials(f.name))}</span><div class="cp-head__names"><h1 class="cp-head__name" id="page-title" tabindex="-1">${esc(f.name)}</h1><p class="cp-head__class">${statusBadge(f.appStatus)}<span class="cp-muted">${f.households.length} ${f.households.length === 1 ? 'home' : 'homes'} · ${f.guardians.length} guardian${f.guardians.length === 1 ? '' : 's'} · ${f.children.length} child${f.children.length === 1 ? '' : 'ren'}</span></p></div></div>
-          <div class="cp-head__actions">${manage ? `<button class="btn btn--secondary" type="button" data-invite>${icon('mail', 'icon--sm')}Invite to parent app</button><button class="btn btn--primary kids-yellow" type="button" data-edit>${icon('pencil', 'icon--sm')}Edit family</button>` : ''}</div>
+        <header class="panel cp-head fd-head">
+          <div class="cp-head__id"><span class="fam-av fam-av--lg" aria-hidden="true">${esc(initials(f.name))}</span>
+            <div class="cp-head__names"><h1 class="cp-head__name" id="page-title" tabindex="-1">${esc(f.name)}</h1>
+              <p class="cp-head__class">${statusBadge(f.appStatus)}<span class="cp-muted">${f.households.length} ${f.households.length === 1 ? 'home' : 'homes'} · ${f.children.length} child${f.children.length === 1 ? '' : 'ren'}</span></p>
+              ${addresses.length ? addresses.map(a => `<p class="fd-addr">${icon('home', 'icon--sm')}${esc(a)}</p>`).join('') : '<p class="cp-muted">No address recorded</p>'}
+              <p class="fd-primary">Primary contact: <b>${esc(p?.name || 'Not set')}</b>${p?.phone ? ` · <a href="${telHref(p.phone)}">${esc(p.phone)}</a>` : ''}</p>
+            </div></div>
+          <div class="cp-head__actions fd-actions">
+            ${msgOk ? `<a class="btn btn--secondary fd-act" href="${routes.page('compose', { family: f.id })}" aria-label="Message ${esc(f.name)}">${icon('message', 'icon--sm')}<span>Message</span></a>` : ''}
+            ${p?.phone ? `<a class="btn btn--secondary fd-act" href="${telHref(p.phone)}" aria-label="Call ${esc(p.name)} on ${esc(p.phone)}">${icon('phone', 'icon--sm')}<span>Call</span></a>` : `<button class="btn btn--secondary fd-act" type="button" disabled aria-describedby="fd-nocall">${icon('phone', 'icon--sm')}<span>Call</span></button><span class="sr-only" id="fd-nocall">The primary contact has no phone number.</span>`}
+            ${billOk ? `<a class="btn btn--secondary fd-act" href="${routes.page('statement', { family: f.id })}" aria-label="Statement for ${esc(f.name)}">${icon('wallet', 'icon--sm')}<span>Statement</span></a>` : ''}
+            ${manage ? `<button class="btn btn--secondary" type="button" data-invite>${icon('mail', 'icon--sm')}Invite to app</button><button class="btn btn--primary kids-yellow" type="button" data-edit>${icon('pencil', 'icon--sm')}Edit family</button>` : ''}
+          </div>
+          ${!p?.phone ? '<p class="fd-nocall cp-muted">Call is unavailable: the primary contact has no phone number.</p>' : ''}
         </header>
-        <div class="cp-grid">
-          ${f.households.map((h, i) => `<section class="cp-card" aria-labelledby="fh-${i}"><header class="cp-card__head"><h2 class="cp-card__title" id="fh-${i}">${esc(h.label)}</h2>${f.households.length > 1 ? `<span class="badge">Home ${i + 1}</span>` : ''}</header>
-            <ul class="cp-people">${h.guardianIds.map(gid => f.guardians.find(g => g.id === gid)).filter(Boolean).map(g => `<li><b>${esc(g.name)}${g.id === f.primary?.id ? ' <span class="badge badge--primary">Primary contact</span>' : ''}</b><span>${g.phone ? `<a href="tel:${esc(g.phone.replace(/[^\d+]/g, ''))}">${esc(g.phone)}</a>` : 'No phone'}${g.email ? ` · ${esc(g.email)}` : ''}</span><span>Parent app: ${esc(store.APP_STATUS[g.account.status])}${g.account.invitedAt ? ` · invited ${esc(when(g.account.invitedAt))}` : ''}</span></li>`).join('')}</ul></section>`).join('')}
-          <section class="cp-card" aria-labelledby="fc"><header class="cp-card__head"><h2 class="cp-card__title" id="fc">Children</h2></header>
-            ${f.children.length ? `<ul class="cp-people">${f.children.map(c => `<li><b><a href="${routes.record(c.id)}">${esc(c.name)}</a></b><span>${esc(c.cls)} · ${esc(store.CHILD_STATUSES[c.status])}</span></li>`).join('')}</ul>` : '<p class="cp-muted">No children linked.</p>'}</section>
-          ${billOk ? `<section class="cp-card" aria-labelledby="fb"><header class="cp-card__head"><h2 class="cp-card__title" id="fb">Billing</h2></header>${lines.length ? `<p class="fam-big">${money(f.balance)} <span class="cp-muted">outstanding</span></p><ul class="cp-mini">${lines.map(l => `<li><b>${esc(l.student?.name || '')} · ${esc(l.term)}</b><span>${money(l.amount)} · paid ${money(l.paid)}${l.overdue ? ' · overdue' : ''}</span></li>`).join('')}</ul>` : '<p class="cp-muted">No invoices for this family’s children.</p>'}</section>` : ''}
-          <section class="cp-card" aria-labelledby="fi"><header class="cp-card__head"><h2 class="cp-card__title" id="fi">Parent-app invitations</h2></header>${history.length ? `<ul class="cp-mini">${history.map(inv => `<li><b>${esc(when(inv.at))} · ${esc(inv.by)}</b><span>${inv.recipients.filter(r => r.ok).length} invited${inv.recipients.some(r => !r.ok) ? `, ${inv.recipients.filter(r => !r.ok).length} failed` : ''}${inv.skipped.length ? ` · ${inv.skipped.length} skipped` : ''} · prototype, not delivered</span></li>`).join('')}</ul>` : '<p class="cp-muted">No invitations sent from Nexora yet.</p>'}</section>
-          ${f.notes || (f.mergedFrom || []).length ? `<section class="cp-card" aria-labelledby="fn"><header class="cp-card__head"><h2 class="cp-card__title" id="fn">Notes & history</h2></header>${f.notes ? `<p>${esc(f.notes)}</p>` : ''}${(f.history || []).filter(h => h.event === 'merged').map(h => `<p class="cp-muted">${esc(when(h.at))}: ${esc(h.detail)} (${esc(h.by)})</p>`).join('')}</section>` : ''}
+        <div class="fd-grid">
+          <div class="fd-main">
+            ${section('guardians', `Guardians (${f.guardians.length})`, guardiansHtml, { tools: manage ? `<button class="btn btn--sm btn--secondary" type="button" data-add-g>${icon('user-plus', 'icon--sm')}Add guardian</button>` : '' })}
+            ${section('households', `Households (${f.households.length})`, householdsHtml, { tools: manage ? `<button class="btn btn--sm btn--secondary" type="button" data-add-h>${icon('plus', 'icon--sm')}Add household</button>` : '' })}
+            ${section('children', `Children (${f.children.length})`, f.children.length ? `<ul class="fd-children">${f.children.map(childCard).join('')}</ul>` : `<div class="kids-empty"><p class="kids-empty__title">No children linked</p>${manage ? `<a class="btn btn--sm btn--secondary" href="${routes.page('enrol')}">Enrol a child</a>` : ''}</div>`)}
+            ${legal?.ok ? section('legal', 'Custody & Legal Notes', legalHtml, { tools: `<button class="btn btn--sm btn--secondary" type="button" data-add-note>${icon('plus', 'icon--sm')}Add note</button>`, cls: 'fd-section--legal' }) : ''}
+          </div>
+          <div class="fd-side">
+            ${acct ? section('account', 'Account summary', acctHtml) : ''}
+            ${msgOk ? section('messages', 'Messages', msgsHtml) : ''}
+            ${section('history', 'Parent app & history', historyHtml)}
+          </div>
         </div></div>`;
+      main.querySelectorAll('[data-section]').forEach(s => { if (prevOpen[s.dataset.section] === false) s.open = false; });
+      void open;
     };
+
+    function skeleton() {
+      main.innerHTML = `<div class="cp" aria-busy="true"><p class="sr-only">Loading family…</p><div class="panel cp-head"><span class="skeleton sk-title"></span><span class="skeleton sk-line w-60"></span><span class="skeleton sk-line w-40"></span></div><div class="fd-grid"><div class="fd-main">${Array.from({ length: 3 }, () => '<div class="cp-card"><span class="skeleton sk-line w-40"></span><div class="sk-row"><span class="skeleton sk-circle"></span><span class="sk-stack"><span class="skeleton sk-line w-70"></span><span class="skeleton sk-line w-40"></span></span></div></div>').join('')}</div></div></div>`;
+    }
+    function load() {
+      skeleton();
+      setTimeout(() => {
+        try {
+          if (failOnce) { failOnce = false; throw new Error('demo'); }
+          loaded = true;
+          draw();
+          main.querySelector('#page-title')?.focus();
+        } catch {
+          main.innerHTML = `<article class="panel record" role="alert"><div class="kids-empty"><span class="state-icon state-icon--error" aria-hidden="true">${icon('alert-circle')}</span><h1 class="kids-empty__title" id="page-title" tabindex="-1">Something went wrong</h1><p>We couldn’t load this family. Nothing has changed.</p><button class="btn btn--secondary" type="button" data-retry>${icon('refresh', 'icon--sm')}Try again</button></div></article>`;
+          main.querySelector('[data-retry]').addEventListener('click', load);
+        }
+      }, reduceMotion.matches ? 0 : 250);
+    }
+
     main.classList.add('kids-page');
-    draw();
     main.addEventListener('click', e => {
+      const t = e.target;
       const f = store.familyById(id);
       if (!f || f.merged) return;
-      if (e.target.closest('[data-invite]')) inviteDialog(user, [f.id]);
-      if (e.target.closest('[data-edit]')) editDialog(user, f);
+      if (t.closest('[data-invite]')) inviteDialog(user, [f.id]);
+      else if (t.closest('[data-edit]')) editDialog(user, f);
+      else if (t.closest('[data-add-g]')) guardianDialog(user, f);
+      else if (t.closest('[data-edit-g]')) guardianDialog(user, f, f.guardians.find(g => g.id === t.closest('[data-edit-g]').dataset.editG));
+      else if (t.closest('[data-add-h]')) householdDialog(user, f);
+      else if (t.closest('[data-edit-h]')) householdDialog(user, f, f.households.find(h => h.id === t.closest('[data-edit-h]').dataset.editH));
+      else if (t.closest('[data-kids-h]')) householdChildrenDialog(user, f, f.households.find(h => h.id === t.closest('[data-kids-h]').dataset.kidsH));
+      else if (t.closest('[data-add-note]')) legalDialog(user, f);
+      else if (t.closest('[data-edit-note]')) { const r = store.getLegalNotes(user, f.id); if (r.ok) legalDialog(user, f, r.notes.find(n => n.id === t.closest('[data-edit-note]').dataset.editNote)); }
+      else if (t.closest('[data-star]')) {
+        const g = f.guardians.find(x => x.id === t.closest('[data-star]').dataset.star);
+        kids.dialog({
+          label: 'Family / Primary contact', title: `Make ${g.name} the primary contact?`,
+          desc: `${esc(f.primary?.name || 'Nobody')} is the primary contact now. The family header, the Families list and calls from this page will use ${esc(g.name)}. Guardians and children stay linked as they are.`,
+          body: '', submit: 'Make primary contact',
+          async onSubmit() { const r = await store.setFamilyPrimary(store.currentUser(), f.id, g.id); if (r.ok) window.NexoraToast?.show('Changes saved successfully', `${g.name} is now the primary contact.`); return r.ok ? r : { ...r, message: r.message || FAIL[r.reason] }; }
+        });
+      } else if (t.closest('[data-unlink-g]')) {
+        const b = t.closest('[data-unlink-g]');
+        const g = f.guardians.find(x => x.id === b.dataset.unlinkG);
+        const hh = f.households.find(x => x.id === b.dataset.hh);
+        kids.dialog({
+          label: 'Family / Households', title: `Remove ${g.name} from ${hh.label}?`,
+          desc: `${esc(g.name)} is unlinked from this household and its children. Their record stays, along with links to children in other households.`,
+          body: '', submit: 'Remove', danger: true,
+          async onSubmit() { const r = await store.unlinkHouseholdGuardian(store.currentUser(), f.id, hh.id, g.id); if (r.ok) window.NexoraToast?.show('Changes saved successfully', `${g.name} removed from ${hh.label}.`); return r.ok ? r : { ...r, message: r.message || FAIL[r.reason] }; }
+        });
+      }
     });
-    store.subscribe(({ key }) => { if (!key || /^nexora-(families|households|guardians|children|parent-app)/.test(key)) draw(); });
-    main.querySelector('#page-title')?.focus();
+    let queued = false;
+    store.subscribe(({ key }) => {
+      if (!loaded || (key && !/^nexora-(families|households|guardians|children|parent-app|family-messages|legal-notes|invoices|payments|school-plan)/.test(key))) return;
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        const active = document.activeElement;
+        const sel = active && main.contains(active) ? ['data-edit-g', 'data-star', 'data-edit-h', 'data-kids-h', 'data-add-g', 'data-add-h'].map(a => (active.hasAttribute(a) ? `[${a}="${active.getAttribute(a)}"]` : null)).find(Boolean) : null;
+        draw();
+        if (sel) main.querySelector(sel)?.focus();
+      });
+    });
+    load();
+    return true;
+  }
+
+  /* ------------------------------------------------------------------ Family statement */
+
+  function statementPage(main, user) {
+    const f = store.familyById(params.get('family'));
+    main.classList.add('kids-page');
+    if (!canSeeBalance(user)) { main.innerHTML = `<article class="panel record"><div class="kids-empty"><h1 class="kids-empty__title" id="page-title">Statements aren’t available</h1><p>${store.isEntitled('fees') ? 'Your role doesn’t include billing.' : `Billing is on the ${esc(store.requiredPlanFor('fees').name)} plan.`}</p><a class="btn btn--secondary" href="${routes.page('families')}">Families</a></div></article>`; return true; }
+    if (!f || f.merged) { main.innerHTML = `<article class="panel record"><div class="kids-empty"><h1 class="kids-empty__title" id="page-title">We couldn’t find that family</h1><a class="btn btn--primary" href="${routes.page('families')}">All families</a></div></article>`; return true; }
+    const a = store.familyAccount(f.id);
+    document.title = `Statement · ${f.name} · Nexora`;
+    main.innerHTML = `<div class="cp">
+      <nav class="kids-crumbs" aria-label="Breadcrumb"><a href="${routes.page('families')}">Families</a> / <a href="${routes.page('family', { id: f.id })}">${esc(f.name)}</a> / <span aria-current="page">Statement</span></nav>
+      <header class="kids-head"><div class="kids-head__text"><h1 class="kids-head__title" id="page-title" tabindex="-1">Statement · ${esc(f.name)}</h1><p class="kids-head__sub">${a.balance > 0 ? `${money(a.balance)} outstanding` : 'Account settled'} · ${a.invoices.length} invoice${a.invoices.length === 1 ? '' : 's'}, ${a.payments.length} payment${a.payments.length === 1 ? '' : 's'}</p></div></header>
+      ${a.entries.length ? `<div class="table-shell"><table class="data-table cp-table" aria-label="Statement"><thead><tr><th scope="col">Date</th><th scope="col">Item</th><th scope="col">Charge</th><th scope="col">Payment</th><th scope="col">Balance</th></tr></thead><tbody>${a.entries.map(e => `<tr><td data-label="Date">${esc(day(e.date))}</td><td data-label="Item">${e.kind === 'invoice' ? 'Invoice' : 'Payment'} · ${esc(e.label)}</td><td data-label="Charge">${e.amount > 0 ? money(e.amount) : ''}</td><td data-label="Payment">${e.amount < 0 ? money(-e.amount) : ''}</td><td data-label="Balance">${money(e.balance)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="kids-empty"><p class="kids-empty__title">No billing records</p></div>'}
+    </div>`;
+    return true;
+  }
+
+  /* ------------------------------------------------------------------ Family messages (all threads / one thread) */
+
+  function messagesPage(main, user) {
+    const f = store.familyById(params.get('family'));
+    const msgId = params.get('msg');
+    main.classList.add('kids-page');
+    if (!f || f.merged) { main.innerHTML = `<article class="panel record"><div class="kids-empty"><h1 class="kids-empty__title" id="page-title">We couldn’t find that family</h1><a class="btn btn--primary" href="${routes.page('families')}">All families</a></div></article>`; return true; }
+    const threads = store.familyThreads(f.id);
+    const m = msgId ? threads.find(x => x.id === msgId) : null;
+    const famIds = new Set(f.guardians.map(g => g.id));
+    document.title = `${m ? m.subject : 'Messages'} · ${f.name} · Nexora`;
+    main.innerHTML = `<div class="cp">
+      <nav class="kids-crumbs" aria-label="Breadcrumb"><a href="${routes.page('families')}">Families</a> / <a href="${routes.page('family', { id: f.id })}">${esc(f.name)}</a> / ${m ? `<a href="${routes.page('messages', { family: f.id })}">Messages</a> / <span aria-current="page">${esc(m.subject)}</span>` : '<span aria-current="page">Messages</span>'}</nav>
+      ${m ? `<article class="panel cp-card"><header class="cp-card__head"><div><h1 class="cp-card__title" id="page-title" tabindex="-1">${esc(m.subject)}</h1><p class="cp-muted">From ${esc(m.createdBy)} · ${esc(when(m.createdAt))} · saved to outbox (prototype, not delivered)</p></div></header>
+          <ul class="fd-msg-list">${m.recipients.filter(r => !r.guardianId || famIds.has(r.guardianId)).map(r => `<li class="cp-card"><p><b>To ${esc(r.name)}</b>${r.language ? ` · ${esc(store.GUARDIAN_LANGUAGES[r.language] || r.language)}${r.fallback ? ` <span class="cp-muted">(translation unavailable — sent in ${esc(store.GUARDIAN_LANGUAGES[r.usedLanguage] || r.usedLanguage)})</span>` : ''}` : ''}</p>${r.subject ? `<p><b>${esc(r.subject)}</b></p>` : ''}<p class="fd-msg-body">${esc(r.body || m.body)}</p></li>`).join('')}</ul></article>`
+        : `<header class="kids-head"><div class="kids-head__text"><h1 class="kids-head__title" id="page-title" tabindex="-1">Messages · ${esc(f.name)}</h1><p class="kids-head__sub">${threads.length} message${threads.length === 1 ? '' : 's'}</p></div>${store.canAccess(user, 'communication') ? `<a class="btn btn--primary kids-yellow" href="${routes.page('compose', { family: f.id })}">${icon('message', 'icon--sm')}New message</a>` : ''}</header>
+          ${threads.length ? `<ul class="cp-mini fd-threads">${threads.map(t => `<li class="cp-card"><a href="${routes.page('messages', { family: f.id, msg: t.id })}"><b>${esc(t.subject)}</b></a><span>${esc(when(t.createdAt))} · from ${esc(t.createdBy)} · ${t.recipients.length} recipient${t.recipients.length === 1 ? '' : 's'}</span></li>`).join('')}</ul>` : '<div class="kids-empty"><p class="kids-empty__title">No messages yet</p></div>'}`}
+    </div>`;
     return true;
   }
 
   function render(key, main, user) {
     if (key === 'families') return listPage(main, user);
     if (key === 'family') return detailPage(main, user);
+    if (key === 'statement') return statementPage(main, user);
+    if (key === 'messages') return messagesPage(main, user);
     return false;
   }
 

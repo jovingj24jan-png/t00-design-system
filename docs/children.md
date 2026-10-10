@@ -167,3 +167,35 @@ S14 creates) belongs to exactly one active family; households joined by a shared
 - Teachers see families with a child in their classes; only leaders add, edit, invite or merge.
 
 Test hook: `app.html?page=families&fail=1` shows the error state with Retry.
+
+# S16 Family details — `app.html?page=family&id=<familyId>` (`families.js`)
+
+Header (name, household addresses, primary contact + phone, parent-app status) with **Message**
+(S31 pre-filled with the family's guardians), **Call** (`tel:` from the primary contact's real number;
+disabled with an explanation when there is none) and **Statement** (Billing plan + finance role only).
+Sections are collapsible `<details>`: Guardians, Households, Children, Custody & Legal Notes
+(restricted), Account summary, Messages, Parent app & history.
+
+- **Guardians:** add (new, or link an existing record — no duplicates), edit, star to set the primary
+  contact (confirmed; updates the header and S15). Each guardian has a preferred `language` and
+  `channels` (App, Email, SMS, WhatsApp). Preferred ≠ available: only an active parent-app account can
+  receive anything in this prototype; other channels show "Not connected in this prototype".
+- **Households:** label, address, invoice recipient and report recipient (must live in that household),
+  add household, link children (each household guardian's relationship is required), unlink a guardian
+  (blocked if a child would be left without a guardian, or if they are the primary contact).
+- **Custody & Legal Notes:** only for roles with Safeguarding access (Director, Super Admin). For anyone
+  else the section isn't rendered at all and `store.getLegalNotes` / `saveLegalNote` refuse. Shows the
+  children's custody restrictions plus legal notes (`nexora-legal-notes:<school>`); audit entries record
+  that a note changed, never its content.
+- **Messages:** the five most recent S31 messages that reached this family's guardians, newest first;
+  `?page=messages&family=` lists all, `&msg=` opens one with each recipient's version.
+- **Account summary / Statement** (`?page=statement&family=`): balance, last payment and a running-balance
+  statement from the fee ledger and payments. Hidden without the Fees plan or a finance role; the direct
+  URL is refused.
+
+## Language-aware templates (S31)
+
+`store.TEMPLATES` holds each template per language; `renderTemplate` falls back to the school language,
+then English, and reports the fallback. S31 renders one version per guardian in their saved language,
+shows every version for review before saving, and stores the rendered text per recipient. Changing a
+guardian's language never sends anything; it affects the next template message.

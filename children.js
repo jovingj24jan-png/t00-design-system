@@ -704,26 +704,41 @@
 
   function composePage(main, user) {
     if (!store.isEntitled('communication')) { window.NexoraPlanGate?.render(main, user, 'communication'); return true; }
-    const ids = (params.get('children') || '').split(',').filter(Boolean);
     const scope = store.classScope(user);
-    const kids = ids.map(store.childById).filter(c => c && scope.includes(c.cls));
-    // One recipient per family: the same guardian (name + phone) for siblings is listed once.
-    const keyOf = g => `${g.name.toLowerCase()}|${g.phone.replace(/\D/g, '')}`;
-    const families = new Map();
-    const addFamily = c => {
-      const k = keyOf(c.guardian);
-      if (!families.has(k)) families.set(k, { key: k, guardian: c.guardian, children: [] });
-      families.get(k).children.push(name(c));
+    const guardians = store.getGuardians();
+    // Recipients are guardian records (one entry per person), each with their own language.
+    const recipients = new Map();
+    const addGuardian = (g, childNames) => {
+      if (!g?.id) return;
+      if (!recipients.has(g.id)) recipients.set(g.id, { guardianId: g.id, name: g.name, phone: g.phone, email: g.email, language: store.guardianLanguage(g), children: [] });
+      childNames.forEach(n => { if (!recipients.get(g.id).children.includes(n)) recipients.get(g.id).children.push(n); });
     };
-    // From a child profile (?family=all) every linked guardian is a recipient; from S12 bulk, the primary guardian.
-    if (params.get('family') === 'all') kids.forEach(c => (store.childProfile(c.id)?.guardians || []).forEach(g => addFamily({ ...c, guardian: g })));
-    else kids.forEach(addFamily);
+    const familyId = params.get('family');
+    let backHref = routes.page('children');
+    let backLabel = 'Children';
+    if (familyId && familyId !== 'all') {
+      // From S16: every guardian in the family who has said how they want to be contacted.
+      const fam = store.familyById(familyId);
+      if (fam && !fam.merged) {
+        backHref = routes.page('family', { id: fam.id });
+        backLabel = fam.name;
+        fam.guardians.filter(g => store.guardianChannels(g).length).forEach(g => addGuardian(guardians.find(x => x.id === g.id), fam.children.map(c => c.firstName)));
+      }
+    } else {
+      // From S12 bulk (primary guardians) or S13 (?family=all: every linked guardian).
+      const kids = (params.get('children') || '').split(',').filter(Boolean).map(store.childById).filter(c => c && scope.includes(c.cls));
+      kids.forEach(c => {
+        const prof = store.childProfile(c.id);
+        const list = familyId === 'all' ? prof.guardians : prof.guardians.filter(g => g.primary).slice(0, 1);
+        list.forEach(g => addGuardian(guardians.find(x => x.id === g.id), [c.firstName]));
+      });
+    }
     const directory = store.getChildren().filter(c => scope.includes(c.cls) && ['active', 'starting'].includes(c.status));
 
     document.title = 'Message families · Nexora';
     main.innerHTML = `
       <div class="kids kids--form">
-        <nav class="kids-crumbs" aria-label="Breadcrumb"><a href="${routes.page('children')}">Children</a> / <span aria-current="page">Message families</span></nav>
+        <nav class="kids-crumbs" aria-label="Breadcrumb"><a href="${backHref}">${esc(backLabel)}</a> / <span aria-current="page">Message families</span></nav>
         <form class="panel kids-form" novalidate data-form>
           <header class="kids-form__head">
             <h1 class="kids-head__title" id="page-title" tabindex="-1">Message families</h1>
@@ -733,33 +748,49 @@
             <span class="field__label" id="kc-to-label">To <span class="field__req" aria-hidden="true">*</span></span>
             <ul class="kids-recipients" aria-labelledby="kc-to-label" data-recipients></ul>
             <div class="kids-recipients__add">
-              <label class="sr-only" for="kc-add">Add a family</label>
-              <input class="input" id="kc-add" list="kc-dir" placeholder="Add a family by child or parent name" autocomplete="off">
-              <datalist id="kc-dir">${directory.map(c => `<option value="${esc(`${c.guardian.name} — ${name(c)}`)}"></option>`).join('')}</datalist>
+              <label class="sr-only" for="kc-add">Add a guardian</label>
+              <input class="input" id="kc-add" list="kc-dir" placeholder="Add a guardian by child or parent name" autocomplete="off">
+              <datalist id="kc-dir">${directory.flatMap(c => store.childProfile(c.id).guardians.map(g => `<option value="${esc(`${g.name} — ${name(c)}`)}"></option>`)).join('')}</datalist>
               <button class="btn btn--secondary" type="button" data-add>${icon('plus', 'icon--sm')}Add</button>
             </div>
             <p class="field__hint field__hint--error" data-error-for="recipients" hidden></p>
           </div>
-          ${field('kc-subject', 'Subject', '<input class="input" id="kc-subject" name="subject" required autocomplete="off">', { required: true }).replace('data-error-for="kc-subject"', 'data-error-for="subject"')}
-          ${field('kc-body', 'Message', '<textarea class="input" id="kc-body" name="body" rows="7" required></textarea>', { required: true }).replace('data-error-for="kc-body"', 'data-error-for="body"')}
+          ${field('kc-template', 'Template', `<select class="input" id="kc-template" name="template"><option value="">Write your own message</option>${Object.entries(store.TEMPLATES).map(([k, t]) => `<option value="${k}">${esc(t.label)}</option>`).join('')}</select>`, { hint: 'A template is written in each guardian’s preferred language. Review every version below before saving.' })}
+          <div data-own>
+            ${field('kc-subject', 'Subject', '<input class="input" id="kc-subject" name="subject" required autocomplete="off">', { required: true }).replace('data-error-for="kc-subject"', 'data-error-for="subject"')}
+            ${field('kc-body', 'Message', '<textarea class="input" id="kc-body" name="body" rows="7" required></textarea>', { required: true }).replace('data-error-for="kc-body"', 'data-error-for="body"')}
+          </div>
+          <section class="kc-preview" data-preview hidden aria-live="polite"></section>
           <p class="field__hint field__hint--error" data-form-error role="alert" hidden></p>
           <div class="kids-form__foot">
-            <a class="btn btn--secondary" href="${routes.page('children')}">Cancel</a>
+            <a class="btn btn--secondary" href="${backHref}">Cancel</a>
             <button class="btn btn--primary" type="submit">${icon('message', 'icon--sm')}Save to outbox</button>
           </div>
         </form>
       </div>`;
 
     const list = main.querySelector('[data-recipients]');
+    const form = main.querySelector('[data-form]');
+    const tplSel = form.elements.template;
+    const rendered = r => store.renderTemplate(tplSel.value, r.language, { guardian: r.name.split(' ')[0], child: r.children.join(' and ') || 'your child', school: store.school.name });
+    const drawPreview = () => {
+      const on = Boolean(tplSel.value);
+      main.querySelector('[data-own]').hidden = on;
+      const box = main.querySelector('[data-preview]');
+      box.hidden = !on;
+      box.innerHTML = on ? `<h2 class="kc-preview__title">Review each version</h2>${[...recipients.values()].map(r => { const t = rendered(r); return `<article class="kc-version"><p><b>${esc(r.name)}</b> · ${esc(store.GUARDIAN_LANGUAGES[r.language])}${t.fallback ? ` <span class="badge badge--warning">No ${esc(store.GUARDIAN_LANGUAGES[r.language])} version — ${esc(store.GUARDIAN_LANGUAGES[t.language])} used</span>` : ''}</p><p class="kc-version__subject">${esc(t.subject)}</p><p class="fd-msg-body">${esc(t.body)}</p></article>`; }).join('') || '<p class="cp-muted">Add a recipient to preview.</p>'}` : '';
+    };
     const draw = () => {
-      list.innerHTML = families.size ? [...families.values()].map(f => `<li><span class="kids-chip kids-chip--recipient"><span><b>${esc(f.guardian.name)}</b> <small>${esc(f.children.join(', '))}</small></span><button type="button" aria-label="Remove ${esc(f.guardian.name)}" data-remove="${esc(f.key)}">${icon('x', 'icon--sm')}</button></span></li>`).join('')
-        : '<li class="kids-recipients__none">No families yet. Add one below.</li>';
+      list.innerHTML = recipients.size ? [...recipients.values()].map(r => `<li><span class="kids-chip kids-chip--recipient"><span><b>${esc(r.name)}</b> <small>${esc(r.children.join(', '))} · ${esc(store.GUARDIAN_LANGUAGES[r.language])}</small></span><button type="button" aria-label="Remove ${esc(r.name)}" data-remove="${esc(r.guardianId)}">${icon('x', 'icon--sm')}</button></span></li>`).join('')
+        : '<li class="kids-recipients__none">No recipients yet. Add one below.</li>';
+      drawPreview();
     };
     draw();
+    tplSel.addEventListener('change', drawPreview);
     list.addEventListener('click', e => {
       const b = e.target.closest('[data-remove]');
       if (!b) return;
-      families.delete(b.dataset.remove);
+      recipients.delete(b.dataset.remove);
       draw();
       (list.querySelector('[data-remove]') || main.querySelector('#kc-add')).focus();
     });
@@ -767,32 +798,44 @@
     const add = () => {
       const val = addInput.value.trim().toLowerCase();
       if (!val) return;
-      const c = directory.find(x => `${x.guardian.name} — ${name(x)}`.toLowerCase() === val) || directory.find(x => name(x).toLowerCase() === val || x.guardian.name.toLowerCase() === val);
       const hint = main.querySelector('[data-error-for="recipients"]');
-      if (!c) { hint.innerHTML = `${icon('info')}No current family matches “${esc(addInput.value)}”. Pick one from the list.`; hint.hidden = false; return; }
+      let hit = null;
+      directory.some(c => store.childProfile(c.id).guardians.some(g => {
+        if (`${g.name} — ${name(c)}`.toLowerCase() === val || g.name.toLowerCase() === val || name(c).toLowerCase() === val) { hit = { g: guardians.find(x => x.id === g.id), c }; return true; }
+        return false;
+      }));
+      if (!hit) { hint.innerHTML = `${icon('info')}No guardian matches “${esc(addInput.value)}”. Pick one from the list.`; hint.hidden = false; return; }
       hint.hidden = true;
-      addFamily(c);
+      addGuardian(hit.g, [hit.c.firstName]);
       addInput.value = '';
       draw();
     };
     main.querySelector('[data-add]').addEventListener('click', add);
     addInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
 
-    const form = main.querySelector('[data-form]');
+    let busy = false;
     form.addEventListener('submit', async e => {
       e.preventDefault();
+      if (busy) return;
       form.querySelectorAll('[data-error-for]').forEach(h => { h.hidden = true; });
+      const tpl = tplSel.value;
+      const recips = [...recipients.values()].map(r => {
+        if (!tpl) return { ...r };
+        const t = rendered(r);
+        return { ...r, subject: t.subject, body: t.body, usedLanguage: t.language, fallback: t.fallback };
+      });
+      // Top-level subject/body: the school-language version (or the text typed), used in lists.
+      const head = tpl ? store.renderTemplate(tpl, store.schoolLanguage(), { guardian: '', child: '', school: store.school.name }) : null;
       const btn = form.querySelector('[type="submit"]');
       const label = btn.innerHTML;
+      busy = true;
       btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>Saving…';
-      const r = await store.saveFamilyMessage(user, {
-        recipients: [...families.values()].map(f => ({ name: f.guardian.name, phone: f.guardian.phone, email: f.guardian.email, children: f.children })),
-        subject: form.elements.subject.value, body: form.elements.body.value
-      });
+      const r = await store.saveFamilyMessage(user, { recipients: recips, subject: tpl ? head.subject.replace(/\s*\{\w+\}/g, '').trim() : form.elements.subject.value, body: tpl ? head.body : form.elements.body.value, templateId: tpl || null });
+      busy = false;
       btn.innerHTML = label;
       if (r.ok) {
-        flash('Message saved to outbox', `${r.message.recipients.length} ${r.message.recipients.length === 1 ? 'family' : 'families'}. Prototype: not delivered.`);
-        location.href = routes.page('children');
+        flash('Message saved to outbox', `${r.message.recipients.length} ${r.message.recipients.length === 1 ? 'guardian' : 'guardians'}. Prototype: not delivered.`);
+        location.href = backHref;
         return;
       }
       if (r.errors) {
@@ -809,9 +852,10 @@
       err.innerHTML = `${icon('info')}${esc(FAIL[r.reason] || FAIL.storage)}`;
       err.hidden = false;
     });
-    main.querySelector(families.size ? '#kc-subject' : '#kc-add').focus();
+    main.querySelector(recipients.size ? '#kc-template' : '#kc-add').focus();
     return true;
   }
+
 
   function render(key, main, user) {
     if (key === 'children') return childrenPage(main, user);
