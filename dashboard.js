@@ -312,9 +312,6 @@
 
   function headerHtml(user) {
     const status = schoolStatus();
-    const breaches = store.canAccess(user, 'attendance') && store.isEntitled('attendance') ? store.ratioStatus(user).filter(r => r.status === 'breach') : [];
-    const unread = store.notificationsFor(user.role).filter(n => !n.read).length;
-    const bellLabel = ['Notifications', unread ? `${unread} unread` : '', breaches.length ? `${plural(breaches.length, 'class', 'classes')} over ratio` : ''].filter(Boolean).join(', ');
     return `
       <div class="dash-head__text">
         <p class="dash-head__date"><time datetime="${store.today()}">${esc(new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</time></p>
@@ -323,10 +320,6 @@
           <span class="dash-chip dash-chip--${status.tone}">${status.tone === 'open' ? '<span class="dash-chip__dot" aria-hidden="true"></span>' : icon('clock', 'icon--sm')}${esc(status.text)}</span>
           <span class="dash-chip">${icon('user', 'icon--sm')}${esc(user.role)} · ${esc(store.school.name)}</span>
         </div>
-      </div>
-      <div class="dash-head__tools">
-        <button class="btn btn--ghost btn--sm" type="button" data-customise aria-haspopup="dialog">${icon('sliders', 'icon--sm')}Customise</button>
-        <a class="btn btn--icon dash-bell" href="${routes.page('notifications')}" aria-label="${esc(bellLabel)}">${icon('bell')}${breaches.length ? '<span class="dash-bell__dot" aria-hidden="true"></span>' : unread ? `<span class="dash-bell__count" aria-hidden="true">${unread}</span>` : ''}</a>
       </div>`;
   }
 
@@ -414,7 +407,7 @@
     main.innerHTML = `
       <div class="dash__wrap">
         <div class="dash__sos" data-sos></div>
-        <header class="dash-head" data-head></header>
+        <header class="dash-head"><div data-head></div><div class="dash-head__tools" data-tools><button class="btn btn--ghost btn--sm" type="button" data-customise aria-haspopup="dialog">${icon('sliders', 'icon--sm')}Customise</button></div></header>
         <div class="dash__alerts" data-alerts></div>
         <section class="dash-grid" aria-labelledby="dash-grid-title" data-grid><h2 class="sr-only" id="dash-grid-title">Today at a glance</h2></section>
         <p class="sr-only" aria-live="polite" data-live></p>
@@ -432,6 +425,9 @@
     if (focusInSos && !sos.contains(document.activeElement)) (sos.querySelector('[data-ack]') || main.querySelector('#dash-title'))?.focus();
     setHtml(main.querySelector('[data-head]'), headerHtml(user));
     setHtml(main.querySelector('[data-alerts]'), alertsHtml(user));
+    // The shared bell shows a red dot while a class in scope is over ratio.
+    const over = store.canAccess(user, 'attendance') && store.isEntitled('attendance') ? store.ratioStatus(user).filter(r => r.status === 'breach').length : 0;
+    window.NexoraBell.setAlert(over ? `${plural(over, 'class', 'classes')} over ratio` : null);
 
     const grid = main.querySelector('[data-grid]');
     const next = items();
@@ -587,6 +583,7 @@
   }
 
   window.NexoraShell.mount({
+    topbar: false,
     onRoleChange() {
       cache.clear();
       lastBreaches = null;
@@ -599,6 +596,7 @@
   skeleton();
   setTimeout(() => {
     frame();
+    main.querySelector('[data-tools]').appendChild(window.NexoraBell.create());
     bind();
     render();
   }, 500);

@@ -189,7 +189,8 @@
     // School pages that every plan includes. S17 and S58 read the same records the S05 setup saves.
     classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Every class in your school, with level, section and capacity.' },
     settings: { name: 'Settings', icon: 'grid', roles: ['Director', 'Admin', 'Super Admin'], summary: 'School details, academic year, school hours and preferences.' },
-    notifications: { name: 'Notifications', icon: 'bell', roles: roles.slice(), summary: 'Updates and requests sent to you.' }
+    notifications: { name: 'Notifications', icon: 'bell', roles: roles.slice(), summary: 'Updates and requests sent to you.' },
+    'notification-settings': { name: 'Notification settings', icon: 'bell', roles: roles.slice(), summary: 'Choose which modules send you notifications.' }
   };
 
   const ROLE_KEY = 'nexora-demo-role';
@@ -239,11 +240,6 @@
   const requests = () => read(REQUESTS_KEY, []);
   const findRequest = (user, key) => requests().find(r => r.userId === user.id && r.page === key) || null;
 
-  function notify(toRole, notification) {
-    const list = read(NOTIFICATIONS_KEY, []);
-    list.unshift({ id: `n-${Date.now().toString(36)}`, toRole, read: false, createdAt: new Date().toISOString(), ...notification });
-    return write(NOTIFICATIONS_KEY, list);
-  }
 
   // One request per user + page; repeat calls return the existing request.
   function requestAccess(user, key, reason = '') {
@@ -416,10 +412,6 @@
   const getSetup = schoolId => ({ status: 'not-started', currentStep: 1, completed: [], skipped: [], drafts: {}, lastSavedAt: null, completedAt: null, ...read(setupKey(schoolId), {}) });
   const saveSetup = (schoolId, patch) => write(setupKey(schoolId), { ...getSetup(schoolId), ...patch, lastSavedAt: new Date().toISOString() });
 
-  const notificationsFor = role => read(NOTIFICATIONS_KEY, []).filter(n => n.toRole === role);
-  function markAllRead(role) {
-    write(NOTIFICATIONS_KEY, read(NOTIFICATIONS_KEY, []).map(n => (n.toRole === role ? { ...n, read: true } : n)));
-  }
 
   function search(query, limit = 6) {
     const q = query.trim().toLowerCase();
@@ -529,7 +521,9 @@
     if (!pupils.length || pupils.some(s => !['present', 'late', 'absent'].includes(marks[s.id]))) return settle({ ok: false, reason: 'incomplete' });
     const reg = getRegister();
     reg[cls] = { takenAt: new Date().toISOString(), takenBy: user.name, marks: Object.fromEntries(pupils.map(s => [s.id, marks[s.id]])) };
-    return settle(write(registerKey(school.id, today()), reg) ? { ok: true, cls } : { ok: false, reason: 'storage' });
+    if (!write(registerKey(school.id, today()), reg)) return settle({ ok: false, reason: 'storage' });
+    events.register(user, cls);
+    return settle({ ok: true, cls });
   }
 
   /* Staff on duty: { [educatorId]: 'present'|'absent' } */
@@ -542,7 +536,9 @@
     if (!canManageStaff(user)) return settle({ ok: false, reason: 'forbidden' });
     if (!educators.some(e => e.id === educatorId) || !['present', 'absent'].includes(status)) return settle({ ok: false, reason: 'invalid' });
     const att = { ...getStaffAttendance(), [educatorId]: status };
-    return settle(write(staffAttKey(school.id, today()), att) ? { ok: true } : { ok: false, reason: 'storage' });
+    if (!write(staffAttKey(school.id, today()), att)) return settle({ ok: false, reason: 'storage' });
+    events.ratio(educators.find(e => e.id === educatorId).cls);
+    return settle({ ok: true });
   }
 
   // Live ratio for one class: children on site (present + late) per educator on duty.
@@ -586,10 +582,13 @@
       id: newId('ae'), child: String(data.child || '').trim(), parent: String(data.parent || '').trim(),
       phone: String(data.phone || '').trim(), email: String(data.email || '').trim(),
       programme: data.programme, status: 'new', followUp: data.followUp || '', notes: String(data.notes || '').trim().slice(0, 500),
-      createdAt: new Date().toISOString(), createdBy: user.name
+      assignedTo: data.assignedTo || '', createdAt: new Date().toISOString(), createdBy: user.name
     };
-    if (!e.child || !e.parent || e.phone.replace(/\D/g, '').length < 10 || !CLASS_LEVELS.includes(e.programme)) return settle({ ok: false, reason: 'invalid' });
-    return settle(write(admissionsKey(school.id), [e, ...getAdmissionEnquiries()]) ? { ok: true, enquiry: e } : { ok: false, reason: 'storage' });
+    const assignee = e.assignedTo ? users.find(u => u.id === e.assignedTo) : null;
+    if (!e.child || !e.parent || e.phone.replace(/\D/g, '').length < 10 || !CLASS_LEVELS.includes(e.programme) || (e.assignedTo && !(assignee && canAccess(assignee, 'admissions')))) return settle({ ok: false, reason: 'invalid' });
+    if (!write(admissionsKey(school.id), [e, ...getAdmissionEnquiries()])) return settle({ ok: false, reason: 'storage' });
+    events.enquiry(user, e, assignee?.id);
+    return settle({ ok: true, enquiry: e });
   }
 
   /* Fees: one term invoice per child, and the payments recorded against it. Amounts in rupees. */
@@ -625,7 +624,9 @@
     if (!line || !PAYMENT_METHODS.includes(data.method) || !data.date) return settle({ ok: false, reason: 'invalid' });
     if (!(amount > 0) || amount > line.balance) return settle({ ok: false, reason: 'amount', balance: line.balance });
     const p = { id: newId('pay'), invoiceId: line.id, studentId: line.studentId, amount, method: data.method, date: data.date, reference: String(data.reference || '').trim().slice(0, 60), recordedBy: user.name, createdAt: new Date().toISOString() };
-    return settle(write(paymentsKey(school.id), [...getPayments(), p]) ? { ok: true, payment: p, balance: line.balance - amount } : { ok: false, reason: 'storage' });
+    if (!write(paymentsKey(school.id), [...getPayments(), p])) return settle({ ok: false, reason: 'storage' });
+    events.payment(user, p);
+    return settle({ ok: true, payment: p, balance: line.balance - amount });
   }
 
   /* Incidents (Health, Safety & Safeguarding module) */
@@ -646,7 +647,9 @@
       status: 'open', createdBy: user.name, createdAt: new Date().toISOString()
     };
     if (!studentById(i.studentId) || !INCIDENT_TYPES.includes(i.type) || !SEVERITIES.includes(i.severity) || !i.occurredAt || !i.description) return settle({ ok: false, reason: 'invalid' });
-    return settle(write(incidentsKey(school.id), [i, ...getIncidents()]) ? { ok: true, incident: i } : { ok: false, reason: 'storage' });
+    if (!write(incidentsKey(school.id), [i, ...getIncidents()])) return settle({ ok: false, reason: 'storage' });
+    events.incident(user, i);
+    return settle({ ok: true, incident: i });
   }
   function resolveIncident(user, id) {
     if (!can(user, 'safeguarding')) return settle({ ok: false, reason: 'forbidden' });
@@ -666,7 +669,9 @@
     const a = { id: newId('an'), title: String(data.title || '').trim().slice(0, 120), body: String(data.body || '').trim().slice(0, 1000), audience: data.audience, createdBy: user.name, createdAt: new Date().toISOString() };
     if (!a.title || !a.body || !AUDIENCES.includes(a.audience)) return settle({ ok: false, reason: 'invalid' });
     // Prototype: saved here only. Nothing is sent to families.
-    return settle(write(announcementsKey(school.id), [a, ...getAnnouncements()]) ? { ok: true, announcement: a } : { ok: false, reason: 'storage' });
+    if (!write(announcementsKey(school.id), [a, ...getAnnouncements()])) return settle({ ok: false, reason: 'storage' });
+    events.announcement(user, a);
+    return settle({ ok: true, announcement: a });
   }
 
   /* S32 Emergency broadcasts: shown to every role until each user acknowledges it. */
@@ -681,7 +686,9 @@
     if (!text) return settle({ ok: false, reason: 'invalid' });
     // The sender has read it, so it starts acknowledged for them.
     const b = { id: newId('bc'), message: text, createdAt: new Date().toISOString(), createdBy: user.id, createdByName: user.name, active: true, ackBy: [user.id] };
-    return settle(write(broadcastsKey(school.id), [b, ...getBroadcasts()]) ? { ok: true, broadcast: b } : { ok: false, reason: 'storage' });
+    if (!write(broadcastsKey(school.id), [b, ...getBroadcasts()])) return settle({ ok: false, reason: 'storage' });
+    events.broadcast(user, b);
+    return settle({ ok: true, broadcast: b });
   }
   function endBroadcast(user, id) {
     if (!canBroadcast(user)) return settle({ ok: false, reason: 'forbidden' });
@@ -699,6 +706,212 @@
   const dashPrefsKey = userId => `nexora-dashboard:${userId}`;
   const getDashboardPrefs = user => ({ hidden: [], ...read(dashPrefsKey(user.id), {}) });
   const saveDashboardPrefs = (user, prefs) => write(dashPrefsKey(user.id), { hidden: [...new Set(prefs.hidden || [])], updatedAt: new Date().toISOString() });
+
+  /* ---------------------------------------------------------------- Notifications (S62 centre, S63 settings, bell)
+     One list in 'nexora-notifications'. Each record belongs to one recipient user:
+     { id, toUserId, toRole, module, kind, title, body, createdAt, read, readAt, deletedAt,
+       mentions: [userId], recordType, recordId, severity: 'normal'|'critical', dedupeKey, actorId }
+     Older records addressed only to a role (toRole) are copied once to each user with that role.
+     A user sees a notification only while their role can open its module and the plan includes it;
+     module 'system' (access requests, upgrades, emergency broadcasts) is always visible.
+     Deleting hides the notification (deletedAt); the enquiry, payment or incident is never touched. */
+
+  const NOTIF_SEEDED_KEY = 'nexora-notifications-seeded';
+  const notifSettingsKey = userId => `nexora-notification-settings:${userId}`;
+  const NOTIFY_MODULES = ['attendance', 'admissions', 'fees', 'safeguarding', 'communication', 'classroom-tracker', 'observations', 'gallery', 'reports', 'payroll'];
+  const MODULE_LABEL = key => (key === 'system' ? 'System' : pages[key]?.name || 'Other');
+
+  const getNotificationSettings = user => ({ muted: [], ...read(notifSettingsKey(user.id), {}) });
+  const saveNotificationSettings = (user, settings) => settle(write(notifSettingsKey(user.id), { muted: (settings.muted || []).filter(m => NOTIFY_MODULES.includes(m)), updatedAt: new Date().toISOString() }) ? { ok: true } : { ok: false });
+
+  // Who may receive a notification about `module`: same role + plan rule as the page guard.
+  const canSeeModule = (user, module) => module === 'system' || (canAccess(user, module) && isEntitled(module));
+
+  function buildNotifications(list, n, { toRoles, toUserIds = [], exclude = [], createdAt } = {}) {
+    const recipients = users.filter(u => u.schoolId === school.id && (toRoles?.includes(u.role) || toUserIds.includes(u.id)) && !exclude.includes(u.id));
+    const at = createdAt || new Date().toISOString();
+    const made = [];
+    recipients.forEach(u => {
+      // Role decides who receives it; the plan is checked again whenever it is shown.
+      if (n.module !== 'system' && !canAccess(u, n.module)) return;
+      if (n.severity !== 'critical' && getNotificationSettings(u).muted.includes(n.module)) return;
+      // The same business event never notifies the same person twice (retries, double saves).
+      if (n.dedupeKey && list.some(x => x.toUserId === u.id && x.dedupeKey === n.dedupeKey)) return;
+      made.push({
+        id: newId('n'), toUserId: u.id, toRole: u.role, read: false, readAt: null, deletedAt: null,
+        mentions: [], recordType: null, recordId: null, severity: 'normal', createdAt: at, ...n
+      });
+    });
+    return made;
+  }
+  // Adds notifications for each matching recipient. Returns how many were created.
+  function notifyUsers(n, opts) {
+    const list = allNotifications();
+    const made = buildNotifications(list, n, opts);
+    if (made.length) write(NOTIFICATIONS_KEY, [...made, ...list]);
+    return made.length;
+  }
+  const rolesFor = module => (module === 'system' ? roles.slice() : pages[module]?.roles || []);
+
+  // Kept for access requests and upgrade requests: one notification for each user with the role.
+  function notify(toRole, notification) {
+    const before = allNotifications();
+    const made = buildNotifications(before, { module: 'system', ...notification }, { toRoles: [toRole] });
+    if (!made.length) return true;
+    return write(NOTIFICATIONS_KEY, [...made, ...before]);
+  }
+
+  function allNotifications() {
+    let list = read(NOTIFICATIONS_KEY, []);
+    // One-time move from role-addressed records to per-user records.
+    if (list.some(n => !n.toUserId)) {
+      list = list.flatMap(n => (n.toUserId ? [n] : users.filter(u => u.role === n.toRole).map(u => ({ module: 'system', mentions: [], severity: 'normal', deletedAt: null, ...n, id: `${n.id}-${u.id}`, toUserId: u.id }))));
+      try { localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(list)); } catch { /* keep in memory */ }
+    }
+    if (!read(NOTIF_SEEDED_KEY, false)) {
+      try { localStorage.setItem(NOTIF_SEEDED_KEY, 'true'); } catch { /* seed again next time */ }
+      list = [...seedNotifications(list), ...list];
+      try { localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(list)); } catch { /* keep in memory */ }
+    }
+    return list;
+  }
+
+  // Demo history built from the seeded records, so every notification points at a real record.
+  function seedNotifications(existing) {
+    const out = [];
+    const add = (n, opts) => out.push(...buildNotifications([...existing, ...out], n, { exclude: [], ...opts }));
+    const name = id => studentById(id)?.name || 'A child';
+    const byName = n => users.find(u => u.name === n)?.id;
+    getAdmissionEnquiries().filter(e => ['ae1', 'ae4', 'ae3'].includes(e.id)).forEach(e => add(
+      { module: 'admissions', kind: 'enquiry', title: `New enquiry: ${e.child}`, body: `${e.parent} asked about ${e.programme}.`, recordType: 'enquiry', recordId: e.id, dedupeKey: `enquiry:${e.id}`, actorId: byName(e.createdBy) },
+      { toRoles: rolesFor('admissions'), exclude: [byName(e.createdBy)], createdAt: e.createdAt }));
+    add({ module: 'admissions', kind: 'mention', title: 'Mrs. Rao assigned you a follow-up', body: 'Call Sonal Kapoor back about transport for Rehan (LKG).', recordType: 'enquiry', recordId: 'ae2', mentions: ['u-admin'], dedupeKey: 'assign:ae2', actorId: 'u-director' },
+      { toUserIds: ['u-admin'], createdAt: atToday(11, 40, -4) });
+    add({ module: 'admissions', kind: 'mention', title: 'Ms. Fernandes mentioned you', body: '“@Mrs. Rao can you meet the Thomas family at their visit?”', recordType: 'enquiry', recordId: 'ae3', mentions: ['u-director'], dedupeKey: 'mention:ae3', actorId: 'u-admin' },
+      { toUserIds: ['u-director'], createdAt: atToday(15, 20, -6) });
+    getIncidents().forEach(i => add(
+      { module: 'safeguarding', kind: 'incident', title: `${i.severity === 'High' ? 'High-severity incident' : 'Incident logged'}: ${name(i.studentId)}`, body: `${i.type} · ${i.description}`, recordType: 'incident', recordId: i.id, severity: i.severity === 'High' ? 'critical' : 'normal', dedupeKey: `incident:${i.id}`, actorId: byName(i.createdBy) },
+      { toRoles: rolesFor('safeguarding'), createdAt: i.createdAt }));
+    getPayments().slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 4).forEach(p => add(
+      { module: 'fees', kind: 'payment', title: `Payment received: ₹${p.amount.toLocaleString('en-IN')}`, body: `${name(p.studentId)} · ${p.method} · recorded by ${p.recordedBy}`, recordType: 'invoice', recordId: p.invoiceId, dedupeKey: `payment:${p.id}`, actorId: 'u-accountant' },
+      { toRoles: rolesFor('fees'), exclude: ['u-accountant'], createdAt: p.createdAt }));
+    getAnnouncements().forEach(a => add(
+      { module: 'communication', kind: 'announcement', title: `Announcement: ${a.title}`, body: `${a.audience} · from ${a.createdBy}`, recordType: 'announcement', recordId: a.id, dedupeKey: `announcement:${a.id}`, actorId: byName(a.createdBy) },
+      { toRoles: rolesFor('communication'), exclude: [byName(a.createdBy)], createdAt: a.createdAt }));
+    const nursery = classRatio('Nursery');
+    if (nursery.status === 'breach') add(
+      { module: 'attendance', kind: 'ratio', title: 'Nursery is over its ratio', body: `${nursery.children} children with ${nursery.educators} educator on duty (limit ${nursery.limit}).`, recordType: 'class', recordId: 'Nursery', severity: 'critical', dedupeKey: `ratio:Nursery:${today()}` },
+      { toRoles: STAFF_RATIO_ROLES, toUserIds: educators.filter(e => e.cls === 'Nursery' && e.userId).map(e => e.userId), createdAt: atToday(9, 2) });
+    add({ module: 'attendance', kind: 'mention', title: 'Ms. Deepa updated your register', body: 'Montessori A: Ananya Iyer marked absent.', recordType: 'class', recordId: 'Montessori A', mentions: ['u-teacher'], dedupeKey: `register-edit:Montessori A:${daysFromToday(-1)}` },
+      { toUserIds: ['u-teacher'], createdAt: atToday(9, 15, -1) });
+    return out;
+  }
+  const STAFF_RATIO_ROLES = MANAGE_PLAN_ROLES;
+
+  /* Reading */
+  const isVisibleTo = (user, n) => n.toUserId === user.id && !n.deletedAt && canSeeModule(user, n.module || 'system');
+  const isMention = (user, n) => Array.isArray(n.mentions) && n.mentions.includes(user.id);
+  // filters: { tab: 'all'|'unread'|'mentions', modules: [key], from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }. Newest first.
+  function listNotifications(user, { tab = 'all', modules = [], from = '', to = '' } = {}) {
+    const start = from ? new Date(`${from}T00:00:00`).getTime() : -Infinity;
+    const end = to ? new Date(`${to}T00:00:00`).getTime() + 86400000 : Infinity; // whole end day
+    return allNotifications()
+      .filter(n => isVisibleTo(user, n))
+      .filter(n => tab !== 'unread' || !n.read)
+      .filter(n => tab !== 'mentions' || isMention(user, n))
+      .filter(n => !modules.length || modules.includes(n.module || 'system'))
+      .filter(n => { const t = new Date(n.createdAt).getTime(); return t >= start && t < end; })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  const unreadCount = user => allNotifications().filter(n => isVisibleTo(user, n) && !n.read).length;
+  // Backward compatible: accepts a user or a role name (one demo user per role).
+  const notificationsFor = who => listNotifications(typeof who === 'string' ? (users.find(u => u.role === who) || { id: null }) : who);
+  const notificationModules = user => ['system', ...NOTIFY_MODULES].filter(m => canSeeModule(user, m)).map(m => ({ key: m, name: MODULE_LABEL(m) }));
+
+  /* Writing. Each resolves { ok, updated: [ids], failed: [ids] } and touches only the user's own records. */
+  function updateNotifications(user, ids, change) {
+    const wanted = new Set(ids);
+    const list = allNotifications();
+    const updated = [];
+    const next = list.map(n => {
+      if (!wanted.has(n.id) || !isVisibleTo(user, n)) return n;
+      updated.push(n.id);
+      return { ...n, ...change(n) };
+    });
+    const failed = ids.filter(id => !updated.includes(id));
+    if (!updated.length) return settle({ ok: !ids.length, updated, failed });
+    return settle(write(NOTIFICATIONS_KEY, next) ? { ok: true, updated, failed } : { ok: false, updated: [], failed: ids });
+  }
+  const setNotificationsRead = (user, ids, isRead = true) => updateNotifications(user, ids, () => ({ read: isRead, readAt: isRead ? new Date().toISOString() : null }));
+  const deleteNotifications = (user, ids) => updateNotifications(user, ids, () => ({ deletedAt: new Date().toISOString() }));
+  function markAllRead(who) {
+    const user = typeof who === 'string' ? users.find(u => u.role === who) : who;
+    if (!user) return settle({ ok: false, updated: [], failed: [] });
+    return setNotificationsRead(user, listNotifications(user, { tab: 'unread' }).map(n => n.id), true);
+  }
+
+  // Where a notification leads. { href } for an accessible record, or { error } with a reason.
+  function notificationTarget(user, n) {
+    const go = (key, params) => {
+      if (!canAccess(user, key) || !isEntitled(key)) return { error: 'You no longer have access to this record.' };
+      const q = new URLSearchParams(params).toString();
+      return { href: `${routes.page(key)}${q ? `&${q}` : ''}` };
+    };
+    const missing = { error: 'This record has been removed or is no longer available.' };
+    switch (n.recordType) {
+      case 'enquiry': return getAdmissionEnquiries().some(e => e.id === n.recordId) ? go('admissions', { status: 'all', focus: n.recordId }) : missing;
+      case 'invoice': return getInvoices().some(i => i.id === n.recordId) ? go('fees', { status: 'all', focus: n.recordId }) : missing;
+      case 'incident': return getIncidents().some(i => i.id === n.recordId) ? go('safeguarding', { status: 'all', focus: n.recordId }) : missing;
+      case 'announcement': return getAnnouncements().some(a => a.id === n.recordId) ? go('communication', { focus: n.recordId }) : missing;
+      case 'class': return classByName(n.recordId) ? go('attendance', { cls: n.recordId, view: n.kind === 'ratio' ? 'ratio' : '' }) : missing;
+      case 'broadcast': return { href: routes.dashboard };
+      default:
+        if (n.kind === 'upgrade-request') return { href: routes.plans({ plan: n.requiredPlan, module: n.page }) };
+        if (n.kind === 'access-request') return { href: routes.page('notifications') };
+        return { href: null };
+    }
+  }
+
+  // Events from the daily workflows. Called only after the business record was saved.
+  const events = {
+    enquiry(user, e, assignee) {
+      notifyUsers({ module: 'admissions', kind: 'enquiry', title: `New enquiry: ${e.child}`, body: `${e.parent} asked about ${e.programme}.`, recordType: 'enquiry', recordId: e.id, dedupeKey: `enquiry:${e.id}`, actorId: user.id },
+        { toRoles: rolesFor('admissions'), exclude: [user.id, assignee].filter(Boolean) });
+      if (assignee && assignee !== user.id) notifyUsers({ module: 'admissions', kind: 'mention', title: `${user.name} assigned you a follow-up`, body: `${e.child} (${e.programme}) · call ${e.parent}${e.followUp ? ` by ${e.followUp}` : ''}.`, recordType: 'enquiry', recordId: e.id, mentions: [assignee], dedupeKey: `assign:${e.id}`, actorId: user.id }, { toUserIds: [assignee] });
+    },
+    payment(user, p) {
+      notifyUsers({ module: 'fees', kind: 'payment', title: `Payment received: ₹${p.amount.toLocaleString('en-IN')}`, body: `${studentById(p.studentId)?.name} · ${p.method} · recorded by ${user.name}`, recordType: 'invoice', recordId: p.invoiceId, dedupeKey: `payment:${p.id}`, actorId: user.id },
+        { toRoles: rolesFor('fees'), exclude: [user.id] });
+    },
+    incident(user, i) {
+      const s = studentById(i.studentId);
+      notifyUsers({ module: 'safeguarding', kind: 'incident', title: `${i.severity === 'High' ? 'High-severity incident' : 'Incident logged'}: ${s?.name}`, body: `${i.type} · ${i.description}`, recordType: 'incident', recordId: i.id, severity: i.severity === 'High' ? 'critical' : 'normal', dedupeKey: `incident:${i.id}`, actorId: user.id },
+        { toRoles: rolesFor('safeguarding'), exclude: [user.id] });
+    },
+    announcement(user, a) {
+      const classUsers = educators.filter(e => e.cls === a.audience && e.userId && e.userId !== user.id).map(e => e.userId);
+      notifyUsers({ module: 'communication', kind: 'announcement', title: `Announcement: ${a.title}`, body: `${a.audience} · from ${user.name}`, recordType: 'announcement', recordId: a.id, dedupeKey: `announcement:${a.id}`, actorId: user.id },
+        { toRoles: rolesFor('communication'), exclude: [user.id, ...classUsers] });
+      // The class's own educators are mentioned, so it shows in their Mentions tab.
+      if (classUsers.length) notifyUsers({ module: 'communication', kind: 'mention', title: `${user.name} posted to your class`, body: `${a.title} · ${a.audience}`, recordType: 'announcement', recordId: a.id, mentions: classUsers, dedupeKey: `announcement:${a.id}`, actorId: user.id }, { toUserIds: classUsers });
+    },
+    broadcast(user, b) {
+      notifyUsers({ module: 'system', kind: 'broadcast', title: 'Emergency broadcast', body: b.message, recordType: 'broadcast', recordId: b.id, severity: 'critical', dedupeKey: `broadcast:${b.id}`, actorId: user.id },
+        { toRoles: roles.slice(), exclude: [user.id] });
+    },
+    register(user, cls) {
+      const owners = educators.filter(e => e.cls === cls && e.userId && e.userId !== user.id).map(e => e.userId);
+      if (owners.length) notifyUsers({ module: 'attendance', kind: 'mention', title: `${user.name} updated your register`, body: `${cls} register saved at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.`, recordType: 'class', recordId: cls, mentions: owners, dedupeKey: `register:${cls}:${Date.now()}`, actorId: user.id }, { toUserIds: owners });
+      events.ratio(cls);
+    },
+    // A class going over its ratio alerts staffing managers and the class's educators once per day.
+    ratio(cls) {
+      const r = classRatio(cls);
+      if (r.status !== 'breach') return;
+      notifyUsers({ module: 'attendance', kind: 'ratio', title: `${cls} is over its ratio`, body: `${r.children} children with ${r.educators} educator${r.educators === 1 ? '' : 's'} on duty (limit ${r.limit}).`, recordType: 'class', recordId: cls, severity: 'critical', dedupeKey: `ratio:${cls}:${today()}` },
+        { toRoles: STAFF_RATIO_ROLES, toUserIds: educators.filter(e => e.cls === cls && e.userId).map(e => e.userId) });
+    }
+  };
 
   window.NexoraStore = {
     students,
@@ -789,6 +1002,17 @@
     endBroadcast,
     acknowledgeBroadcast,
     getDashboardPrefs,
-    saveDashboardPrefs
+    saveDashboardPrefs,
+    listNotifications,
+    unreadCount,
+    isMention,
+    notificationModules,
+    moduleLabel: MODULE_LABEL,
+    setNotificationsRead,
+    deleteNotifications,
+    notificationTarget,
+    getNotificationSettings,
+    saveNotificationSettings,
+    NOTIFY_MODULES
   };
 })();

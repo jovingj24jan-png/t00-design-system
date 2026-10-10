@@ -117,7 +117,7 @@
         ${chips('admissions', 'status', status, [['open', 'Open', open.length], ['followup', 'Follow-up due', due.length], ['all', 'All', all.length]])}
         ${shown.length ? `<ul class="mod-list">${shown.map(e => {
           const isDue = store.followUpDue(e);
-          return `<li class="mod-row${isDue && e.followUp < store.today() ? ' is-flagged' : ''}"><div class="mod-row__main"><p class="mod-row__title">${esc(e.child)} <span class="dlist__muted">· ${esc(e.programme)}</span></p><p class="mod-row__sub">${esc(e.parent)} · <a href="tel:${esc(e.phone.replace(/\s/g, ''))}">${esc(e.phone)}</a>${e.notes ? ` · ${esc(e.notes)}` : ''}</p></div>
+          return `<li class="mod-row${isDue && e.followUp < store.today() ? ' is-flagged' : ''}" id="rec-${esc(e.id)}"><div class="mod-row__main"><p class="mod-row__title">${esc(e.child)} <span class="dlist__muted">· ${esc(e.programme)}</span></p><p class="mod-row__sub">${esc(e.parent)} · <a href="tel:${esc(e.phone.replace(/\s/g, ''))}">${esc(e.phone)}</a>${e.notes ? ` · ${esc(e.notes)}` : ''}</p></div>
             <div class="mod-row__end"><span class="badge badge--plain">${esc(store.ENQUIRY_STATUSES[e.status])}</span>${e.followUp && store.isOpenEnquiry(e) ? `<span class="badge ${isDue ? 'badge--warning badge--late' : ''}">Follow up ${e.followUp === store.today() ? 'today' : esc(day(e.followUp))}</span>` : ''}</div></li>`;
         }).join('')}</ul>` : emptyState('inbox', status === 'followup' ? 'No enquiries need follow-up' : 'No enquiries yet', 'New enquiries from families will appear here.')}
       </article>`;
@@ -137,7 +137,7 @@
         ${head('FE', 'Fees', `${esc(store.TERM)} · ${money(due.reduce((s, l) => s + l.balance, 0))} outstanding${cls ? ` in ${esc(cls)} · <a href="${link('fees', { cls: '' })}">Show all classes</a>` : ''}`)}
         <div class="mod__bar"><div class="mod__actions">${flowBtn('payment')}</div>${back}</div>
         ${chips('fees', 'status', status, [['outstanding', 'Outstanding', due.length], ['overdue', 'Overdue', overdue.length], ['all', 'All', ledger.length]])}
-        ${shown.length ? `<ul class="mod-list">${shown.map(l => `<li class="mod-row"><div class="mod-row__main"><p class="mod-row__title">${esc(l.student.name)} <span class="dlist__muted">· ${esc(l.student.cls)}</span></p><p class="mod-row__sub">${money(l.paid)} of ${money(l.amount)} paid · due ${esc(day(l.dueDate))}</p></div>
+        ${shown.length ? `<ul class="mod-list">${shown.map(l => `<li class="mod-row" id="rec-${esc(l.id)}"><div class="mod-row__main"><p class="mod-row__title">${esc(l.student.name)} <span class="dlist__muted">· ${esc(l.student.cls)}</span></p><p class="mod-row__sub">${money(l.paid)} of ${money(l.amount)} paid · due ${esc(day(l.dueDate))}</p></div>
           <div class="mod-row__end">${l.balance > 0 ? `<span class="badge ${l.overdue ? 'badge--error badge--absent' : 'badge--warning badge--late'}">${money(l.balance)} ${l.overdue ? 'overdue' : 'due'}</span>${flowBtn('payment', 'btn--secondary btn--sm', { invoiceId: l.id })}` : '<span class="badge badge--success">Paid</span>'}</div></li>`).join('')}</ul>`
           : emptyState('check-circle', 'No fees outstanding', 'Every invoice in this view is paid.')}
         <p class="mod__note">Prototype: payments are recorded here only. No money is taken.</p>
@@ -157,7 +157,7 @@
         ${chips('safeguarding', 'status', status, [['open', 'Open', all.filter(i => i.status === 'open').length], ['resolved', 'Resolved'], ['all', 'All']])}
         ${shown.length ? `<ul class="mod-list">${shown.map(i => {
           const s = store.studentById(i.studentId);
-          return `<li class="mod-row${i.status === 'open' && i.severity === 'High' ? ' is-flagged' : ''}"><div class="mod-row__main"><p class="mod-row__title">${esc(s?.name || 'Unknown child')} <span class="dlist__muted">· ${esc(i.type)} · ${esc(s?.cls || '')}</span></p><p class="mod-row__sub">${esc(when(i.occurredAt))} · ${esc(i.description)}${i.action ? ` · ${esc(i.action)}` : ''}</p><p class="mod-row__sub">${i.parentInformed ? 'Parent told' : '<strong class="text-warning">Parent not told</strong>'} · logged by ${esc(i.createdBy)}</p></div>
+          return `<li class="mod-row${i.status === 'open' && i.severity === 'High' ? ' is-flagged' : ''}" id="rec-${esc(i.id)}"><div class="mod-row__main"><p class="mod-row__title">${esc(s?.name || 'Unknown child')} <span class="dlist__muted">· ${esc(i.type)} · ${esc(s?.cls || '')}</span></p><p class="mod-row__sub">${esc(when(i.occurredAt))} · ${esc(i.description)}${i.action ? ` · ${esc(i.action)}` : ''}</p><p class="mod-row__sub">${i.parentInformed ? 'Parent told' : '<strong class="text-warning">Parent not told</strong>'} · logged by ${esc(i.createdBy)}</p></div>
             <div class="mod-row__end"><span class="badge ${i.severity === 'High' ? 'badge--error badge--absent' : i.severity === 'Medium' ? 'badge--warning badge--late' : ''}">${esc(i.severity)}</span>${i.status === 'open' ? `<button class="btn btn--secondary btn--sm" type="button" data-resolve="${esc(i.id)}">${icon('check', 'icon--sm')}Resolve</button>` : '<span class="badge badge--success">Resolved</span>'}</div></li>`;
         }).join('')}</ul>` : emptyState('shield-check', status === 'open' ? 'No incidents today' : 'No incidents', 'Nothing is waiting for follow-up.')}
       </article>`;
@@ -182,7 +182,7 @@
         ${sos}
         <section class="mod__section" aria-labelledby="ann-title">
           <h2 class="mod__section-title" id="ann-title">Announcements</h2>
-          ${list.length ? `<ul class="mod-list">${list.map(a => `<li class="mod-row"><div class="mod-row__main"><p class="mod-row__title">${esc(a.title)}</p><p class="mod-row__sub">${esc(a.body)}</p><p class="mod-row__sub">${esc(a.audience)} · ${esc(a.createdBy)} · ${esc(when(a.createdAt))}</p></div></li>`).join('')}</ul>` : emptyState('megaphone', 'No announcements yet', 'Announcements to families and staff will appear here.')}
+          ${list.length ? `<ul class="mod-list">${list.map(a => `<li class="mod-row" id="rec-${esc(a.id)}"><div class="mod-row__main"><p class="mod-row__title">${esc(a.title)}</p><p class="mod-row__sub">${esc(a.body)}</p><p class="mod-row__sub">${esc(a.audience)} · ${esc(a.createdBy)} · ${esc(when(a.createdAt))}</p></div></li>`).join('')}</ul>` : emptyState('megaphone', 'No announcements yet', 'Announcements to families and staff will appear here.')}
         </section>
       </article>`;
   }
@@ -201,6 +201,19 @@
     draw();
     const view = get('view');
     if (view) document.getElementById(view === 'ratio' ? 'ratios' : 'staff')?.scrollIntoView({ block: 'start' });
+    // ?focus=<recordId> (from a notification): highlight that record, or explain that it's gone.
+    const focus = get('focus');
+    if (focus) {
+      const row = document.getElementById(`rec-${focus}`);
+      if (row) {
+        row.classList.add('is-focus');
+        row.tabIndex = -1;
+        row.scrollIntoView({ block: 'center' });
+        row.focus({ preventScroll: true });
+      } else {
+        main.querySelector('.mod__bar')?.insertAdjacentHTML('afterend', `<p class="mod__missing" role="status">${icon('info', 'icon--sm')}That record isn’t here any more. It may have been removed.</p>`);
+      }
+    }
 
     main.addEventListener('click', async e => {
       const f = e.target.closest('[data-flow]');

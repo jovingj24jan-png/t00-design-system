@@ -53,6 +53,10 @@
       <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
       <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
       <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></symbol>
+      <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v5M14 11v5"/></symbol>
+      <symbol id="i-more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3.2"/></symbol>
+      <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8.5V19l-4 2v-7.5z"/></symbol>
       <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M12 2.5 4.5 5.5v6c0 4.6 3.1 8.6 7.5 10 4.4-1.4 7.5-5.4 7.5-10v-6z"/><path d="m9 12 2 2 4-4"/></symbol>
     </svg>`;
 
@@ -70,7 +74,7 @@
 
   function schoolGroupHtml(user) {
     const here = currentPageKey();
-    const unread = store.notificationsFor(user.role).filter(n => !n.read).length;
+    const unread = store.unreadCount(user);
     const plan = store.currentPlan();
     return `
       <div class="sidebar__group">
@@ -83,7 +87,7 @@
           const locked = !own && !store.isEntitled(key, plan);
           if (key === 'setup' && !store.canManagePlan(user)) return '';
           const setupBadge = key === 'setup' && store.getSetup(store.school.id).status !== 'complete' ? '<span class="nav-link__flag">Not finished</span>' : '';
-          const badge = key === 'notifications' && unread ? `<span class="nav-link__badge" aria-label="${unread} unread">${unread}</span>` : '';
+          const badge = key === 'notifications' ? `<span class="nav-link__badge" data-unread-badge${unread ? '' : ' hidden'}><span aria-hidden="true">${unread > 99 ? '99+' : unread}</span><span class="sr-only"> (${unread} unread)</span></span>` : '';
           const lock = locked ? `<svg class="icon nav-link__lock" aria-hidden="true"><use href="#i-lock"/></svg><span class="sr-only"> (not in your plan)</span>` : '';
           return `<li><a class="nav-link${current ? ' is-current' : ''}${locked ? ' is-locked' : ''}" href="${href}"${current ? ' aria-current="page"' : ''}><span class="nav-link__num">${String(i + 14).padStart(2, '0')}</span><span class="nav-link__text">${name}</span>${lock}${badge}${setupBadge}</a></li>`;
         }).join('')}</ul>
@@ -197,7 +201,17 @@
     });
   }
 
-  function mount({ onRoleChange } = {}) {
+  // Sidebar "Notifications" badge follows the shared unread count.
+  function updateUnreadBadge() {
+    const el = document.querySelector('[data-unread-badge]');
+    if (!el) return;
+    const n = store.unreadCount(store.currentUser());
+    el.hidden = !n;
+    el.innerHTML = `<span aria-hidden="true">${n > 99 ? '99+' : n}</span><span class="sr-only"> (${n} unread)</span>`;
+  }
+
+  // topbar: false when the page puts the bell in its own header (the dashboard).
+  function mount({ onRoleChange, topbar = true } = {}) {
     roleHandler = onRoleChange || null;
     const signedIn = session.isSignedIn();
     const main = document.getElementById('main');
@@ -208,6 +222,16 @@
       const user = store.currentUser();
       main.insertAdjacentHTML('beforebegin', sidebarHtml(user));
       main.insertAdjacentHTML('afterbegin', mobilebarHtml(user));
+      if (window.NexoraBell) {
+        const bar = main.querySelector('.mobilebar');
+        bar.insertBefore(window.NexoraBell.create(), bar.querySelector('.avatar'));
+        if (topbar) {
+          bar.insertAdjacentHTML('afterend', '<div class="topbar"></div>');
+          main.querySelector('.topbar').appendChild(window.NexoraBell.create());
+        }
+      }
+      let queued = false;
+      store.subscribe(() => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; updateUnreadBadge(); }); } });
       initNav();
       window.NexoraConnectivity?.init();
       bindRoleSwitch();

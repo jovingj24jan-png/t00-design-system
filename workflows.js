@@ -105,7 +105,7 @@
       module: 'admissions', label: 'Add enquiry', icon: 'user-plus', title: 'Add enquiry',
       desc: 'Record a family’s first contact so the follow-up isn’t missed.',
       allowed: user => can(user, 'admissions'),
-      body: () => `
+      body: user => `
         <div class="form-grid">
           ${field('child', 'Child’s name', input('child', 'autocomplete="off" required'), { required: true })}
           ${field('parent', 'Parent or guardian', input('parent', 'autocomplete="name" required'), { required: true })}
@@ -113,6 +113,7 @@
           ${field('email', 'Email', input('email', 'type="email" autocomplete="email" placeholder="name@example.com"'))}
           ${field('programme', 'Class of interest', select('programme', option('', 'Choose a class', true) + store.CLASS_LEVELS.map(l => option(l, l)).join(''), 'required'), { required: true })}
           ${field('followUp', 'Follow up on', input('followUp', `type="date" value="${store.today()}"`))}
+          ${field('assignedTo', 'Assign follow-up to', select('assignedTo', option('', 'Me', true) + store.users.filter(u => u.id !== user.id && store.canAccess(u, 'admissions')).map(u => option(u.id, `${u.name} · ${u.role}`)).join('')), { hint: 'They’ll get a mention in their notifications.' })}
           <div class="span-all">${field('notes', 'Notes', textarea('notes', 'maxlength="500" placeholder="What did the family ask about?"'))}</div>
         </div>`,
       validate(form) {

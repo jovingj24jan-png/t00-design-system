@@ -38,7 +38,7 @@
   }
   document.title = `${page.name} · Nexora`;
   main.classList.add('record-page');
-  if (key === 'notifications') renderNotifications();
+  if (window.NexoraNotifications?.render(key, main, user)) { /* notification centre / S63 */ }
   else if (key === 'classes') renderClasses();
   else if (key === 'settings') renderSettings();
   else if (!window.NexoraModules?.render(key, main, user)) renderPage();
@@ -116,37 +116,5 @@
         <div class="well"><span class="tech-label">School setup</span><p class="ts-small" style="margin-top:var(--space-2)">${esc(statusText)}${s.updatedAt ? ` · last saved ${esc(new Date(s.updatedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}` : ''}. Editing here comes later; for now, change these details in school setup.</p></div>
         <div class="nf__actions"><a class="btn btn--primary" href="${routes.setup}${setup.status === 'complete' ? '#step-7' : ''}">${setup.status === 'complete' ? 'Review school setup' : 'Continue school setup'}</a><a class="btn btn--secondary" href="${routes.dashboard}">Back to dashboard</a></div>
       </article>`;
-  }
-
-  function renderNotifications() {
-    const list = store.notificationsFor(user.role);
-    const unread = list.filter(n => !n.read).length;
-    const time = iso => new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-    main.innerHTML = `
-      <article class="panel record" aria-labelledby="page-title">
-        <header class="panel__head">
-          <span class="panel__num">NO<i class="marker" aria-hidden="true"></i></span>
-          <div><h1 class="panel__title" id="page-title">Notifications</h1><p class="panel__sub">For ${esc(user.name)} · ${esc(user.role)}${unread ? ` · ${unread} unread` : ''}</p></div>
-          <span class="tech-label">Page / Notifications</span>
-        </header>
-        ${list.length ? `
-          <ul class="notice-list">
-            ${list.map(n => `
-              <li class="notice${n.read ? '' : ' is-unread'}">
-                <span class="avatar avatar--sm avatar--accent" aria-hidden="true"><svg class="icon icon--sm"><use href="#i-${n.kind === 'upgrade-request' ? 'layers' : 'shield-lock'}"/></svg></span>
-                <div class="notice__body">
-                  <p class="notice__title">${n.read ? '' : '<span class="sr-only">Unread: </span>'}${esc(n.title)}</p>
-                  <p class="notice__text">${esc(n.body)}</p>
-                  ${n.kind === 'upgrade-request'
-                    ? `<p class="notice__text"><a class="btn btn--tertiary btn--sm notice__link" href="${routes.plans({ plan: n.requiredPlan, module: n.page })}">Review plans</a></p>`
-                    : n.reason ? `<blockquote class="notice__reason">“${esc(n.reason)}”</blockquote>` : '<p class="notice__text">No reason given.</p>'}
-                  <p class="notice__meta"><time datetime="${esc(n.createdAt)}">${esc(time(n.createdAt))}</time>${n.read ? '' : ' · <span class="badge badge--primary badge--plain">New</span>'}</p>
-                </div>
-              </li>`).join('')}
-          </ul>
-          ${unread ? '<div class="nf__actions"><button class="btn btn--secondary" type="button" data-mark-read>Mark all as read</button></div>' : ''}`
-        : `<div class="state-tile__body state-tile__center" style="padding:var(--space-8) 0"><span class="state-icon" aria-hidden="true"><svg class="icon"><use href="#i-bell"/></svg></span><h2 class="card__title">No notifications yet</h2><p class="card__meta">Requests and updates for ${esc(user.role)}s will appear here.</p></div>`}
-      </article>`;
-    main.querySelector('[data-mark-read]')?.addEventListener('click', () => { store.markAllRead(user.role); location.reload(); });
   }
 })();
