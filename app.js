@@ -41,6 +41,7 @@
   if (window.NexoraNotifications?.render(key, main, user)) { /* notification centre / S63 */ }
   else if (key === 'classes') renderClasses();
   else if (key === 'settings') renderSettings();
+  else if (window.NexoraChildren?.render(key, main, user)) { /* S12 children, S14 enrol, S31 compose */ }
   else if (!window.NexoraModules?.render(key, main, user)) renderPage();
 
   function renderPage() {

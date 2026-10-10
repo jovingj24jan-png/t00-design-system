@@ -34,7 +34,12 @@
     dashboard: 'dashboard.html', // S04 — role-based daily overview
     designSystem: 'design-system.html',
     record: id => `record.html?id=${encodeURIComponent(id)}`,
-    page: key => `app.html?page=${encodeURIComponent(key)}`,
+    // Extra query values (e.g. { id }) are appended after the page key.
+    page: (key, extra = {}) => {
+      const q = new URLSearchParams({ page: key });
+      Object.entries(extra).forEach(([k, v]) => { if (v != null && v !== '') q.set(k, v); });
+      return `app.html?${q}`;
+    },
     denied: key => `access-denied.html?page=${encodeURIComponent(key)}`,
     // S01 sign-in. `school` picks a demo school; `next` returns a signed-out visitor to the page they asked for.
     signIn: ({ school, next } = {}) => {
@@ -187,6 +192,9 @@
       features: ['Centralised health and safety records', 'Incident reporting and follow-up tracking', 'Safeguarding concerns and case records', 'Safety checks and compliance documentation', 'Authorised staff access and audit history']
     },
     // School pages that every plan includes. S17 and S58 read the same records the S05 setup saves.
+    children: { name: 'Children', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Every child in the school: find anyone in seconds and see safety alerts at a glance.' },
+    enrol: { name: 'Enrol child', icon: 'user-plus', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Add a child to the school, or edit an existing child’s details.' },
+    compose: { name: 'Message families', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Write to selected families. Prototype: messages are saved, not delivered.' },
     classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Every class in your school, with level, section and capacity.' },
     settings: { name: 'Settings', icon: 'grid', roles: ['Director', 'Admin', 'Super Admin'], summary: 'School details, academic year, school hours and preferences.' },
     notifications: { name: 'Notifications', icon: 'bell', roles: roles.slice(), summary: 'Updates and requests sent to you.' },
@@ -470,13 +478,192 @@
     Nursery: ['Aarush Yadav', 'Navya Krishnan', 'Ayaan Qureshi', 'Prisha Goel', 'Vivaan Srinivasan', 'Inaya Sheikh', 'Laksh Rajan', 'Ahana Dutta', 'Tanvi Raman']
   };
   let rosterSeq = 0;
-  // The five design-system students first (same IDs), then the rest of each class.
-  const roster = [
+  // Seed for the children records: the five design-system students first (same IDs), then the
+  // rest of each class. Pages read the live roster (active children) through activeRoster().
+  const rosterSeed = [
     ...students.map(s => ({ id: s.id, name: s.name, cls: s.cls })),
     ...Object.entries(ROSTER_NAMES).flatMap(([cls, names]) => names.map(name => ({ id: `r${++rosterSeq}`, name, cls })))
   ];
-  const studentById = id => roster.find(s => s.id === id) || null;
   const classByName = name => rosterClasses.find(c => c.name === name) || null;
+
+  /* ---------------------------------------------------------------- Children (S12 list, S13 record, S14 enrol)
+     One record per child, seeded from the demo roster on first read and kept in localStorage:
+     { id, firstName, lastName, dob, cls, status: 'active'|'starting'|'withdrawn'|'graduated',
+       startDate, photo (asset path or null), guardian: { name, relation, phone, email },
+       alerts: [{ type: 'allergy'|'medical'|'custody'|'dietary', detail }],
+       withdrawal: { date, reason, by, at } | null, history: [{ at, by, action, detail }] }
+     The live roster (attendance, fees, ratios) is every active child, so a class move or a
+     withdrawal reaches those pages too. Every write checks the role and resolves after saving. */
+
+  const childrenKey = id => `nexora-children:${id}`;
+  const CHILD_STATUSES = { active: 'Active', starting: 'Starting soon', withdrawn: 'Withdrawn', graduated: 'Graduated' };
+  const ALERT_TYPES = { allergy: 'Allergy', medical: 'Medical', custody: 'Custody', dietary: 'Dietary' };
+  const CHILD_MANAGERS = ['Director', 'Admin', 'Super Admin'];
+  const canManageChildren = user => CHILD_MANAGERS.includes(user.role);
+
+  // Typical age in months on the seed date for each class level, before per-child variation.
+  const BASE_AGE = { Nursery: 30, LKG: 42, UKG: 54, Montessori: 40 };
+  const GUARDIAN_NAMES = ['Priya', 'Rahul', 'Lakshmi', 'Vikram', 'Deepa', 'Suresh', 'Anjali', 'Karthik', 'Meena', 'Arvind', 'Fatima', 'Joseph', 'Nandini', 'Ravi', 'Shalini', 'Imran', 'Geetha', 'Manoj'];
+  const SEED_ALERTS = {
+    'Aarav Sharma': [['allergy', 'Severe peanut allergy — EpiPen in office']],
+    'Diya Patel': [['dietary', 'Vegetarian — no egg or gelatine']],
+    'Rohan Kumar': [['medical', 'Asthma — blue inhaler in class bag; use before outdoor play']],
+    'Meera Singh': [['custody', 'Court order on file: father may not collect. Collection by mother or grandmother only.']],
+    'Ananya Iyer': [['allergy', 'Dairy allergy — lactose-free milk in the class fridge'], ['dietary', 'No cow’s milk products at snack time']],
+    'Arjun Pillai': [['medical', 'Type 1 diabetes — glucose tablets in office; check before lunch']],
+    'Zara Ahmed': [['allergy', 'Bee sting allergy — antihistamine syrup in office']],
+    'Ira Banerjee': [['custody', 'Collection only by mother, Ms. Banerjee, or named nanny. Photo ID on file.']],
+    'Riya Sen': [['medical', 'Epilepsy — seizure plan in office; call parent and 108 if over 3 minutes']],
+    'Avni Hegde': [['dietary', 'Jain diet — no root vegetables']],
+    'Kiara Jain': [['allergy', 'Egg allergy — mild; no EpiPen needed'], ['medical', 'Eczema — cream applied by staff after water play']],
+    'Inaya Sheikh': [['dietary', 'Halal meals only']],
+    'Navya Krishnan': [['allergy', 'Severe cashew and pistachio allergy — EpiPen in office and class bag'], ['custody', 'Shared custody: Mon–Wed mother, Thu–Fri father. Schedule in office.']]
+  };
+  // Children who aren't on today's roster: two joining soon, one withdrawn, one graduated.
+  const SEED_EXTRA = [
+    { id: 'c1', name: 'Advika Menon', cls: 'Nursery', status: 'starting', start: 10, age: 31 },
+    { id: 'c2', name: 'Rehan Siddiqui', cls: 'LKG A', status: 'starting', start: 21, age: 40, alerts: [['dietary', 'Halal meals only']] },
+    { id: 'c3', name: 'Lavanya Pillai', cls: 'UKG B', status: 'withdrawn', start: -400, age: 58, withdrawal: [-30, 'Family relocated to Bengaluru'] },
+    { id: 'c4', name: 'Nikhil Varma', cls: 'Montessori A', status: 'graduated', start: -900, age: 75 }
+  ];
+  const monthsAgo = m => { const d = new Date(); d.setMonth(d.getMonth() - m); d.setDate(1 + ((m * 7) % 27)); return isoDate(d); };
+
+  function seedChild({ id, name, cls }, i, extra = {}) {
+    const [firstName, ...rest] = name.split(' ');
+    const lastName = rest.join(' ');
+    const level = classByName(cls).level;
+    const known = students.find(s => s.id === id);
+    const guardianFirst = known ? known.guardian.split(' ')[0] : GUARDIAN_NAMES[i % GUARDIAN_NAMES.length];
+    const relation = i % 3 === 1 ? 'Father' : 'Mother';
+    const alerts = (extra.alerts || SEED_ALERTS[name] || []).map(([type, detail]) => ({ type, detail }));
+    const status = extra.status || 'active';
+    return {
+      id, firstName, lastName, cls, status, photo: null,
+      dob: monthsAgo(extra.age || BASE_AGE[level] + ((i * 5) % 13)),
+      startDate: extra.start != null ? daysFromToday(extra.start) : daysFromToday(-30 - ((i * 37) % 300)),
+      guardian: { name: `${guardianFirst} ${lastName}`, relation, phone: `+91 98${String(4000000 + i * 7919).slice(0, 3)} ${String(10000 + i * 1373).slice(-5)}`, email: `${guardianFirst}.${lastName}`.toLowerCase().replace(/[^a-z.]/g, '') + '@family.example' },
+      alerts,
+      withdrawal: extra.withdrawal ? { date: daysFromToday(extra.withdrawal[0]), reason: extra.withdrawal[1], by: 'Mrs. Rao', at: atToday(10, 0, extra.withdrawal[0]) } : null,
+      history: [{ at: atToday(9, 0, extra.start != null ? Math.min(extra.start, 0) - 14 : -60), by: 'Mrs. Rao', action: 'enrolled', detail: `Enrolled in ${cls}` }]
+    };
+  }
+
+  const getChildren = (schoolId = school.id) => seeded(childrenKey(schoolId), () => [
+    ...rosterSeed.map((s, i) => seedChild(s, i)),
+    ...SEED_EXTRA.map((x, i) => seedChild(x, rosterSeed.length + i, x))
+  ]);
+  const childById = id => getChildren().find(c => c.id === id) || null;
+  const childName = c => `${c.firstName} ${c.lastName}`.trim();
+  const activeRoster = () => getChildren().filter(c => c.status === 'active').map(c => ({ id: c.id, name: childName(c), cls: c.cls }));
+
+  // Whole years and remaining months between a date of birth and today.
+  function ageParts(dob, on = new Date()) {
+    const b = new Date(`${dob}T00:00:00`);
+    let months = (on.getFullYear() - b.getFullYear()) * 12 + (on.getMonth() - b.getMonth());
+    if (on.getDate() < b.getDate()) months -= 1;
+    months = Math.max(0, months);
+    return { years: Math.floor(months / 12), months: months % 12, total: months };
+  }
+
+  function saveChildren(list, schoolId = school.id) { return write(childrenKey(schoolId), list); }
+  const stamp = (user, action, detail) => ({ at: new Date().toISOString(), by: user.name, action, detail });
+
+  // S14 enrol (no id) and edit (id). Returns { ok, child } or { ok: false, reason, errors }.
+  function saveChild(user, data, id = null) {
+    if (!canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
+    const clean = v => String(v ?? '').trim();
+    const d = {
+      firstName: clean(data.firstName), lastName: clean(data.lastName), dob: clean(data.dob), cls: clean(data.cls), startDate: clean(data.startDate),
+      guardian: { name: clean(data.guardianName), relation: clean(data.guardianRelation) || 'Parent', phone: clean(data.guardianPhone), email: clean(data.guardianEmail) },
+      alerts: (data.alerts || []).filter(a => ALERT_TYPES[a.type] && clean(a.detail)).map(a => ({ type: a.type, detail: clean(a.detail) }))
+    };
+    const errors = {};
+    if (!d.firstName) errors.firstName = 'Enter the child’s first name.';
+    if (!d.lastName) errors.lastName = 'Enter the child’s last name.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.dob) || d.dob >= today()) errors.dob = 'Enter a date of birth in the past.';
+    if (!classByName(d.cls)) errors.cls = 'Choose a class.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.startDate)) errors.startDate = 'Enter a start date.';
+    if (!d.guardian.name) errors.guardianName = 'Enter the primary guardian’s name.';
+    if (d.guardian.phone.replace(/\D/g, '').length < 10) errors.guardianPhone = 'Enter a phone number with at least 10 digits.';
+    if (d.guardian.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(d.guardian.email)) errors.guardianEmail = 'Enter a valid email or leave it blank.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+
+    const list = getChildren();
+    let child;
+    if (id) {
+      const i = list.findIndex(c => c.id === id);
+      if (i < 0) return settle({ ok: false, reason: 'missing' });
+      const before = list[i];
+      child = { ...before, ...d, history: [...before.history, stamp(user, 'edited', before.cls !== d.cls ? `Details updated; class ${before.cls} → ${d.cls}` : 'Details updated')] };
+      // A not-yet-started child becomes active once the start date is reached, and back again if it moves later.
+      if (['active', 'starting'].includes(before.status)) child.status = d.startDate > today() ? 'starting' : 'active';
+      list[i] = child;
+    } else {
+      const dupe = list.find(c => c.firstName.toLowerCase() === d.firstName.toLowerCase() && c.lastName.toLowerCase() === d.lastName.toLowerCase() && c.dob === d.dob);
+      if (dupe) return settle({ ok: false, reason: 'duplicate', child: dupe });
+      child = { id: newId('ch'), ...d, status: d.startDate > today() ? 'starting' : 'active', photo: null, withdrawal: null, history: [stamp(user, 'enrolled', `Enrolled in ${d.cls}`)] };
+      list.push(child);
+    }
+    return saveChildren(list) ? settle({ ok: true, child }) : settle({ ok: false, reason: 'storage' });
+  }
+
+  // Moves one or more children together: if any child can't move, nothing is saved.
+  function moveChildren(user, ids, cls) {
+    if (!canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
+    if (!classByName(cls)) return settle({ ok: false, reason: 'invalid', errors: { cls: 'Choose a class to move to.' } });
+    const list = getChildren();
+    const targets = ids.map(id => list.find(c => c.id === id));
+    if (!targets.length || targets.some(c => !c)) return settle({ ok: false, reason: 'missing' });
+    const closed = targets.filter(c => ['withdrawn', 'graduated'].includes(c.status));
+    if (closed.length) return settle({ ok: false, reason: 'closed', children: closed });
+    let moved = 0;
+    targets.forEach(c => {
+      if (c.cls === cls) return;
+      c.history = [...c.history, stamp(user, 'moved', `Moved from ${c.cls} to ${cls}`)];
+      c.cls = cls;
+      moved += 1;
+    });
+    if (!moved) return settle({ ok: false, reason: 'same', errors: { cls: `Already in ${cls}. Choose a different class.` } });
+    return saveChildren(list) ? settle({ ok: true, moved, cls }) : settle({ ok: false, reason: 'storage' });
+  }
+
+  // Withdrawal keeps the record (status + reason); it never deletes the child.
+  function withdrawChild(user, id, { date, reason }) {
+    if (!canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
+    const errors = {};
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) errors.date = 'Enter the last day the child attends.';
+    if (!String(reason || '').trim()) errors.reason = 'Give a reason for the withdrawal.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const list = getChildren();
+    const c = list.find(x => x.id === id);
+    if (!c) return settle({ ok: false, reason: 'missing' });
+    if (c.status === 'withdrawn') return settle({ ok: false, reason: 'closed' });
+    c.status = 'withdrawn';
+    c.withdrawal = { date, reason: String(reason).trim(), by: user.name, at: new Date().toISOString() };
+    c.history = [...c.history, stamp(user, 'withdrawn', `Withdrawn from ${date}: ${c.withdrawal.reason}`)];
+    return saveChildren(list) ? settle({ ok: true, child: c }) : settle({ ok: false, reason: 'storage' });
+  }
+
+  // Per-user page preferences (S12 grid/list view).
+  const childPrefsKey = userId => `nexora-children-prefs:${userId}`;
+  const getChildPrefs = user => ({ view: 'grid', ...read(childPrefsKey(user.id), {}) });
+  const saveChildPrefs = (user, patch) => write(childPrefsKey(user.id), { ...getChildPrefs(user), ...patch });
+
+  // S31 drafts: messages composed to families. Prototype only — nothing is delivered.
+  const messagesKey = id => `nexora-family-messages:${id}`;
+  const getFamilyMessages = (schoolId = school.id) => read(messagesKey(schoolId), []);
+  function saveFamilyMessage(user, { recipients, subject, body }) {
+    if (!can(user, 'communication')) return settle({ ok: false, reason: 'forbidden' });
+    const errors = {};
+    if (!recipients?.length) errors.recipients = 'Add at least one family.';
+    if (!String(subject || '').trim()) errors.subject = 'Give the message a subject.';
+    if (!String(body || '').trim()) errors.body = 'Write the message.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const msg = { id: newId('msg'), recipients, subject: subject.trim(), body: body.trim(), status: 'queued', createdAt: new Date().toISOString(), createdBy: user.name };
+    return write(messagesKey(school.id), [msg, ...getFamilyMessages()]) ? settle({ ok: true, message: msg }) : settle({ ok: false, reason: 'storage' });
+  }
+  // Any child on record (including withdrawn), so past invoices and incidents keep their names.
+  const studentById = id => { const c = childById(id); return c ? { id: c.id, name: childName(c), cls: c.cls } : null; };
 
   // Educators assigned to each class. Ms. Lakshmi is the demo Teacher account.
   const educators = [
@@ -509,14 +696,14 @@
       const reg = {};
       rosterClasses.filter(c => c.name !== 'UKG B').forEach((c, i) => {
         const marks = {};
-        roster.filter(s => s.cls === c.name).forEach(s => { marks[s.id] = SEED_MARKS[s.id] || 'present'; });
+        activeRoster().filter(s => s.cls === c.name).forEach(s => { marks[s.id] = SEED_MARKS[s.id] || 'present'; });
         reg[c.name] = { takenAt: atToday(8, 40 + i * 6), takenBy: educators.find(e => e.cls === c.name).name, marks };
       });
       return reg;
     });
   }
   function saveRegister(user, cls, marks) {
-    const pupils = roster.filter(s => s.cls === cls);
+    const pupils = activeRoster().filter(s => s.cls === cls);
     if (!can(user, 'attendance') || !classScope(user).includes(cls)) return settle({ ok: false, reason: 'forbidden' });
     if (!pupils.length || pupils.some(s => !['present', 'late', 'absent'].includes(marks[s.id]))) return settle({ ok: false, reason: 'incomplete' });
     const reg = getRegister();
@@ -599,7 +786,7 @@
   const paymentsKey = id => `nexora-payments:${id}`;
   const UNPAID = ['r3', 'r14', 'r22', 'r30', 'r38', 's4'];
   const PART_PAID = ['s3', 'r9', 'r41'];
-  const getInvoices = (schoolId = school.id) => seeded(invoicesKey(schoolId), () => roster.map(s => ({
+  const getInvoices = (schoolId = school.id) => seeded(invoicesKey(schoolId), () => rosterSeed.map(s => ({
     id: `inv-${s.id}`, studentId: s.id, term: TERM, amount: FEE_BY_LEVEL[classByName(s.cls).level], dueDate: daysFromToday(-4)
   })));
   const getPayments = (schoolId = school.id) => seeded(paymentsKey(schoolId), () => getInvoices(schoolId)
@@ -963,7 +1150,21 @@
     submitEnquiry,
     subscribe,
     today,
-    roster,
+    get roster() { return activeRoster(); },
+    CHILD_STATUSES,
+    ALERT_TYPES,
+    canManageChildren,
+    getChildren,
+    childById,
+    childName,
+    ageParts,
+    saveChild,
+    moveChildren,
+    withdrawChild,
+    getChildPrefs,
+    saveChildPrefs,
+    getFamilyMessages,
+    saveFamilyMessage,
     rosterClasses,
     studentById,
     educators,

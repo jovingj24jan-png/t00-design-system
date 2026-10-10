@@ -2512,3 +2512,271 @@ html[lang="en"] .rs-progress__label { text-transform: uppercase; letter-spacing:
   .nc-tabs .tab { flex: 1; justify-content: center; padding: 0 var(--space-2); }
   .nc-filter-btn { order: 2; }
 }
+
+/* ==========================================================================
+   Children — S12 list (children.js), S13 record (record.js), S14 enrol, S31 compose
+   Alerts never rely on colour alone: each type has its own icon and an accessible name.
+   Allergy = red triangle · Medical = blue cross · Custody = neutral shield · Dietary = green leaf.
+   ========================================================================== */
+
+.nf-page.kids-page { place-items: start stretch; }
+.kids { width: 100%; max-width: 1320px; margin: 0 auto; display: grid; gap: var(--space-4); }
+.kids--form { max-width: 820px; }
+.kids-crumbs { font-size: 13.5px; color: var(--color-text-muted); }
+.kids-crumbs a { color: var(--color-text-secondary); text-decoration: none; }
+.kids-crumbs a:hover { color: var(--color-text); text-decoration: underline; }
+
+/* Header */
+.kids-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-6); }
+.kids-head__title { font: 700 clamp(1.6rem, 1.3rem + 1vw, 2.1rem)/1.15 var(--font-display); letter-spacing: -0.025em; }
+.kids-head__title:focus { outline: none; }
+.kids-head__title:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 4px; border-radius: var(--radius-sm); }
+.kids-head__count { font-weight: 500; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.kids-head__sub { margin-top: var(--space-1); font-size: 14px; color: var(--color-text-secondary); }
+.kids-head__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* Toolbar */
+.kids-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.kids-search { flex: 1 1 260px; min-width: 0; }
+.kids-search .input { height: 44px; }
+.kids-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.kids-filter { position: relative; }
+.kids-filter__btn {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface-2);
+  font-size: 14px; font-weight: 500; color: var(--color-text-secondary);
+  transition: border-color var(--duration-fast), color var(--duration-fast), background-color var(--duration-fast);
+}
+.kids-filter__btn:hover, .kids-filter__btn[aria-expanded="true"] { border-color: var(--color-text-muted); color: var(--color-text); }
+.kids-filter__btn.is-active { border-color: var(--color-primary-line); color: var(--color-text); background: var(--color-primary-light); }
+.kids-filter__btn .icon { transition: transform var(--duration-fast) var(--ease-standard); }
+.kids-filter__btn[aria-expanded="true"] .icon { transform: rotate(180deg); }
+.kids-filter__n { min-width: 20px; height: 20px; padding: 0 6px; display: inline-grid; place-items: center; border-radius: var(--radius-full); background: var(--color-primary); color: var(--color-on-primary); font: 700 11px/1 var(--font-mono); }
+.kids-filter__n[hidden] { display: none; }
+.kids-filter__panel {
+  position: absolute; z-index: 45; top: calc(100% + 6px); left: 0; min-width: 220px; max-height: 320px; overflow-y: auto;
+  display: grid; gap: 2px; padding: var(--space-2);
+  background: var(--color-surface-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+  transform-origin: top left; animation: pop-in var(--duration-fast) var(--ease-emphasized);
+}
+.kids-opt { min-height: 40px; padding: 0 var(--space-2); border-radius: var(--radius-sm); font-size: 14px; }
+.kids-opt:hover { background: var(--color-surface-3); }
+.kids-filter-open { display: none; min-height: 44px; }
+.kids-filter-open .kids-filter__n { margin-inline-start: 4px; }
+.kids-view button { min-height: 38px; display: inline-flex; align-items: center; gap: 6px; }
+
+/* Active filter chips */
+.kids-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.kids-chips__list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.kids-chip {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 34px; padding: 0 4px 0 var(--space-3);
+  border: 1px solid var(--color-primary-line); border-radius: var(--radius-full); background: var(--color-primary-light);
+  font-size: 13px; font-weight: 500; color: var(--color-text); animation: pop-in var(--duration-fast) var(--ease-emphasized);
+}
+.kids-chip button { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 50%; background: none; color: var(--color-text-secondary); }
+.kids-chip button:hover { background: var(--color-surface-3); color: var(--color-text); }
+.kids-chip button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 0; }
+
+/* Bulk bar */
+.kids-bulk {
+  position: sticky; top: calc(var(--space-2) + env(safe-area-inset-top, 0px)); z-index: 40;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border: 1px solid var(--color-primary-line); border-radius: var(--radius-lg); background: var(--color-primary-light);
+  box-shadow: var(--shadow-md); animation: fade-up var(--duration-fast) var(--ease-emphasized);
+}
+.kids-bulk__count { font-size: 14px; }
+.kids-bulk__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* Results */
+.kids-results { min-height: 240px; }
+.kids-gridbar { display: flex; align-items: center; margin-bottom: var(--space-3); font-size: 13.5px; color: var(--color-text-secondary); }
+.kids-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)); gap: var(--space-3); }
+
+/* Child card */
+.kid-card {
+  position: relative; display: grid; justify-items: center; align-content: start; gap: 6px;
+  padding: var(--space-6) var(--space-3) var(--space-3); text-align: center;
+  border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface);
+  box-shadow: inset 0 1px 0 var(--color-edge);
+  transition: border-color var(--duration-fast), transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast);
+  animation: fade-up var(--duration-normal) var(--ease-emphasized) both; animation-delay: calc(var(--i, 0) * 25ms);
+}
+.kid-card:hover { border-color: var(--color-border-strong); transform: translateY(-2px); box-shadow: inset 0 1px 0 var(--color-edge), var(--shadow-md); }
+.kid-card:focus-within { border-color: var(--color-border-strong); }
+.kid-card.is-selected { border-color: var(--color-primary); background: var(--color-primary-light); }
+.kid-card.has-menu { z-index: 5; }
+.kid-card__check { position: absolute; top: var(--space-2); left: var(--space-2); z-index: 2; min-height: 32px; }
+.kid-card__menu { position: absolute; top: 2px; right: 2px; z-index: 2; }
+.kid-card__photo { margin-bottom: var(--space-1); }
+.kid-card__name { max-width: 100%; font-size: 15px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+/* The name link covers the whole card; controls sit above it so they never open the record. */
+.kid-card__link { color: var(--color-text); text-decoration: none; }
+.kid-card__link::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: inherit; }
+.kid-card__link:focus-visible { outline: none; }
+.kid-card__link:focus-visible::after { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.kid-card__age { font: 500 12.5px/1 var(--font-mono); color: var(--color-text-muted); }
+.kid-card__class { display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: var(--radius-full); border: 1px solid var(--color-border-strong); background: var(--color-bg-raised); font-size: 12px; font-weight: 600; color: var(--color-text-secondary); }
+.kid-card__status { font-size: 11.5px; }
+.kid-card__alerts { position: relative; z-index: 2; min-height: 36px; display: flex; align-items: center; justify-content: center; margin-top: var(--space-1); }
+.kid-card--skeleton { animation: none; padding-top: var(--space-6); gap: var(--space-2); }
+.kid-card--skeleton .kid-card__photo { width: 64px; height: 64px; }
+.kid-card--skeleton .sk-line { justify-self: center; }
+
+/* Photo / initials (initials sit on the brand yellow) */
+.kid-photo { display: block; flex-shrink: 0; width: 64px; height: 64px; border-radius: 50%; object-fit: cover; }
+.kid-photo--initials { display: grid; place-items: center; background: var(--color-accent); color: var(--color-on-primary); font: 700 20px/1 var(--font-display); letter-spacing: 0.02em; }
+.kid-photo--sm { width: 36px; height: 36px; font-size: 13px; }
+.kid-photo--lg { width: 88px; height: 88px; font-size: 28px; }
+
+/* Alert indicators */
+.kid-alerts { display: flex; flex-wrap: wrap; gap: 6px; }
+.kid-alerts--none { font-size: 12px; color: var(--color-text-muted); }
+.kid-alert {
+  display: grid; place-items: center; width: 34px; height: 34px; padding: 0;
+  border: 1px solid; border-radius: var(--radius-md); cursor: help;
+  transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast);
+}
+.kid-alert .icon { width: 17px; height: 17px; stroke-width: 2; }
+.kid-alert:hover, .kid-alert[aria-expanded="true"] { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.kid-alert:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.kid-alert--allergy { color: var(--color-error); background: var(--color-error-light); border-color: var(--color-error); }
+.kid-alert--medical { color: var(--color-info); background: var(--color-info-light); border-color: var(--color-info); }
+.kid-alert--custody { color: var(--color-text); background: var(--color-surface-3); border-color: var(--color-text-muted); }
+.kid-alert--dietary { color: var(--color-success); background: var(--color-success-light); border-color: var(--color-success); }
+
+.kids-tip {
+  position: absolute; z-index: 120; max-width: min(300px, calc(100vw - 16px)); display: grid; gap: 4px;
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md);
+  background: var(--color-surface-3); box-shadow: var(--shadow-lg); font-size: 13.5px; line-height: 1.45; color: var(--color-text);
+  pointer-events: none; animation: fade-in var(--duration-fast) var(--ease-standard);
+}
+.kids-tip__type { display: inline-flex; align-items: center; gap: 6px; font: 600 11px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.kids-tip__type--allergy { color: var(--color-error); }
+.kids-tip__type--medical { color: var(--color-info); }
+.kids-tip__type--custody { color: var(--color-text-secondary); }
+.kids-tip__type--dietary { color: var(--color-success); }
+
+/* List view */
+.kids-table { overflow: visible; }
+.kid-row { cursor: pointer; }
+.kid-row.has-menu { position: relative; z-index: 5; }
+.kid-row__who { display: inline-flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.kid-row__name { font-weight: 600; color: var(--color-text); text-decoration: none; overflow-wrap: anywhere; }
+.kid-row__name:hover { text-decoration: underline; }
+.kid-row__guardian { display: grid; gap: 1px; }
+.kid-row__guardian small { font-size: 12px; color: var(--color-text-muted); }
+.kids-table .data-table td { white-space: nowrap; }
+.kids-table .data-table td.cell-student, .kids-table .data-table td[data-label="Guardian"] { white-space: normal; }
+.kids-table .data-table tbody tr { animation-duration: var(--duration-fast); }
+
+/* Empty / error */
+.kids-empty { display: grid; justify-items: center; gap: var(--space-3); padding: var(--space-12) var(--space-4); text-align: center; border: 1px dashed var(--color-border-strong); border-radius: var(--radius-lg); color: var(--color-text-secondary); }
+.kids-empty__title { font: 650 var(--fs-h4)/1.3 var(--font-display); color: var(--color-text); }
+
+/* Mobile filter sheet */
+.kids-sheet { display: grid; gap: var(--space-5); }
+.kids-sheet__group { margin: 0; padding: 0; border: 0; }
+.kids-sheet__group legend { margin-bottom: var(--space-2); font: 600 11px/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-muted); }
+.kids-sheet__opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-1) var(--space-3); }
+.kids-sheet__opts .check { min-height: 44px; }
+.kids-sheet-modal .modal__body { overflow-y: auto; }
+
+/* FAB: phones only, kept clear of the bulk bar */
+.kids-fab { display: none; }
+
+/* S13 child record */
+.record.kid-record { max-width: 960px; gap: var(--space-6); }
+.kid-record__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4) var(--space-5); }
+.kid-record__id { flex: 1 1 220px; min-width: 0; display: grid; gap: var(--space-2); }
+.kid-record__name { font: 700 clamp(1.6rem, 1.3rem + 1vw, 2.2rem)/1.15 var(--font-display); letter-spacing: -0.025em; overflow-wrap: anywhere; }
+.kid-record__name:focus { outline: none; }
+.kid-record__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--color-text-secondary); }
+.kid-record__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.kid-record__alerts ul { display: grid; gap: var(--space-2); }
+.kid-record__alert { display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid; border-inline-start-width: 4px; border-radius: var(--radius-md); }
+.kid-record__alert .icon { margin-top: 2px; }
+.kid-record__alert-type { font: 600 11px/1.4 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.kid-record__alert--allergy { color: var(--color-error); background: var(--color-error-light); border-color: var(--color-error); }
+.kid-record__alert--medical { color: var(--color-info); background: var(--color-info-light); border-color: var(--color-info); }
+.kid-record__alert--custody { color: var(--color-text); background: var(--color-surface-3); border-color: var(--color-text-muted); }
+.kid-record__alert--dietary { color: var(--color-success); background: var(--color-success-light); border-color: var(--color-success); }
+.kid-record__alert p:not(.kid-record__alert-type) { color: var(--color-text); }
+.kid-record__noalerts { font-size: 14px; color: var(--color-text-muted); }
+.kid-record__grid { display: grid; gap: var(--space-6); }
+.kid-record__h { margin-bottom: var(--space-3); font: 600 12px/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-muted); }
+.kid-record__history { display: grid; gap: var(--space-2); }
+.kid-record__history li { display: grid; gap: 2px; padding-inline-start: var(--space-3); border-inline-start: 2px solid var(--color-border-strong); font-size: 14px; }
+.kid-record__history time { font: 500 12px/1.4 var(--font-mono); color: var(--color-text-muted); }
+
+/* S14 / S31 forms */
+.kids-form { display: grid; gap: var(--space-6); }
+.kids-form__head { display: grid; gap: var(--space-1); }
+.kids-form__section { display: grid; gap: var(--space-4); margin: 0; padding: 0; border: 0; }
+.kids-form__section legend { margin-bottom: var(--space-3); font: 600 12px/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-muted); }
+.kids-form__grid { display: grid; gap: var(--space-4); }
+.kids-form__alerts { display: grid; gap: var(--space-3); }
+.kids-form__alert { display: grid; gap: var(--space-2); }
+.kids-form__alert .check .icon { margin-inline: 2px 0; }
+.kids-form__alert--allergy .check .icon { color: var(--color-error); }
+.kids-form__alert--medical .check .icon { color: var(--color-info); }
+.kids-form__alert--dietary .check .icon { color: var(--color-success); }
+.kids-form__alert .input:disabled { opacity: 0.55; }
+.kids-form__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+.kids-recipients { display: flex; flex-wrap: wrap; gap: var(--space-2); min-height: 44px; padding: var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-bg-raised); }
+.kids-chip--recipient { padding-block: 4px; }
+.kids-chip--recipient small { color: var(--color-text-muted); font-size: 12px; }
+.kids-recipients__none { align-self: center; padding: 0 var(--space-2); font-size: 13.5px; color: var(--color-text-muted); }
+.kids-recipients__add { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.kids-recipients__add .input { flex: 1; min-width: 0; }
+
+@media (min-width: 768px) {
+  .kids-form__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kids-form__alert { grid-template-columns: 170px minmax(0, 1fr); align-items: center; }
+  .kid-record__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Phones: filters move into the sheet, cards go two-up and compact, enrol becomes the FAB */
+@media (max-width: 767px) {
+  .kids-filters { display: none; }
+  .kids-filter-open { display: inline-flex; }
+  .kids-search { flex-basis: 100%; }
+  .kids-toolbar { justify-content: space-between; }
+  .kids-view span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .kids-view button { min-width: 44px; justify-content: center; }
+  .kids-head__enrol { display: none; }
+  .kids-fab { display: inline-grid; }
+  .has-selection .kids-fab { display: none; }
+  .kids-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+  .kid-card { padding: var(--space-6) var(--space-2) var(--space-2); }
+  .kid-card__last, .kid-card__age { display: none; }
+  .kid-card__photo { width: 52px; height: 52px; font-size: 17px; }
+  .kid-alert { width: 32px; height: 32px; }
+  .kids-results { padding-bottom: 72px; }
+  .kids-bulk { top: calc(var(--bar-h) + var(--space-2)); }
+  .kids-bulk__actions .btn { flex: 1 1 auto; }
+  .kids-table .data-table td { white-space: normal; }
+  .kids-table .kid-alerts { justify-content: flex-end; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kid-card, .kids-chip, .kids-bulk, .kids-filter__panel, .kids-tip { animation: none !important; }
+  .kid-card:hover, .kid-alert:hover { transform: none; }
+}
+/* Enrol uses the T00 yellow action (as on sign-in), per the S12 spec */
+.kids-yellow { --btn-bg: var(--color-accent); --btn-fg: var(--color-on-primary); }
+.kids-yellow:hover { --btn-bg: var(--color-accent-hover); box-shadow: 0 0 0 1px var(--color-accent-ring); }
+.kids-yellow:active { --btn-bg: var(--color-accent-pressed); }
+.fab.kids-fab { background: var(--color-accent); color: var(--color-on-primary); box-shadow: var(--shadow-md); }
+.fab.kids-fab:hover { background: var(--color-accent-hover); }
+.fab.kids-fab:active { background: var(--color-accent-pressed); }
+/* Children list: priority columns. Tablet keeps name, class, guardian, status and alerts on screen;
+   age and start date stay on the child's record and in the CSV. */
+.nf-page.kids-page > .kids { min-width: 0; }
+@media (min-width: 768px) and (max-width: 1279px) {
+  .kids-table .col-start { display: none; }
+  .kids-table .data-table th, .kids-table .data-table td { padding-inline: 10px; }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .kids-table .col-age { display: none; }
+}
