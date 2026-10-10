@@ -41,7 +41,7 @@
   if (key === 'notifications') renderNotifications();
   else if (key === 'classes') renderClasses();
   else if (key === 'settings') renderSettings();
-  else renderPage();
+  else if (!window.NexoraModules?.render(key, main, user)) renderPage();
 
   function renderPage() {
     main.innerHTML = `

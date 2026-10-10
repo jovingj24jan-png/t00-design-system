@@ -6,10 +6,12 @@
   const store = window.NexoraStore;
   const { routes, session } = store;
   const dash = routes.dashboard;
+  const ds = routes.designSystem;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const initials = n => n.replace(/^(Ms|Mrs|Mr)\.\s*/, '').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
   const currentPageKey = () => {
     if (/\/plans\.html$/.test(location.pathname)) return 'plans';
+    if (/\/dashboard\.html$/.test(location.pathname)) return 'dashboard';
     return /\/(app|access-denied)\.html$/.test(location.pathname) ? new URLSearchParams(location.search).get('page') : null;
   };
 
@@ -40,6 +42,17 @@
       <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/><circle cx="16" cy="14.5" r="1"/></symbol>
       <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></symbol>
       <symbol id="i-banknote" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 10v4M18 10v4"/></symbol>
+      <symbol id="i-alert-triangle" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+      <symbol id="i-alert-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-megaphone" viewBox="0 0 24 24"><path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></symbol>
+      <symbol id="i-siren" viewBox="0 0 24 24"><path d="M7 18v-6a5 5 0 0 1 10 0v6"/><path d="M5 21h14v-3H5zM12 2v2M4.2 5.2l1.4 1.4M19.8 5.2l-1.4 1.4"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14a6.5 6.5 0 0 1 3.5 6"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+      <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+      <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></symbol>
       <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M12 2.5 4.5 5.5v6c0 4.6 3.1 8.6 7.5 10 4.4-1.4 7.5-5.4 7.5-10v-6z"/><path d="m9 12 2 2 4-4"/></symbol>
     </svg>`;
 
@@ -52,8 +65,8 @@
   // App pages, in sidebar order: every catalogue module, then Notifications and Plans.
   // Every page is listed; the guard decides what each role and plan can open.
   // `plans` and `setup` are their own pages; the rest open in app.html.
-  const APP_PAGES = [...store.moduleKeys, 'classes', 'notifications', 'settings', 'plans', 'setup'];
-  const OWN_PAGES = { plans: { name: 'Plans &amp; upgrade', href: () => routes.plans() }, setup: { name: 'School setup', href: () => routes.setup } };
+  const APP_PAGES = ['dashboard', ...store.moduleKeys, 'classes', 'notifications', 'settings', 'plans', 'setup'];
+  const OWN_PAGES = { dashboard: { name: 'Dashboard', href: () => dash }, plans: { name: 'Plans &amp; upgrade', href: () => routes.plans() }, setup: { name: 'School setup', href: () => routes.setup } };
 
   function schoolGroupHtml(user) {
     const here = currentPageKey();
@@ -94,7 +107,7 @@
       <div class="sidebar__head">
         <a class="brand" href="${dash}">
           <img class="brand__logo" src="assets/logos/northvale-crest.png" alt="Northvale Academy" width="40" height="40">
-          <span><span class="brand__name">Nexora</span><span class="brand__sub">Design system · v3.0</span></span>
+          <span><span class="brand__name">Nexora</span><span class="brand__sub">${esc(store.school.name)}</span></span>
         </a>
         <button class="btn btn--icon-ghost sidebar__close" type="button" data-nav-close aria-label="Close navigation"><svg class="icon"><use href="#i-x"/></svg></button>
       </div>
@@ -102,7 +115,7 @@
         ${NAV.map(([label, links]) => `
           <div class="sidebar__group">
             <p class="sidebar__label">${label}</p>
-            <ul>${links.map(([id, num, text]) => `<li><a class="nav-link" href="${dash}#${id}"><span class="nav-link__num">${num}</span>${text}</a></li>`).join('')}</ul>
+            <ul>${links.map(([id, num, text]) => `<li><a class="nav-link" href="${ds}#${id}"><span class="nav-link__num">${num}</span>${text}</a></li>`).join('')}</ul>
           </div>`).join('')}
         ${schoolGroupHtml(user)}
       </nav>
@@ -157,7 +170,35 @@
     desktop.addEventListener('change', e => { if (e.matches) setOpen(false, false); });
   }
 
-  function mount() {
+  // Re-draws the school links and role footer for the current role (used when a page switches
+  // role in place instead of reloading).
+  function refresh() {
+    const user = store.currentUser();
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    sidebar.querySelector('.sidebar__scroll .sidebar__group:last-child').outerHTML = schoolGroupHtml(user);
+    sidebar.querySelector('.sidebar__foot').innerHTML = roleSwitchHtml(user);
+    const avatar = document.querySelector('.mobilebar .avatar');
+    if (avatar) { avatar.textContent = initials(user.name); avatar.setAttribute('aria-label', `${user.name}, ${user.role}`); }
+    bindRoleSwitch();
+  }
+
+  let roleHandler = null;
+  // Default: switching role re-runs the page guard on reload, so a page may become allowed or denied.
+  // A page that passes onRoleChange updates itself in place (it must re-check access itself).
+  function bindRoleSwitch() {
+    document.querySelector('[data-demo-role]')?.addEventListener('change', e => {
+      store.setRole(e.target.value);
+      if (!roleHandler) { location.reload(); return; }
+      const select = e.target.id;
+      refresh();
+      document.getElementById(select)?.focus();
+      roleHandler(store.currentUser());
+    });
+  }
+
+  function mount({ onRoleChange } = {}) {
+    roleHandler = onRoleChange || null;
     const signedIn = session.isSignedIn();
     const main = document.getElementById('main');
     document.body.insertAdjacentHTML('afterbegin', ICONS);
@@ -169,11 +210,7 @@
       main.insertAdjacentHTML('afterbegin', mobilebarHtml(user));
       initNav();
       window.NexoraConnectivity?.init();
-      // Switching role re-runs the page guard, so a page may become allowed or denied.
-      document.querySelector('[data-demo-role]').addEventListener('change', e => {
-        store.setRole(e.target.value);
-        location.reload();
-      });
+      bindRoleSwitch();
     } else {
       main.insertAdjacentHTML('afterbegin', brandbarHtml());
     }
@@ -188,5 +225,5 @@
     return signedIn;
   }
 
-  window.NexoraShell = { mount, initials };
+  window.NexoraShell = { mount, refresh, initials };
 })();

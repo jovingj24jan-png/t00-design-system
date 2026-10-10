@@ -31,7 +31,8 @@
   ];
 
   const routes = {
-    dashboard: 'design-system.html',
+    dashboard: 'dashboard.html', // S04 — role-based daily overview
+    designSystem: 'design-system.html',
     record: id => `record.html?id=${encodeURIComponent(id)}`,
     page: key => `app.html?page=${encodeURIComponent(key)}`,
     denied: key => `access-denied.html?page=${encodeURIComponent(key)}`,
@@ -45,7 +46,7 @@
     },
     firstLogin: 'first-login.html', // S03 — placeholder until the first-login flow is specified
     setup: 'setup.html', // S05 — first-time school setup wizard
-    landing: 'design-system.html', // S04 — the normal landing page after sign-in
+    landing: 'dashboard.html', // S04 — the normal landing page after sign-in
     // Placeholder pages until password recovery, privacy and help content exist.
     forgotPassword: 'forgot-password.html', // S02
     privacy: 'support.html?topic=privacy',
@@ -202,8 +203,19 @@
   const read = (key, fallback) => {
     try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch { return fallback; }
   };
+  /* Change events: every successful write tells subscribers which key changed, in this tab
+     and (through the storage event) in other tabs. subscribe(fn) returns an unsubscribe function. */
+  const listeners = new Set();
+  function emit(key) {
+    listeners.forEach(fn => { try { fn({ key }); } catch (err) { console.error(err); } });
+  }
+  const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn); };
+  addEventListener('storage', e => { if (e.key === null || e.key.startsWith('nexora-')) emit(e.key); });
+
   const write = (key, value) => {
-    try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch { return false; }
+    emit(key);
+    return true;
   };
 
   function currentUser() {
@@ -214,6 +226,7 @@
   function setRole(role) {
     if (!roles.includes(role)) return;
     try { localStorage.setItem(ROLE_KEY, role); } catch { /* storage blocked */ }
+    emit(ROLE_KEY);
   }
   // First-login status comes from the user record, until S03 is completed on this device.
   const isFirstLogin = user => Boolean(user.firstLogin) && !read(FIRST_LOGIN_KEY, []).includes(user.id);
@@ -279,6 +292,7 @@
   function setSchoolPlan(user, planId) {
     if (!canManagePlan(user) || !planById(planId)) return { ok: false };
     try { localStorage.setItem(PLAN_KEY, planId); } catch { return { ok: false }; }
+    emit(PLAN_KEY);
     return { ok: true, plan: planById(planId) };
   }
 
@@ -424,6 +438,268 @@
       .map(x => x.r);
   }
 
+  /* ---------------------------------------------------------------- Daily operations (S04 dashboard and its source pages)
+     Attendance registers, staff on duty, class ratios, admission enquiries, fees, incidents,
+     announcements and emergency broadcasts — one record set per school, keyed by school ID.
+     Prototype only: seeded on first read and kept in this browser's localStorage. Every write
+     checks the caller's role and the school's plan, the same rules the page guard uses, and
+     resolves after the record is saved (or reports { ok: false }). */
+
+  const pad2 = n => String(n).padStart(2, '0');
+  const isoDate = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const today = () => isoDate();
+  const daysFromToday = n => { const d = new Date(); d.setDate(d.getDate() + n); return isoDate(d); };
+  const atToday = (h, m, offsetDays = 0) => { const d = new Date(); d.setDate(d.getDate() + offsetDays); d.setHours(h, m, 0, 0); return d.toISOString(); };
+  const newId = prefix => `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const can = (user, key) => canAccess(user, key) && isEntitled(key);
+
+  // Seeds are saved without a change event: reading data must never notify subscribers.
+  function seeded(key, make) {
+    const saved = read(key, null);
+    if (saved != null) return saved;
+    const value = make();
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage blocked: seed stays in memory */ }
+    return value;
+  }
+
+  // Classes the demo roster belongs to, with the level each ratio rule applies to.
+  const rosterClasses = [
+    { name: 'Montessori A', level: 'Montessori' },
+    { name: 'UKG A', level: 'UKG' },
+    { name: 'UKG B', level: 'UKG' },
+    { name: 'LKG A', level: 'LKG' },
+    { name: 'Nursery', level: 'Nursery' }
+  ];
+  const ROSTER_NAMES = {
+    'Montessori A': ['Ishaan Reddy', 'Ananya Iyer', 'Vihaan Nair', 'Saanvi Menon', 'Arjun Pillai', 'Kavya Rao', 'Aditya Joshi', 'Myra D’Souza', 'Reyansh Gupta', 'Anika Bose', 'Advik Chandran'],
+    'UKG A': ['Zara Ahmed', 'Krish Malhotra', 'Aadhya Verma', 'Dhruv Kapoor', 'Ira Banerjee', 'Shaurya Das', 'Tara Fernandes', 'Yash Agarwal', 'Nila Murugan'],
+    'UKG B': ['Aryan Mehta', 'Riya Sen', 'Kian Thomas', 'Pari Saxena', 'Atharv Kulkarni', 'Mahi Ghosh', 'Neel Varghese', 'Siya Chopra'],
+    'LKG A': ['Veer Bhatia', 'Avni Hegde', 'Rudra Pandey', 'Diya Mathew', 'Om Prakash', 'Kiara Jain', 'Arnav Shetty', 'Meenakshi Sundaram'],
+    Nursery: ['Aarush Yadav', 'Navya Krishnan', 'Ayaan Qureshi', 'Prisha Goel', 'Vivaan Srinivasan', 'Inaya Sheikh', 'Laksh Rajan', 'Ahana Dutta', 'Tanvi Raman']
+  };
+  let rosterSeq = 0;
+  // The five design-system students first (same IDs), then the rest of each class.
+  const roster = [
+    ...students.map(s => ({ id: s.id, name: s.name, cls: s.cls })),
+    ...Object.entries(ROSTER_NAMES).flatMap(([cls, names]) => names.map(name => ({ id: `r${++rosterSeq}`, name, cls })))
+  ];
+  const studentById = id => roster.find(s => s.id === id) || null;
+  const classByName = name => rosterClasses.find(c => c.name === name) || null;
+
+  // Educators assigned to each class. Ms. Lakshmi is the demo Teacher account.
+  const educators = [
+    { id: 'ed-lakshmi', name: 'Ms. Lakshmi', userId: 'u-teacher', cls: 'Montessori A' },
+    { id: 'ed-deepa', name: 'Ms. Deepa', cls: 'Montessori A' },
+    { id: 'ed-arjun', name: 'Mr. Arjun', cls: 'UKG A' },
+    { id: 'ed-kavitha', name: 'Ms. Kavitha', cls: 'UKG B' },
+    { id: 'ed-sunita', name: 'Ms. Sunita', cls: 'LKG A' },
+    { id: 'ed-priya', name: 'Ms. Priya', cls: 'Nursery' },
+    { id: 'ed-anjali', name: 'Ms. Anjali', cls: 'Nursery' }
+  ];
+
+  // Classes a user's data is limited to: a Teacher sees only the classes they're assigned to.
+  function classScope(user) {
+    if (user.role === 'Teacher') return [...new Set(educators.filter(e => e.userId === user.id).map(e => e.cls))];
+    return rosterClasses.map(c => c.name);
+  }
+
+  // Configured children-per-educator limits by class level (demo configuration).
+  const ratioKey = id => `nexora-ratio-rules:${id}`;
+  const getRatioRules = (schoolId = school.id) => seeded(ratioKey(schoolId), () => ({ Toddler: 5, Nursery: 8, LKG: 10, UKG: 12, Montessori: 12 }));
+
+  /* Student register: { [className]: { takenAt, takenBy, marks: { [studentId]: 'present'|'late'|'absent' } } } */
+  const registerKey = (id, date) => `nexora-register:${id}:${date}`;
+  const SEED_MARKS = { s1: 'present', s2: 'present', s3: 'late', s4: 'absent', s5: 'present', r2: 'absent', r13: 'late', r31: 'absent', r30: 'late' };
+  function getRegister(date = today(), schoolId = school.id) {
+    return seeded(registerKey(schoolId, date), () => {
+      if (date !== today()) return {};
+      // Today's demo: every register taken by 09:10 except UKG B.
+      const reg = {};
+      rosterClasses.filter(c => c.name !== 'UKG B').forEach((c, i) => {
+        const marks = {};
+        roster.filter(s => s.cls === c.name).forEach(s => { marks[s.id] = SEED_MARKS[s.id] || 'present'; });
+        reg[c.name] = { takenAt: atToday(8, 40 + i * 6), takenBy: educators.find(e => e.cls === c.name).name, marks };
+      });
+      return reg;
+    });
+  }
+  function saveRegister(user, cls, marks) {
+    const pupils = roster.filter(s => s.cls === cls);
+    if (!can(user, 'attendance') || !classScope(user).includes(cls)) return settle({ ok: false, reason: 'forbidden' });
+    if (!pupils.length || pupils.some(s => !['present', 'late', 'absent'].includes(marks[s.id]))) return settle({ ok: false, reason: 'incomplete' });
+    const reg = getRegister();
+    reg[cls] = { takenAt: new Date().toISOString(), takenBy: user.name, marks: Object.fromEntries(pupils.map(s => [s.id, marks[s.id]])) };
+    return settle(write(registerKey(school.id, today()), reg) ? { ok: true, cls } : { ok: false, reason: 'storage' });
+  }
+
+  /* Staff on duty: { [educatorId]: 'present'|'absent' } */
+  const staffAttKey = (id, date) => `nexora-staff-attendance:${id}:${date}`;
+  const getStaffAttendance = (date = today(), schoolId = school.id) => seeded(staffAttKey(schoolId, date), () => (
+    date === today() ? Object.fromEntries(educators.map(e => [e.id, e.id === 'ed-anjali' ? 'absent' : 'present'])) : {}
+  ));
+  const canManageStaff = user => can(user, 'attendance') && MANAGE_PLAN_ROLES.includes(user.role);
+  function setStaffAttendance(user, educatorId, status) {
+    if (!canManageStaff(user)) return settle({ ok: false, reason: 'forbidden' });
+    if (!educators.some(e => e.id === educatorId) || !['present', 'absent'].includes(status)) return settle({ ok: false, reason: 'invalid' });
+    const att = { ...getStaffAttendance(), [educatorId]: status };
+    return settle(write(staffAttKey(school.id, today()), att) ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+
+  // Live ratio for one class: children on site (present + late) per educator on duty.
+  // status: 'ok' | 'breach' | 'unavailable' (with a reason) — never a guessed ratio.
+  function classRatio(cls, { register = getRegister(), staff = getStaffAttendance(), rules = getRatioRules() } = {}) {
+    const c = classByName(cls);
+    const base = { cls, level: c?.level || '' };
+    const limit = c ? Number(rules[c.level]) : NaN;
+    if (!c || !Number.isFinite(limit) || limit <= 0) return { ...base, status: 'unavailable', reason: 'No ratio limit set' };
+    const entry = register[cls];
+    if (!entry) return { ...base, limit, status: 'unavailable', reason: 'Register not taken yet' };
+    const assigned = educators.filter(e => e.cls === cls);
+    if (!assigned.length) return { ...base, limit, status: 'unavailable', reason: 'No educators assigned' };
+    if (assigned.some(e => !staff[e.id])) return { ...base, limit, status: 'unavailable', reason: 'Staff attendance not recorded' };
+    const children = Object.values(entry.marks).filter(m => m !== 'absent').length;
+    const onDuty = assigned.filter(e => staff[e.id] === 'present').length;
+    const breach = children > 0 && children > onDuty * limit;
+    return { ...base, limit, children, educators: onDuty, assigned: assigned.length, status: breach ? 'breach' : 'ok' };
+  }
+  function ratioStatus(user) {
+    const ctx = { register: getRegister(), staff: getStaffAttendance(), rules: getRatioRules() };
+    return classScope(user).map(cls => classRatio(cls, ctx));
+  }
+
+  /* Admission enquiries (Admissions module) */
+  const ENQUIRY_STATUSES = { new: 'New', contacted: 'Contacted', visit: 'Visit booked', enrolled: 'Enrolled', closed: 'Closed' };
+  const admissionsKey = id => `nexora-admission-enquiries:${id}`;
+  const getAdmissionEnquiries = (schoolId = school.id) => seeded(admissionsKey(schoolId), () => [
+    { id: 'ae1', child: 'Advika Nair', parent: 'Lakshmi Nair', phone: '+91 98450 10101', email: 'lakshmi.nair@example.com', programme: 'Nursery', status: 'new', followUp: daysFromToday(0), notes: 'Asked about the June start.', createdAt: atToday(9, 5, -1), createdBy: 'Ms. Fernandes' },
+    { id: 'ae2', child: 'Rehan Kapoor', parent: 'Sonal Kapoor', phone: '+91 98450 20202', email: 'sonal.k@example.com', programme: 'LKG', status: 'contacted', followUp: daysFromToday(-1), notes: 'Wants a call back about transport.', createdAt: atToday(11, 30, -4), createdBy: 'Mrs. Rao' },
+    { id: 'ae3', child: 'Mira Thomas', parent: 'Anil Thomas', phone: '+91 98450 30303', email: '', programme: 'Montessori', status: 'visit', followUp: daysFromToday(2), notes: 'School visit booked.', createdAt: atToday(15, 10, -6), createdBy: 'Ms. Fernandes' },
+    { id: 'ae4', child: 'Aditi Rao', parent: 'Kiran Rao', phone: '+91 98450 40404', email: 'kiran.rao@example.com', programme: 'UKG', status: 'new', followUp: daysFromToday(1), notes: '', createdAt: atToday(10, 0, -2), createdBy: 'Ms. Fernandes' },
+    { id: 'ae5', child: 'Sameer Khan', parent: 'Farah Khan', phone: '+91 98450 50505', email: '', programme: 'Nursery', status: 'enrolled', followUp: '', notes: 'Starts next term.', createdAt: atToday(12, 0, -20), createdBy: 'Mrs. Rao' },
+    { id: 'ae6', child: 'Zoya Ali', parent: 'Imran Ali', phone: '+91 98450 60606', email: '', programme: 'LKG', status: 'closed', followUp: '', notes: 'Moved city.', createdAt: atToday(12, 0, -25), createdBy: 'Mrs. Rao' }
+  ]);
+  const isOpenEnquiry = e => !['enrolled', 'closed'].includes(e.status);
+  const followUpDue = e => isOpenEnquiry(e) && Boolean(e.followUp) && e.followUp <= today();
+  function addAdmissionEnquiry(user, data) {
+    if (!can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
+    const e = {
+      id: newId('ae'), child: String(data.child || '').trim(), parent: String(data.parent || '').trim(),
+      phone: String(data.phone || '').trim(), email: String(data.email || '').trim(),
+      programme: data.programme, status: 'new', followUp: data.followUp || '', notes: String(data.notes || '').trim().slice(0, 500),
+      createdAt: new Date().toISOString(), createdBy: user.name
+    };
+    if (!e.child || !e.parent || e.phone.replace(/\D/g, '').length < 10 || !CLASS_LEVELS.includes(e.programme)) return settle({ ok: false, reason: 'invalid' });
+    return settle(write(admissionsKey(school.id), [e, ...getAdmissionEnquiries()]) ? { ok: true, enquiry: e } : { ok: false, reason: 'storage' });
+  }
+
+  /* Fees: one term invoice per child, and the payments recorded against it. Amounts in rupees. */
+  const TERM = 'Term 2 · 2026–27';
+  const FEE_BY_LEVEL = { Nursery: 15000, LKG: 16500, UKG: 18000, Montessori: 21000 };
+  const PAYMENT_METHODS = ['Cash', 'UPI', 'Bank transfer', 'Cheque', 'Card'];
+  const invoicesKey = id => `nexora-invoices:${id}`;
+  const paymentsKey = id => `nexora-payments:${id}`;
+  const UNPAID = ['r3', 'r14', 'r22', 'r30', 'r38', 's4'];
+  const PART_PAID = ['s3', 'r9', 'r41'];
+  const getInvoices = (schoolId = school.id) => seeded(invoicesKey(schoolId), () => roster.map(s => ({
+    id: `inv-${s.id}`, studentId: s.id, term: TERM, amount: FEE_BY_LEVEL[classByName(s.cls).level], dueDate: daysFromToday(-4)
+  })));
+  const getPayments = (schoolId = school.id) => seeded(paymentsKey(schoolId), () => getInvoices(schoolId)
+    .filter(inv => !UNPAID.includes(inv.studentId))
+    .map((inv, i) => ({
+      id: `pay-${inv.studentId}`, invoiceId: inv.id, studentId: inv.studentId,
+      amount: PART_PAID.includes(inv.studentId) ? inv.amount / 2 : inv.amount,
+      method: PAYMENT_METHODS[i % 3], date: daysFromToday(-(i % 12) - 2), reference: '', recordedBy: 'Mr. Iyer', createdAt: atToday(10, 0, -(i % 12) - 2)
+    })));
+  function feeLedger() {
+    const payments = getPayments();
+    return getInvoices().map(inv => {
+      const paid = payments.filter(p => p.invoiceId === inv.id).reduce((sum, p) => sum + p.amount, 0);
+      const balance = Math.max(0, inv.amount - paid);
+      return { ...inv, student: studentById(inv.studentId), paid, balance, overdue: balance > 0 && inv.dueDate < today() };
+    });
+  }
+  function recordPayment(user, data) {
+    if (!can(user, 'fees')) return settle({ ok: false, reason: 'forbidden' });
+    const line = feeLedger().find(l => l.id === data.invoiceId);
+    const amount = Math.round(Number(data.amount) * 100) / 100;
+    if (!line || !PAYMENT_METHODS.includes(data.method) || !data.date) return settle({ ok: false, reason: 'invalid' });
+    if (!(amount > 0) || amount > line.balance) return settle({ ok: false, reason: 'amount', balance: line.balance });
+    const p = { id: newId('pay'), invoiceId: line.id, studentId: line.studentId, amount, method: data.method, date: data.date, reference: String(data.reference || '').trim().slice(0, 60), recordedBy: user.name, createdAt: new Date().toISOString() };
+    return settle(write(paymentsKey(school.id), [...getPayments(), p]) ? { ok: true, payment: p, balance: line.balance - amount } : { ok: false, reason: 'storage' });
+  }
+
+  /* Incidents (Health, Safety & Safeguarding module) */
+  const INCIDENT_TYPES = ['Injury', 'Illness', 'Behaviour', 'Safeguarding concern', 'Other'];
+  const SEVERITIES = ['Low', 'Medium', 'High'];
+  const incidentsKey = id => `nexora-incidents:${id}`;
+  const getIncidents = (schoolId = school.id) => seeded(incidentsKey(schoolId), () => [
+    { id: 'in1', studentId: 's3', type: 'Injury', severity: 'Low', occurredAt: atToday(10, 20), description: 'Scraped knee in the garden. Cleaned and plaster applied.', action: 'First aid given.', parentInformed: false, status: 'open', createdBy: 'Ms. Sunita', createdAt: atToday(10, 35) },
+    { id: 'in2', studentId: 'r12', type: 'Illness', severity: 'Medium', occurredAt: atToday(11, 45, -1), description: 'Temperature of 38.4°C after lunch.', action: 'Parent collected at 12:30.', parentInformed: true, status: 'open', createdBy: 'Mr. Arjun', createdAt: atToday(12, 0, -1) },
+    { id: 'in3', studentId: 'r6', type: 'Behaviour', severity: 'Low', occurredAt: atToday(9, 30, -3), description: 'Pushed a friend during outdoor time.', action: 'Talked it through together.', parentInformed: true, status: 'resolved', createdBy: 'Ms. Lakshmi', createdAt: atToday(9, 45, -3), resolvedAt: atToday(15, 0, -3) }
+  ]);
+  function logIncident(user, data) {
+    if (!can(user, 'safeguarding')) return settle({ ok: false, reason: 'forbidden' });
+    const i = {
+      id: newId('in'), studentId: data.studentId, type: data.type, severity: data.severity,
+      occurredAt: data.occurredAt, description: String(data.description || '').trim().slice(0, 1000),
+      action: String(data.action || '').trim().slice(0, 500), parentInformed: Boolean(data.parentInformed),
+      status: 'open', createdBy: user.name, createdAt: new Date().toISOString()
+    };
+    if (!studentById(i.studentId) || !INCIDENT_TYPES.includes(i.type) || !SEVERITIES.includes(i.severity) || !i.occurredAt || !i.description) return settle({ ok: false, reason: 'invalid' });
+    return settle(write(incidentsKey(school.id), [i, ...getIncidents()]) ? { ok: true, incident: i } : { ok: false, reason: 'storage' });
+  }
+  function resolveIncident(user, id) {
+    if (!can(user, 'safeguarding')) return settle({ ok: false, reason: 'forbidden' });
+    const list = getIncidents().map(i => (i.id === id ? { ...i, status: 'resolved', resolvedAt: new Date().toISOString() } : i));
+    return settle(write(incidentsKey(school.id), list) ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+
+  /* Announcements (Parent Communication module) */
+  const AUDIENCES = ['All families', 'All staff', ...rosterClasses.map(c => c.name)];
+  const announcementsKey = id => `nexora-announcements:${id}`;
+  const getAnnouncements = (schoolId = school.id) => seeded(announcementsKey(schoolId), () => [
+    { id: 'an1', title: 'Diwali celebration on Friday', body: 'Children may come in traditional clothes. Please send a small diya for the class display.', audience: 'All families', createdBy: 'Mrs. Rao', createdAt: atToday(16, 0, -1) },
+    { id: 'an2', title: 'Parent–teacher meetings next week', body: 'Slots open on Monday. Each meeting is 15 minutes.', audience: 'All families', createdBy: 'Ms. Fernandes', createdAt: atToday(11, 0, -3) }
+  ]);
+  function postAnnouncement(user, data) {
+    if (!can(user, 'communication')) return settle({ ok: false, reason: 'forbidden' });
+    const a = { id: newId('an'), title: String(data.title || '').trim().slice(0, 120), body: String(data.body || '').trim().slice(0, 1000), audience: data.audience, createdBy: user.name, createdAt: new Date().toISOString() };
+    if (!a.title || !a.body || !AUDIENCES.includes(a.audience)) return settle({ ok: false, reason: 'invalid' });
+    // Prototype: saved here only. Nothing is sent to families.
+    return settle(write(announcementsKey(school.id), [a, ...getAnnouncements()]) ? { ok: true, announcement: a } : { ok: false, reason: 'storage' });
+  }
+
+  /* S32 Emergency broadcasts: shown to every role until each user acknowledges it. */
+  const broadcastsKey = id => `nexora-broadcasts:${id}`;
+  const getBroadcasts = (schoolId = school.id) => read(broadcastsKey(schoolId), []);
+  const activeBroadcasts = () => getBroadcasts().filter(b => b.active);
+  const unacknowledgedFor = user => activeBroadcasts().filter(b => !b.ackBy.includes(user.id));
+  const canBroadcast = user => can(user, 'communication') && MANAGE_PLAN_ROLES.includes(user.role);
+  function sendBroadcast(user, message) {
+    const text = String(message || '').trim().slice(0, 280);
+    if (!canBroadcast(user)) return settle({ ok: false, reason: 'forbidden' });
+    if (!text) return settle({ ok: false, reason: 'invalid' });
+    // The sender has read it, so it starts acknowledged for them.
+    const b = { id: newId('bc'), message: text, createdAt: new Date().toISOString(), createdBy: user.id, createdByName: user.name, active: true, ackBy: [user.id] };
+    return settle(write(broadcastsKey(school.id), [b, ...getBroadcasts()]) ? { ok: true, broadcast: b } : { ok: false, reason: 'storage' });
+  }
+  function endBroadcast(user, id) {
+    if (!canBroadcast(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getBroadcasts().map(b => (b.id === id ? { ...b, active: false, endedAt: new Date().toISOString() } : b));
+    return settle(write(broadcastsKey(school.id), list) ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+  // Acknowledgement is per user: everyone else keeps seeing the banner.
+  function acknowledgeBroadcast(user, id) {
+    const list = getBroadcasts().map(b => (b.id === id && !b.ackBy.includes(user.id) ? { ...b, ackBy: [...b.ackBy, user.id] } : b));
+    return write(broadcastsKey(school.id), list);
+  }
+
+  /* Dashboard preferences, per user: { hidden: [widgetId] } — hidden rather than shown, so new
+     widgets appear by default. Kept in localStorage until a preferences API exists. */
+  const dashPrefsKey = userId => `nexora-dashboard:${userId}`;
+  const getDashboardPrefs = user => ({ hidden: [], ...read(dashPrefsKey(user.id), {}) });
+  const saveDashboardPrefs = (user, prefs) => write(dashPrefsKey(user.id), { hidden: [...new Set(prefs.hidden || [])], updatedAt: new Date().toISOString() });
+
   window.NexoraStore = {
     students,
     lessons,
@@ -471,6 +747,48 @@
     setSchoolPlan,
     findUpgradeRequest,
     requestUpgrade,
-    submitEnquiry
+    submitEnquiry,
+    subscribe,
+    today,
+    roster,
+    rosterClasses,
+    studentById,
+    educators,
+    classScope,
+    getRatioRules,
+    getRegister,
+    saveRegister,
+    getStaffAttendance,
+    setStaffAttendance,
+    canManageStaff,
+    classRatio,
+    ratioStatus,
+    ENQUIRY_STATUSES,
+    getAdmissionEnquiries,
+    isOpenEnquiry,
+    followUpDue,
+    addAdmissionEnquiry,
+    TERM,
+    PAYMENT_METHODS,
+    feeLedger,
+    getPayments,
+    recordPayment,
+    INCIDENT_TYPES,
+    SEVERITIES,
+    getIncidents,
+    logIncident,
+    resolveIncident,
+    AUDIENCES,
+    getAnnouncements,
+    postAnnouncement,
+    getBroadcasts,
+    activeBroadcasts,
+    unacknowledgedFor,
+    canBroadcast,
+    sendBroadcast,
+    endBroadcast,
+    acknowledgeBroadcast,
+    getDashboardPrefs,
+    saveDashboardPrefs
   };
 })();

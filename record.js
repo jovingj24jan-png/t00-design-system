@@ -24,7 +24,7 @@
         </dl>
         <div class="well"><span class="tech-label">Latest observation</span><p class="ts-small" style="margin-top:var(--space-2)">${esc(s.note)}</p></div>
         <div class="nf__actions">
-          <a class="btn btn--primary" href="${routes.dashboard}#tables">All students</a>
+          <a class="btn btn--primary" href="${routes.designSystem}#tables">All students</a>
           <button class="btn btn--secondary" type="button" data-back>Go back</button>
         </div>
       </article>`;
@@ -44,7 +44,7 @@
           ${row('Teacher', esc(l.teacher))}
         </dl>
         <div class="nf__actions">
-          <a class="btn btn--primary" href="${routes.dashboard}#tabs">All lesson plans</a>
+          <a class="btn btn--primary" href="${routes.designSystem}#tabs">All lesson plans</a>
           <button class="btn btn--secondary" type="button" data-back>Go back</button>
         </div>
       </article>`;
