@@ -202,6 +202,7 @@
     roster: { name: 'Class rosters', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Who is in each class, with capacity and schedules.' },
     compose: { name: 'Message families', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Write to selected families. Prototype: messages are saved, not delivered.' },
     classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Manage classrooms, capacity and today’s staffing.' },
+    calendar: { name: 'Calendar & Events', icon: 'calendar-check', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'School events, trips, meetings, closures and parent conferences, with RSVP and consent.' },
     diary: { name: 'Daily Diary', icon: 'book', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Meals, naps, toileting, mood, activities, notes and photos for each child, shared with families.' },
     class: { name: 'Class', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'One class: roster, staff, today, routine and room.' },
     settings: { name: 'Settings', icon: 'grid', roles: ['Director', 'Admin', 'Super Admin'], summary: 'School details, academic year, school hours and preferences.' },
@@ -2103,10 +2104,11 @@
   const PASSCODE_WINDOW_MIN = 15;
   const UNDO_GRACE_MS = 15000;
   // School calendar: declared holidays (demo entries). Weekly closed days come from Settings → school days.
-  const getHolidays = () => seeded(holidaysKey(school.id), () => [{ date: '2026-11-09', name: 'Deepavali holiday' }, { date: '2026-12-25', name: 'Christmas Day' }]);
+  // Older saved holiday list (still honoured); new holidays are Holiday / Closure events in the calendar.
+  const getHolidays = () => read(holidaysKey(school.id), []);
   function schoolDay(date = today()) {
-    const h = getHolidays().find(x => x.date === date);
-    if (h) return { open: false, kind: 'holiday', name: h.name };
+    const h = getHolidays().find(x => x.date === date) || closureOn(date);
+    if (h) return { open: false, kind: 'holiday', name: h.name || h.title };
     if (!schoolDays().includes(weekdayOf(date))) return { open: false, kind: 'closed', name: new Date(`${date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'long' }) };
     return { open: true, kind: 'open', name: '' };
   }
@@ -2789,6 +2791,412 @@
     return allDiary().filter(e => e.childId === childId).map(diaryEntry)
       .filter(e => e.status === 'published' && (e.type !== 'photo' || (e.data?.with || [e.childId]).every(photoConsent)))
       .sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at));
+  }
+
+  /* ---------------------------------------------------------------- Calendar & Events (calendar.js; dashboard, class, child pages)
+     Series `nexora-events:<school>`: { id, schoolId, title, type, allDay, start, end (local 'YYYY-MM-DDTHH:MM', or
+       'YYYY-MM-DD' for all-day; the end date is inclusive), repeat: 'none'|'weekly'|'monthly', until, location,
+       description, classIds ([] = whole school), staffIds, rsvp, consent, attachments [fileId], status: 'active'|'cancelled',
+       exceptions: { [originalDate]: { cancelled, by, at } | { override: {…event fields} } }, createdBy, createdAt,
+       updatedBy, updatedAt, history }
+     Occurrence id = `${seriesId}@${originalDate}`. Monthly series skip months that don't have the start day
+     (a series on the 31st has no February, April, June, September or November occurrence).
+     RSVPs `nexora-event-rsvps:<school>` and consents `nexora-event-consents:<school>` are separate records per
+     occurrence + child, so an RSVP "yes" is never treated as consent.
+     Notices `nexora-event-notices:<school>` record reminders and move notices per guardian. No message is delivered in
+     this prototype: a guardian with an active parent-app account is recorded as "queued (demo)", others are skipped.
+     Files `nexora-event-files:<school>`: PDF/JPEG/PNG ≤ 1 MB stored on this device.
+     Leaders create, edit, move and delete; class staff record RSVP and consent for their classes. A school-wide
+     Holiday / Closure closes the school for attendance and the diary (schoolDay). */
+
+  const eventsKey = id => `nexora-events:${id}`;
+  const rsvpKey = id => `nexora-event-rsvps:${id}`;
+  const eventConsentKey = id => `nexora-event-consents:${id}`;
+  const noticesKey = id => `nexora-event-notices:${id}`;
+  const eventFilesKey = id => `nexora-event-files:${id}`;
+  const calPrefsKey = userId => `nexora-calendar-prefs:${userId}`;
+  const EVENT_TYPES = { event: 'Event', trip: 'Trip', meeting: 'Meeting', holiday: 'Holiday / Closure', conference: 'Parent conference' };
+  const EVENT_REPEATS = { none: 'Does not repeat', weekly: 'Weekly', monthly: 'Monthly' };
+  const RSVP_TYPES = ['event', 'trip', 'conference'];
+  const CONSENT_EVENT_TYPES = ['event', 'trip'];
+  const canManageEvents = user => LEADERS.includes(user.role);
+  const dAdd = (d, n) => { const x = new Date(`${d}T12:00:00`); x.setDate(x.getDate() + n); return isoDate(x); };
+  const dDiff = (a, b) => Math.round((new Date(`${a}T12:00:00`) - new Date(`${b}T12:00:00`)) / 86400000);
+  const datePart = v => String(v).slice(0, 10);
+  const timePart = v => (String(v).length > 10 ? String(v).slice(11, 16) : '');
+  const isTime = v => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(v || ''));
+
+  function getEvents() {
+    return seeded(eventsKey(school.id), () => {
+      // Demo calendar, relative to today. No RSVP or consent replies are seeded.
+      const nextWd = (wd, after = 1) => { let d = daysFromToday(after); while (new Date(`${d}T12:00:00`).getDay() !== wd) d = dAdd(d, 1); return d; };
+      const mk = (title, type, start, end, extra = {}) => ({ id: newId('ev'), schoolId: school.id, title, type, allDay: start.length === 10, start, end, repeat: 'none', until: '', location: '', description: '', classIds: [], staffIds: [], rsvp: false, consent: false, attachments: [], status: 'active', exceptions: {}, createdBy: 'Mrs. Rao', createdAt: atToday(9, 0, -14), updatedBy: null, updatedAt: null, history: [{ at: atToday(9, 0, -14), by: 'Mrs. Rao', action: 'created' }], ...extra });
+      const fri = nextWd(5);
+      const wed = nextWd(3, 0);
+      const mon = nextWd(1, 7);
+      const trip = nextWd(4, 8);
+      const montA = getClassRegistry().find(c => c.name === 'Montessori A');
+      return [
+        mk('Deepavali holiday', 'holiday', '2026-11-09', '2026-11-09', { description: 'School closed.' }),
+        mk('Christmas Day', 'holiday', '2026-12-25', '2026-12-25', { description: 'School closed.' }),
+        mk('Diwali celebration', 'event', `${fri}T10:00`, `${fri}T12:00`, { location: 'Garden courtyard', description: 'Children may come in traditional clothes. Please send a small diya for the class display.', rsvp: true }),
+        mk('Staff meeting', 'meeting', `${wed}T15:30`, `${wed}T16:30`, { repeat: 'weekly', until: dAdd(wed, 70), location: 'Staff room', staffIds: educators.filter(e => !e.relief).map(e => e.id) }),
+        mk('Parent–teacher conferences', 'conference', `${mon}T14:00`, `${mon}T17:00`, { location: 'Classrooms', description: '15-minute slots for each family.', rsvp: true }),
+        mk('Farm visit', 'trip', `${trip}T09:00`, `${trip}T13:00`, { location: 'Green Acres Farm, Kelambakkam', description: 'Bus leaves at 09:00 sharp. Packed lunch provided.', classIds: montA ? [montA.id] : [], staffIds: ['ed-lakshmi', 'ed-deepa'], rsvp: true, consent: true })
+      ];
+    });
+  }
+  const saveEvents = list => write(eventsKey(school.id), list);
+
+  function seriesDates(s) {
+    const first = datePart(s.start);
+    if (s.repeat === 'none') return [first];
+    const until = s.until || first;
+    const out = [];
+    if (s.repeat === 'weekly') {
+      for (let d = first; d <= until && out.length < 600; d = dAdd(d, 7)) out.push(d);
+    } else {
+      const [y, m, day] = first.split('-').map(Number);
+      for (let i = 0; i < 240; i++) {
+        const dt = new Date(y, m - 1 + i, day, 12);
+        if (dt.getDate() !== day) continue; // this month has no such day: skipped
+        const iso = isoDate(dt);
+        if (iso > until) break;
+        out.push(iso);
+      }
+    }
+    return out;
+  }
+  const FIELDS = ['title', 'type', 'allDay', 'start', 'end', 'location', 'description', 'classIds', 'staffIds', 'rsvp', 'consent', 'attachments'];
+  function occurrencesOf(s) {
+    if (s.status !== 'active') return [];
+    const first = datePart(s.start);
+    return seriesDates(s).flatMap(d => {
+      const ex = s.exceptions?.[d];
+      if (ex?.cancelled) return [];
+      const shift = dDiff(d, first);
+      const move = v => (String(v).length > 10 ? `${dAdd(datePart(v), shift)}T${timePart(v)}` : dAdd(v, shift));
+      const base = Object.fromEntries(FIELDS.map(k => [k, s[k]]));
+      const o = { ...base, start: move(s.start), end: move(s.end), ...(ex?.override || {}) };
+      return [{ ...o, id: `${s.id}@${d}`, seriesId: s.id, date: d, repeat: s.repeat, until: s.until, recurring: s.repeat !== 'none', exception: Boolean(ex?.override), createdBy: s.createdBy, createdAt: s.createdAt, updatedBy: ex?.override?.updatedBy || s.updatedBy, updatedAt: ex?.override?.updatedAt || s.updatedAt, seriesStart: first }];
+    });
+  }
+  const findOccurrence = occurrenceId => {
+    const [sid] = String(occurrenceId).split('@');
+    const s = getEvents().find(x => x.id === sid);
+    return s ? occurrencesOf(s).find(o => o.id === occurrenceId) || null : null;
+  };
+
+  // Who can see an occurrence: leaders see everything; class staff see school-wide events, their classes' events and events they staff.
+  function canSeeEvent(user, o) {
+    if (!canAccess(user, 'calendar')) return false;
+    if (LEADERS.includes(user.role)) return true;
+    const mine = educators.filter(e => e.userId === user.id).map(e => e.id);
+    const ids = classScope(user).map(n => classByName(n)?.id).filter(Boolean);
+    return !o.classIds.length || o.classIds.some(id => ids.includes(id)) || o.staffIds.some(id => mine.includes(id));
+  }
+  // Occurrences overlapping [from, to] (dates), visible to the user, optionally filtered by types and class name.
+  function eventsBetween(user, from, to, { types = [], cls = '' } = {}) {
+    const clsId = cls ? classByName(cls)?.id : '';
+    return getEvents().flatMap(occurrencesOf)
+      .filter(o => datePart(o.start) <= to && datePart(o.end) >= from)
+      .filter(o => (!types.length || types.includes(o.type)) && (!clsId || !o.classIds.length || o.classIds.includes(clsId)))
+      .filter(o => canSeeEvent(user, o))
+      .sort((a, b) => a.start.localeCompare(b.start) || a.title.localeCompare(b.title));
+  }
+  // School-wide holidays/closures on a date (read by schoolDay).
+  const closureOn = date => getEvents().flatMap(occurrencesOf).find(o => o.type === 'holiday' && !o.classIds.length && datePart(o.start) <= date && datePart(o.end) >= date) || null;
+
+  function eventValues(input) {
+    const errors = {};
+    const v = {
+      title: clean(input.title).replace(/\s+/g, ' ').slice(0, 120), type: clean(input.type), allDay: Boolean(input.allDay),
+      repeat: clean(input.repeat) || 'none', until: clean(input.until), location: clean(input.location).slice(0, 120),
+      description: clean(input.description).slice(0, 2000),
+      classIds: [...new Set(input.classIds || [])], staffIds: [...new Set(input.staffIds || [])],
+      rsvp: Boolean(input.rsvp), consent: Boolean(input.consent), attachments: [...new Set(input.attachments || [])]
+    };
+    if (!v.title) errors.title = 'Give the event a title.';
+    if (!EVENT_TYPES[v.type]) errors.type = 'Choose an event type.';
+    if (!isDate(input.startDate)) errors.startDate = 'Choose a start date.';
+    if (!isDate(input.endDate)) errors.endDate = 'Choose an end date.';
+    if (!v.allDay) {
+      if (!isTime(input.startTime)) errors.startTime = 'Choose a start time.';
+      if (!isTime(input.endTime)) errors.endTime = 'Choose an end time.';
+    }
+    if (!errors.startDate && !errors.endDate && !errors.startTime && !errors.endTime) {
+      v.start = v.allDay ? input.startDate : `${input.startDate}T${input.startTime}`;
+      v.end = v.allDay ? input.endDate : `${input.endDate}T${input.endTime}`;
+      if (v.allDay ? v.end < v.start : v.end <= v.start) errors[input.endDate < input.startDate ? 'endDate' : 'endTime'] = 'The end must be after the start.';
+    }
+    if (!EVENT_REPEATS[v.repeat]) errors.repeat = 'Choose how it repeats.';
+    else if (v.repeat !== 'none') {
+      if (!isDate(v.until)) errors.until = 'Choose when the repeats end.';
+      else if (isDate(input.startDate) && v.until < input.startDate) errors.until = 'The repeats must end on or after the first date.';
+      else if (isDate(input.startDate) && dDiff(v.until, input.startDate) > 731) errors.until = 'Repeats can run for up to two years.';
+      if (isDate(input.startDate) && isDate(input.endDate) && dDiff(input.endDate, input.startDate) >= (v.repeat === 'weekly' ? 7 : 28)) errors.repeat = 'An event that repeats must end before the next one starts.';
+    } else v.until = '';
+    if (v.classIds.some(id => getClassRegistry().find(c => c.id === id)?.status !== 'active')) errors.classIds = 'One of the classes is no longer active.';
+    if (v.staffIds.some(id => !educators.some(e => e.id === id))) errors.staffIds = 'One of the staff is no longer on record.';
+    if (v.rsvp && !RSVP_TYPES.includes(v.type)) errors.rsvp = 'RSVP is for events, trips and parent conferences.';
+    if (v.consent && !CONSENT_EVENT_TYPES.includes(v.type)) errors.consent = 'Consent is for trips and events.';
+    const files = read(eventFilesKey(school.id), []);
+    if (v.attachments.some(id => !files.some(f => f.id === id))) errors.attachments = 'An attachment is missing. Remove it and add it again.';
+    return { v, errors };
+  }
+
+  const stamp2 = (user, action, detail = '') => ({ at: new Date().toISOString(), by: user.name, action, detail });
+  function createEvent(user, input) {
+    if (!canManageEvents(user)) return settle({ ok: false, reason: 'forbidden' });
+    const { v, errors } = eventValues(input);
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const now = new Date().toISOString();
+    const ev = { id: newId('ev'), schoolId: school.id, ...v, status: 'active', exceptions: {}, createdBy: user.name, createdAt: now, updatedBy: null, updatedAt: null, history: [stamp2(user, 'created')] };
+    if (!saveEvents([...getEvents(), ev])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'add:event', ev.id, `${EVENT_TYPES[ev.type]}: ${ev.title}`);
+    return settle({ ok: true, event: ev, occurrenceId: `${ev.id}@${datePart(ev.start)}` });
+  }
+
+  // Moves RSVP and consent records with their occurrence when dates or series change.
+  function remapResponses(map) {
+    if (!Object.keys(map).length) return [];
+    const writes = [];
+    [rsvpKey, eventConsentKey].forEach(k => {
+      const list = read(k(school.id), []);
+      let n = 0;
+      list.forEach(r => { if (map[r.occurrenceId]) { r.occurrenceId = map[r.occurrenceId]; n += 1; } });
+      if (n) writes.push({ key: k(school.id), value: list });
+    });
+    return writes;
+  }
+  function responseCount(occurrenceIds) {
+    const set = new Set(occurrenceIds);
+    return { rsvps: read(rsvpKey(school.id), []).filter(r => set.has(r.occurrenceId)).length, consents: read(eventConsentKey(school.id), []).filter(r => set.has(r.occurrenceId)).length };
+  }
+  // What an edit, move or delete would touch: how many occurrences and linked replies.
+  function eventImpact(occurrenceId, scope) {
+    const o = findOccurrence(occurrenceId);
+    if (!o) return null;
+    const s = getEvents().find(x => x.id === o.seriesId);
+    const all = occurrencesOf(s);
+    const hit = !o.recurring || scope === 'all' ? all : scope === 'future' ? all.filter(x => x.date >= o.date) : [o];
+    return { occurrences: hit.length, ...responseCount(hit.map(x => x.id)) };
+  }
+
+  // Edit with a scope: 'this' (one occurrence), 'future' (split the series here) or 'all'. One-off events are always 'all'.
+  function updateEvent(user, occurrenceId, input, scope = 'all') {
+    if (!canManageEvents(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getEvents();
+    const o = findOccurrence(occurrenceId);
+    const s = o && list.find(x => x.id === o.seriesId);
+    if (!s) return settle({ ok: false, reason: 'missing' });
+    const { v, errors } = eventValues(scope === 'this' && o.recurring ? { ...input, repeat: 'none' } : input);
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const now = new Date().toISOString();
+    const eff = o.recurring ? scope : 'all';
+    const fields = Object.fromEntries(FIELDS.map(k => [k, v[k]]));
+    let writes = [];
+    let created = null;
+    let target = occurrenceId;
+    if (eff === 'this') {
+      s.exceptions = { ...(s.exceptions || {}), [o.date]: { override: { ...fields, updatedBy: user.name, updatedAt: now } } };
+      s.history = [...(s.history || []), stamp2(user, 'edited', `Only ${o.date}`)];
+    } else {
+      // Day shift between the edited occurrence's old start and its new start: applied to the series dates.
+      const shift = dDiff(datePart(v.start), datePart(o.start));
+      const span = dDiff(datePart(v.end), datePart(v.start));
+      const build = startDate => {
+        const end = dAdd(startDate, span);
+        return { start: v.allDay ? startDate : `${startDate}T${timePart(v.start)}`, end: v.allDay ? end : `${end}T${timePart(v.end)}` };
+      };
+      if (eff === 'all' || o.date === datePart(s.start)) {
+        const oldIds = occurrencesOf(s).map(x => x.id);
+        const firstNew = dAdd(datePart(s.start), shift);
+        const ex = {};
+        // The occurrence edited here takes the new values, so its own one-off changes are dropped. Other changed
+        // dates keep their one-off changes, except for the fields this edit changed, which apply everywhere.
+        const changed = FIELDS.filter(k => !['start', 'end'].includes(k) && JSON.stringify(v[k]) !== JSON.stringify(s[k]));
+        Object.entries(s.exceptions || {}).forEach(([d, e]) => {
+          if (d === o.date && !e.cancelled) return;
+          if (e.override) changed.forEach(k => { e.override[k] = v[k]; });
+          ex[dAdd(d, shift)] = e;
+        });
+        Object.assign(s, fields, build(firstNew), { repeat: v.repeat, until: v.repeat === 'none' ? '' : v.until, exceptions: ex, updatedBy: user.name, updatedAt: now, history: [...(s.history || []), stamp2(user, 'edited', 'Entire series')] });
+        if (shift) {
+          const map = {};
+          oldIds.forEach(id => { const d = id.split('@')[1]; map[id] = `${s.id}@${dAdd(d, shift)}`; });
+          writes = remapResponses(map);
+        }
+        target = `${s.id}@${dAdd(o.date, shift)}`;
+      } else {
+        // Split: the old series ends the day before; a new series starts at this occurrence.
+        const future = occurrencesOf(s).filter(x => x.date >= o.date);
+        created = { id: newId('ev'), schoolId: school.id, ...fields, ...build(datePart(v.start)), repeat: v.repeat, until: v.repeat === 'none' ? '' : v.until, status: 'active', exceptions: {}, createdBy: s.createdBy, createdAt: s.createdAt, updatedBy: user.name, updatedAt: now, splitFrom: s.id, history: [stamp2(user, 'split', `From ${s.id} on ${o.date}`)] };
+        Object.entries(s.exceptions || {}).forEach(([d, e]) => { if (d >= o.date) { created.exceptions[dAdd(d, shift)] = e; delete s.exceptions[d]; } });
+        s.until = dAdd(o.date, -1);
+        s.updatedBy = user.name; s.updatedAt = now;
+        s.history = [...(s.history || []), stamp2(user, 'edited', `Split at ${o.date}: this and future events moved to ${created.id}`)];
+        list.push(created);
+        const map = {};
+        future.forEach(x => { map[x.id] = `${created.id}@${dAdd(x.date, shift)}`; });
+        writes = remapResponses(map);
+        target = `${created.id}@${datePart(v.start)}`;
+      }
+    }
+    if (!commit([{ key: eventsKey(school.id), value: list }, ...writes])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'edit:event', s.id, `${v.title} (${eff === 'this' ? 'this event' : eff === 'future' ? 'this and future' : 'entire series'})`);
+    return settle({ ok: true, occurrenceId: target, scope: eff });
+  }
+
+  function deleteEvent(user, occurrenceId, scope = 'all') {
+    if (!canManageEvents(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getEvents();
+    const o = findOccurrence(occurrenceId);
+    const s = o && list.find(x => x.id === o.seriesId);
+    if (!s) return settle({ ok: false, reason: 'missing' });
+    const eff = o.recurring ? scope : 'all';
+    const now = new Date().toISOString();
+    if (eff === 'this') s.exceptions = { ...(s.exceptions || {}), [o.date]: { cancelled: true, by: user.name, at: now } };
+    else if (eff === 'future' && o.date > datePart(s.start)) { s.until = dAdd(o.date, -1); Object.keys(s.exceptions || {}).forEach(d => { if (d >= o.date) delete s.exceptions[d]; }); }
+    else Object.assign(s, { status: 'cancelled', cancelledBy: user.name, cancelledAt: now });
+    s.history = [...(s.history || []), stamp2(user, 'deleted', eff === 'this' ? `Only ${o.date}` : eff === 'future' ? `From ${o.date}` : 'Entire series')];
+    s.updatedBy = user.name; s.updatedAt = now;
+    if (!saveEvents(list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'delete:event', s.id, `${s.title} (${eff})`);
+    return settle({ ok: true, scope: eff });
+  }
+
+  // Reschedule keeping the duration (and all-day status). Saved first; families are told only after the save.
+  async function moveEvent(user, occurrenceId, { date, time = '' }, scope = 'this', notify = false) {
+    const o = findOccurrence(occurrenceId);
+    if (!o) return { ok: false, reason: 'missing' };
+    const span = o.allDay ? dDiff(datePart(o.end), datePart(o.start)) : (new Date(o.end) - new Date(o.start)) / 60000;
+    let input;
+    if (o.allDay) input = { ...o, startDate: date, endDate: dAdd(date, span) };
+    else {
+      const t = isTime(time) ? time : timePart(o.start);
+      const st = new Date(`${date}T${t}:00`);
+      const en = new Date(st.getTime() + span * 60000);
+      input = { ...o, startDate: date, startTime: t, endDate: isoDate(en), endTime: `${pad2(en.getHours())}:${pad2(en.getMinutes())}` };
+    }
+    const r = await updateEvent(user, occurrenceId, input, scope);
+    if (!r.ok) return r;
+    if (!notify) return { ...r, notice: null };
+    const n = await sendEventNotice(user, { occurrenceId: r.occurrenceId, kind: 'moved', previous: o.start });
+    return { ...r, notice: n };
+  }
+
+  // Children an occurrence is for (its classes, or the whole school), with their RSVP and consent records.
+  function eventResponses(user, occurrenceId) {
+    const o = findOccurrence(occurrenceId);
+    if (!o || !canSeeEvent(user, o)) return null;
+    const ids = o.classIds;
+    const kids = getChildren().filter(c => c.status === 'active' && (!ids.length || ids.includes(classByName(c.cls)?.id)))
+      .filter(c => LEADERS.includes(user.role) || classScope(user).includes(c.cls))
+      .sort((a, b) => a.cls.localeCompare(b.cls) || childName(a).localeCompare(childName(b)));
+    const rs = read(rsvpKey(school.id), []).filter(r => r.occurrenceId === occurrenceId);
+    const cs = read(eventConsentKey(school.id), []).filter(r => r.occurrenceId === occurrenceId);
+    const rows = kids.map(c => ({ child: c, rsvp: o.rsvp ? rs.find(r => r.childId === c.id) || null : null, consent: o.consent ? cs.find(r => r.childId === c.id) || null : null }));
+    const count = (fn) => rows.filter(fn).length;
+    return {
+      occurrence: o, rows,
+      rsvp: o.rsvp ? { yes: count(r => r.rsvp?.response === 'yes'), no: count(r => r.rsvp?.response === 'no'), none: count(r => !r.rsvp) } : null,
+      consent: o.consent ? { granted: count(r => r.consent?.status === 'granted'), declined: count(r => r.consent?.status === 'declined'), pending: count(r => !r.consent) } : null
+    };
+  }
+  function responseCtx(user, occurrenceId, childId) {
+    const o = findOccurrence(occurrenceId);
+    if (!o) return { error: 'missing' };
+    const c = childById(childId);
+    if (!c || c.status !== 'active' || (o.classIds.length && !o.classIds.includes(classByName(c.cls)?.id))) return { error: 'invalid' };
+    if (!canAccess(user, 'calendar') || !(LEADERS.includes(user.role) || classScope(user).includes(c.cls))) return { error: 'forbidden' };
+    return { o, c };
+  }
+  // A family's reply, recorded by staff (no family app yet). guardianId says which guardian replied, when known.
+  function setEventRsvp(user, occurrenceId, childId, response, guardianId = '') {
+    const ctx = responseCtx(user, occurrenceId, childId);
+    if (ctx.error) return settle({ ok: false, reason: ctx.error });
+    if (!ctx.o.rsvp) return settle({ ok: false, reason: 'invalid', errors: { rsvp: 'This event doesn’t ask for RSVPs.' } });
+    if (response && !['yes', 'no'].includes(response)) return settle({ ok: false, reason: 'invalid' });
+    if (guardianId && !(ctx.c.guardianLinks || []).some(l => l.guardianId === guardianId)) return settle({ ok: false, reason: 'invalid', errors: { guardianId: 'Choose one of the child’s guardians.' } });
+    const list = read(rsvpKey(school.id), []).filter(r => !(r.occurrenceId === occurrenceId && r.childId === childId));
+    if (response) list.push({ id: newId('rsvp'), occurrenceId, seriesId: ctx.o.seriesId, childId, response, guardianId: guardianId || null, by: 'family', recordedBy: user.name, recordedById: user.id, at: new Date().toISOString() });
+    if (!write(rsvpKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'event:rsvp', childId, `${ctx.o.title} ${ctx.o.date}: ${response || 'cleared'}`);
+    return settle({ ok: true });
+  }
+  // Consent needs the guardian who gave or refused it. It's separate from RSVP.
+  function setEventConsent(user, occurrenceId, childId, status, guardianId = '') {
+    const ctx = responseCtx(user, occurrenceId, childId);
+    if (ctx.error) return settle({ ok: false, reason: ctx.error });
+    if (!ctx.o.consent) return settle({ ok: false, reason: 'invalid', errors: { consent: 'This event doesn’t need consent.' } });
+    if (status && !['granted', 'declined'].includes(status)) return settle({ ok: false, reason: 'invalid' });
+    if (status && !(ctx.c.guardianLinks || []).some(l => l.guardianId === guardianId)) return settle({ ok: false, reason: 'invalid', errors: { guardianId: 'Choose the guardian who gave the answer.' } });
+    const list = read(eventConsentKey(school.id), []).filter(r => !(r.occurrenceId === occurrenceId && r.childId === childId));
+    if (status) list.push({ id: newId('ecs'), occurrenceId, seriesId: ctx.o.seriesId, childId, status, guardianId, recordedBy: user.name, recordedById: user.id, at: new Date().toISOString() });
+    if (!write(eventConsentKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'event:consent', childId, `${ctx.o.title} ${ctx.o.date}: ${status || 'cleared'}`);
+    return settle({ ok: true });
+  }
+
+  /* Notification boundary: reminders and move notices are recorded per guardian. Swap the body of `deliver` for a
+     real push/email/SMS service; until then nothing leaves this device and results say so. */
+  const deliver = (guardian, app) => (accountOf(app, guardian.id).status === 'active' ? { ok: true, result: 'queued (demo — not delivered)' } : { ok: false, result: 'skipped: no active parent-app account' });
+  function sendEventNotice(user, { occurrenceId, kind, previous = '' }) {
+    const o = findOccurrence(occurrenceId);
+    if (!o) return settle({ ok: false, reason: 'missing' });
+    const resp = eventResponses(user, occurrenceId);
+    if (!resp || !(canManageEvents(user) || resp.rows.length)) return settle({ ok: false, reason: 'forbidden' });
+    if (kind === 'reminder' && !o.rsvp) return settle({ ok: false, reason: 'invalid' });
+    const targets = kind === 'reminder' ? resp.rows.filter(r => !r.rsvp) : resp.rows;
+    const app = getParentApp();
+    const notices = read(noticesKey(school.id), []);
+    const since = Date.now() - 30 * 60000;
+    const seen = new Set();
+    const results = [];
+    targets.forEach(r => (r.child.guardianLinks || []).forEach(l => {
+      if (seen.has(l.guardianId)) return;
+      seen.add(l.guardianId);
+      const g = guardianById(l.guardianId);
+      if (!g) return;
+      const dup = notices.some(n => n.occurrenceId === occurrenceId && n.kind === kind && n.guardianId === g.id && new Date(n.at).getTime() >= since && n.ok);
+      const d = dup ? { ok: false, result: 'skipped: already sent in the last 30 minutes' } : deliver(g, app);
+      results.push({ guardianId: g.id, childId: r.child.id, ...d });
+    }));
+    const record = results.map(x => ({ id: newId('nt'), occurrenceId, kind, previous, guardianId: x.guardianId, childId: x.childId, ok: x.ok, result: x.result, by: user.name, at: new Date().toISOString() }));
+    if (record.length && !write(noticesKey(school.id), [...notices, ...record])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, `event:notice-${kind}`, o.seriesId, `${o.title} ${o.date}: ${results.filter(x => x.ok).length} queued, ${results.filter(x => !x.ok).length} skipped`);
+    return settle({ ok: true, queued: results.filter(x => x.ok).length, skipped: results.filter(x => !x.ok).length, reasons: [...new Set(results.filter(x => !x.ok).map(x => x.result))], families: seen.size });
+  }
+
+  const EVENT_FILE_TYPES = { 'application/pdf': 'PDF', 'image/jpeg': 'JPEG', 'image/png': 'PNG' };
+  function addEventFile(user, { name, mime, size, data }) {
+    if (!canManageEvents(user)) return settle({ ok: false, reason: 'forbidden' });
+    if (!EVENT_FILE_TYPES[mime] || !String(data || '').startsWith(`data:${mime};base64,`)) return settle({ ok: false, reason: 'invalid', errors: { attachment: 'Attach a PDF, JPEG or PNG file.' } });
+    if (!(Number(size) > 0) || Number(size) > 1024 * 1024) return settle({ ok: false, reason: 'invalid', errors: { attachment: 'Attach a file of 1 MB or less.' } });
+    const f = { id: newId('ef'), name: clean(name).slice(0, 120) || 'Attachment', mime, size: Number(size), data, by: user.name, at: new Date().toISOString() };
+    if (!write(eventFilesKey(school.id), [...read(eventFilesKey(school.id), []), f])) return settle({ ok: false, reason: 'storage', errors: { attachment: 'There isn’t room on this device for this file.' } });
+    return settle({ ok: true, file: { id: f.id, name: f.name, mime: f.mime, size: f.size } });
+  }
+  const eventFileMeta = id => { const f = read(eventFilesKey(school.id), []).find(x => x.id === id); return f ? { id: f.id, name: f.name, mime: f.mime, size: f.size } : null; };
+  function eventFile(user, occurrenceId, fileId) {
+    const o = findOccurrence(occurrenceId);
+    if (!o || !canSeeEvent(user, o) || !o.attachments.includes(fileId)) return null;
+    return read(eventFilesKey(school.id), []).find(x => x.id === fileId) || null;
+  }
+  const getCalendarPrefs = user => read(calPrefsKey(user.id), {});
+  const saveCalendarPrefs = (user, patch) => write(calPrefsKey(user.id), { ...getCalendarPrefs(user), ...patch });
+  // Events for one child (their class + school-wide; staff meetings excluded) with their RSVP/consent for authorised staff.
+  function childEvents(user, childId, days = 30) {
+    const c = childById(childId);
+    if (!c) return [];
+    const clsId = classByName(c.cls)?.id;
+    return eventsBetween(user, today(), daysFromToday(days))
+      .filter(o => o.type !== 'meeting' && (!o.classIds.length || o.classIds.includes(clsId)))
+      .map(o => {
+        const see = canView(user, 'family') && (LEADERS.includes(user.role) || classScope(user).includes(c.cls));
+        return { ...o, myRsvp: see && o.rsvp ? read(rsvpKey(school.id), []).find(r => r.occurrenceId === o.id && r.childId === childId) || null : undefined, myConsent: see && o.consent ? read(eventConsentKey(school.id), []).find(r => r.occurrenceId === o.id && r.childId === childId) || null : undefined };
+      });
   }
 
 
@@ -3557,6 +3965,8 @@
     activeClasses,
     classById,
     classByName,
+    guardianById,
+    daysFromToday,
     staffOf,
     classesOfStaff,
     CLASS_COLOURS,
@@ -3617,6 +4027,27 @@
     addDiaryPhoto,
     diaryPhoto,
     familyDiary,
+    EVENT_TYPES,
+    EVENT_REPEATS,
+    canManageEvents,
+    getEvents,
+    eventsBetween,
+    findOccurrence,
+    eventImpact,
+    createEvent,
+    updateEvent,
+    deleteEvent,
+    moveEvent,
+    eventResponses,
+    setEventRsvp,
+    setEventConsent,
+    sendEventNotice,
+    addEventFile,
+    eventFileMeta,
+    eventFile,
+    getCalendarPrefs,
+    saveCalendarPrefs,
+    childEvents,
     getStaffAttendance,
     setStaffAttendance,
     canManageStaff,

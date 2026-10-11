@@ -617,7 +617,7 @@
     document.addEventListener('visibilitychange', () => { if (!document.hidden) main.querySelectorAll('[data-elapsed]').forEach(el => { el.textContent = elapsed(el.dataset.elapsed); }); });
     let queued = false;
     store.subscribe(({ key }) => {
-      if (!loaded || (key && !/^nexora-(diary|register|attendance|children|class-registry|menus|consents|settings|holidays)/.test(key))) return;
+      if (!loaded || (key && !/^nexora-(diary|register|attendance|children|class-registry|menus|consents|settings|holidays|events)/.test(key))) return;
       if (queued) return;
       queued = true;
       setTimeout(() => {

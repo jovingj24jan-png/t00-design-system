@@ -219,19 +219,24 @@
 
       const events = [];
       const date = store.today();
+      store.eventsBetween(user, date, date, { cls: d.card.name }).forEach(o => events.push({ time: o.allDay ? '' : o.start.slice(11, 16), title: o.title, kind: `${store.EVENT_TYPES[o.type]}${o.location ? ` · ${o.location}` : ''}`, href: routes.page('calendar', { view: 'day', date, event: o.id }) }));
       store.getAnnouncements().filter(a => a.createdAt.slice(0, 10) === date && ['All families', 'All staff', d.card.name].includes(a.audience))
         .forEach(a => events.push({ time: timeOf(a.createdAt), title: a.title, kind: `Announcement · ${a.audience}` }));
       d.children.filter(k => k.status === 'starting' && k.startDate === date).forEach(k => events.push({ time: '', title: `${store.childName(k)} starts today`, kind: 'New child' }));
       store.substitutesOn(date).filter(s => s.classId === d.card.id).forEach(s => events.push({ time: s.start, title: `${store.educators.find(e => e.id === s.substituteId)?.name} covers ${store.educators.find(e => e.id === s.replacingId)?.name}`, kind: `Cover until ${s.end}` }));
       events.sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
       const eventsHtml = events.length
-        ? `<ul class="cd-events">${events.map(e => `<li><span class="cd-events__time">${e.time ? esc(e.time) : 'All day'}</span><span><b>${esc(e.title)}</b><small>${esc(e.kind)}</small></span></li>`).join('')}</ul>`
+        ? `<ul class="cd-events">${events.map(e => `<li><span class="cd-events__time">${e.time ? esc(e.time) : 'All day'}</span><span><b>${e.href ? `<a href="${e.href}">${esc(e.title)}</a>` : esc(e.title)}</b><small>${esc(e.kind)}</small></span></li>`).join('')}</ul>`
         : '<p class="cd-note">Nothing scheduled for this class today.</p>';
 
       return `${attendance}
         <section class="panel cd-sec" aria-labelledby="cd-diary"><header class="cd-sec__head"><h2 class="cd-h2" id="cd-diary">Diary completion</h2></header>${diary}</section>
         <section class="panel cd-sec" aria-labelledby="cd-ev"><header class="cd-sec__head"><h2 class="cd-h2" id="cd-ev">Events today</h2></header>${eventsHtml}
-          <p class="cd-note cp-muted">Shows announcements, new children and cover. A school calendar isn’t part of this prototype yet.</p></section>`;
+          ${(() => {
+            const next = store.eventsBetween(user, store.daysFromToday(1), store.daysFromToday(21), { cls: d.card.name }).slice(0, 5);
+            return `<h3 class="cd-qv-h cd-h2--gap">Coming up</h3>${next.length ? `<ul class="cd-events">${next.map(o => `<li><span class="cd-events__time">${esc(new Date(`${o.start.slice(0, 10)}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }))}</span><span><b><a href="${routes.page('calendar', { view: 'agenda', date: o.start.slice(0, 10), event: o.id })}">${esc(o.title)}</a></b><small>${esc(store.EVENT_TYPES[o.type])}${o.allDay ? ' · all day' : ` · ${o.start.slice(11, 16)}`}${o.classIds.length ? '' : ' · whole school'}</small></span></li>`).join('')}</ul>` : '<p class="cd-note">Nothing in the next three weeks.</p>'}`;
+          })()}
+          <p class="cd-note"><a href="${routes.page('calendar', { cls: d.card.name, view: 'agenda' })}">Open the calendar for ${esc(d.card.name)}</a></p></section>`;
     }
 
     /* ---------------------------------------------------------------- Schedule */
@@ -585,7 +590,7 @@
 
     let queued = false;
     store.subscribe(({ key }) => {
-      if (!loaded || (key && !/^nexora-(class-registry|children|register|staff-attendance|substitutes|staff-shifts|class-routines|diary|announcements|guardians|settings)/.test(key))) return;
+      if (!loaded || (key && !/^nexora-(class-registry|children|register|staff-attendance|substitutes|staff-shifts|class-routines|diary|announcements|guardians|settings|events|event-)/.test(key))) return;
       if (queued) return;
       queued = true;
       requestAnimationFrame(() => {

@@ -155,6 +155,12 @@
           ${card('Safety', c.alerts.length ? `<p class="cp-muted">${c.alerts.length} active ${c.alerts.length === 1 ? 'alert' : 'alerts'} — shown above every tab.</p>` : '<p class="cp-muted">No safety alerts on record.</p>', { id: 'ov-safety', action: can('medical') ? go('medical', 'Medical & Dietary') : '' })}
           ${att ? card('Attendance', att.length ? dl([['Latest', `${esc(day(att[0].date))} · ${esc(att[0].mark[0].toUpperCase() + att[0].mark.slice(1))}`], ['Registers on record', String(att.length)]]) : '<p class="cp-muted">No registers recorded for this child yet.</p>', { id: 'ov-att', action: go('attendance', 'Attendance') }) : ''}
           ${diary ? card('Recent diary', diary.length ? `<ul class="cp-mini">${diary.map(e => `<li><b>${esc(e.title)}</b><span>${esc(day(e.date))} · ${esc(e.author)}</span></li>`).join('')}</ul>` : '<p class="cp-muted">No diary entries yet.</p>', { id: 'ov-diary', action: go('diary', 'Daily Diary') }) : ''}
+          ${c.status === 'active' && store.canAccess(store.currentUser(), 'calendar') ? (() => {
+            // Calendar events for this child's class + whole school (no staff meetings); RSVP/consent only for authorised staff.
+            const evs = store.childEvents(store.currentUser(), c.id, 30).slice(0, 5);
+            const st = o => [o.myRsvp !== undefined ? `RSVP: ${o.myRsvp ? (o.myRsvp.response === 'yes' ? 'yes' : 'no') : 'no reply'}` : '', o.myConsent !== undefined ? `Consent: ${o.myConsent ? (o.myConsent.status === 'granted' ? 'received' : 'declined') : 'pending'}` : ''].filter(Boolean).join(' · ');
+            return card('Upcoming events', evs.length ? `<ul class="cp-mini">${evs.map(o => `<li><b><a href="${routes.page('calendar', { view: 'agenda', date: o.start.slice(0, 10), event: o.id })}">${esc(o.title)}</a></b><span>${esc(day(o.start.slice(0, 10)))}${o.allDay ? '' : ` · ${esc(o.start.slice(11, 16))}`} · ${esc(store.EVENT_TYPES[o.type])}${st(o) ? ` · ${esc(st(o))}` : ''}</span></li>`).join('')}</ul>` : '<p class="cp-muted">Nothing in the next 30 days.</p>', { id: 'ov-events', action: `<a class="btn btn--sm btn--tertiary" href="${routes.page('calendar', { cls: c.cls, view: 'agenda' })}">Calendar${icon('arrow-right', 'icon--sm')}</a>` });
+          })() : ''}
           ${learning ? card('Learning progress', learning.length ? dl(Object.entries(store.LEARNING_STAGES).map(([k, v]) => [v, String(learning.filter(l => l.stage === k).length)])) : '<p class="cp-muted">No presentations recorded yet.</p>', { id: 'ov-learn', action: go('learning', 'Learning & Portfolio') }) : ''}
           ${consents ? card('Consents', `<p>${consents.filter(x => x.status === 'pending').length} pending · ${consents.filter(x => x.status === 'granted').length} granted · ${consents.filter(x => ['declined', 'expired'].includes(x.status)).length} declined or expired</p>`, { id: 'ov-consent', action: go('consents', 'Consents') }) : ''}
           ${bill ? card('Billing', bill.length ? dl([['Outstanding', money(bill.reduce((s, l) => s + l.balance, 0))], ['Overdue', bill.some(l => l.overdue) ? '<span class="badge badge--error">Overdue</span>' : 'No']]) : '<p class="cp-muted">No invoices for this child.</p>', { id: 'ov-bill', action: go('billing', 'Billing') }) : ''}
@@ -685,7 +691,7 @@
     // Any saved change to this child (here, in S12 or in another tab) repaints header, alerts and the open tab.
     let queued = false;
     store.subscribe(({ key }) => {
-      if (key && !/^nexora-(children|guardians|diary|learning|child-docs|consents|register|invoices|payments|incidents|school-plan|demo-role)/.test(key)) return;
+      if (key && !/^nexora-(children|guardians|diary|learning|child-docs|consents|register|invoices|payments|incidents|school-plan|demo-role|events|event-)/.test(key)) return;
       if (key === 'nexora-demo-role') { location.reload(); return; }
       if (queued) return;
       queued = true;

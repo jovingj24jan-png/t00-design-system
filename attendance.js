@@ -484,7 +484,7 @@
 
     let queued = false;
     store.subscribe(({ key }) => {
-      if (!loaded || (key && !/^nexora-(register|attendance|children|class-registry|staff-attendance|substitutes|staff-shifts|class-routines|holidays|settings|guardians)/.test(key))) return;
+      if (!loaded || (key && !/^nexora-(register|attendance|children|class-registry|staff-attendance|substitutes|staff-shifts|class-routines|holidays|settings|guardians|events)/.test(key))) return;
       if (queued) return;
       queued = true;
       setTimeout(() => {

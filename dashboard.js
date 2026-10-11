@@ -227,6 +227,27 @@
       }
     },
     {
+      // Same data as the calendar (store.eventsBetween): next 14 days, with RSVP/consent follow-ups.
+      id: 'events', name: 'Upcoming events', module: 'calendar', group: 'list', size: 'half',
+      render(user) {
+        const all = store.eventsBetween(user, store.today(), store.daysFromToday(14));
+        const list = all.slice(0, 5);
+        const when = o => `${o.start.slice(0, 10) === store.today() ? 'Today' : esc(dayLabel(o.start.slice(0, 10)))}${o.allDay ? ' · all day' : ` · ${esc(o.start.slice(11, 16))}`}`;
+        const flag = o => {
+          if (!o.rsvp && !o.consent) return '';
+          const r = store.eventResponses(user, o.id);
+          if (r?.consent?.pending) return `<span class="badge badge--warning badge--late">${r.consent.pending} consent pending</span>`;
+          if (r?.rsvp?.none) return `<span class="badge">${r.rsvp.none} no reply</span>`;
+          return '';
+        };
+        const body = list.length ? `<ul class="dlist">${list.map(o => `<li class="dlist__item"><span class="cal-key cal-ev--${esc(o.type)}" aria-hidden="true"></span>
+            <div class="dlist__main"><p class="dlist__title"><a href="${pageUrl('calendar', { view: 'agenda', date: o.start.slice(0, 10), event: o.id })}">${esc(o.title)}</a> <span class="dlist__muted">· ${esc(store.EVENT_TYPES[o.type])}</span></p><p class="dlist__sub">${when(o)}${o.classIds.length ? ` · ${esc(o.classIds.map(id => store.classById(id)?.name).filter(Boolean).join(', '))}` : ''}</p></div>
+            ${flag(o)}</li>`).join('')}</ul>${all.length > list.length ? `<p class="dcard__more">${all.length - list.length} more in the next two weeks</p>` : ''}`
+          : empty('calendar-check', 'Nothing in the next two weeks', 'Events, trips and closures added to the calendar appear here.');
+        return `<div class="dcard">${cardHead('Upcoming events', 'Next 14 days', pageUrl('calendar'), 'Calendar')}${body}</div>`;
+      }
+    },
+    {
       id: 'followups', name: 'Enquiry follow-ups', module: 'admissions', group: 'list', size: 'half',
       render() {
         const open = store.getAdmissionEnquiries().filter(store.isOpenEnquiry).sort((a, b) => (a.followUp || '9').localeCompare(b.followUp || '9'));
