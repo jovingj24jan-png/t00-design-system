@@ -45,6 +45,12 @@ Signed-out visitors who open an app page go to sign-in and come back afterwards.
 
 ## Notes
 
-- The Terracotta + Sand palette mentioned in the brief isn't in this repository. Every page uses the T00 Design
-  System tokens in `styles.css`, which were kept as they are.
+- **Theme:** Terracotta + Sand, set centrally in the `:root` tokens of `styles.css`:
+  - **Brand:** terracotta `#BD7257`, deep clay `#873F2D`, sand `#E5C6A6`, sage `#668575`.
+  - **Neutrals:** warm ivory `#F6EFE5`, cream `#FFFDF9`, dark text `#29312D`.
+  - **Contrast:** buttons with small labels use `--color-primary-strong` (`#A35C43`, 5:1 with cream), and text drawn in
+    the brand colour uses deep clay. The large homepage CTA uses brand terracotta.
+  - **Status colours** (success, warning, error, info) stay distinct.
+- **Homepage hero:** `assets/images/hero-classroom.svg`, a local illustration (no remote images). To use a real
+  classroom photo, add it to `assets/images/` and change the `url(...)` in the `.hm-hero` rule in `styles.css`.
 - One URL doesn't mean one database: all data is still demo data kept in each browser's localStorage, as before.
