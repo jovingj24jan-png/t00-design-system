@@ -214,11 +214,22 @@
       }),
 
       diary: c => gate('diary', 'Daily Diary', () => {
-        const list = store.getDiary(c.id);
+        // Care-log entries (Daily Diary page) and older profile entries, one feed. Status shows what the family sees.
+        const list = store.getDiary(c.id).map(store.diaryEntry);
+        const shared = store.familyDiary(c.id).length;
         const add = canEdit('diary') && ['active', 'starting'].includes(c.status) ? `<button class="btn btn--secondary" type="button" data-edit="diary">${icon('plus', 'icon--sm')}Add entry</button>` : '';
-        return `<div class="cp-toolbar">${add}</div>${list.length ? `<ol class="cp-feed">${list.map(e => `<li class="cp-card">
-          <header class="cp-card__head"><div><h2 class="cp-card__title">${esc(e.title)}</h2><p class="cp-muted">${esc(day(e.date))} · ${esc(e.author)}</p></div>${canEdit('diary') ? pencil('diary', e.title, ` data-entry="${esc(e.id)}"`) : ''}</header>
-          ${dl([e.meals && ['Meals', esc(e.meals)], e.rest && ['Rest', esc(e.rest)], e.notes && ['Notes', esc(e.notes)]])}</li>`).join('')}</ol>` : empty('No diary entries yet', 'Meals, rest and the day’s highlights appear here once staff add them.')}`;
+        const open = c.status === 'active' ? `<a class="btn btn--tertiary btn--sm" href="${routes.page('diary', { cls: c.cls })}">Daily Diary${icon('arrow-right', 'icon--sm')}</a>` : '';
+        const status = e => `<span class="badge ${e.status === 'published' ? 'badge--success' : e.status === 'draft' ? 'badge--warning' : ''}">${esc(store.DIARY_STATUS[e.status] || 'Shared with family')}</span>`;
+        const time = e => (e.legacy ? '' : ` · ${esc(new Date(e.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }))}`);
+        return `<div class="cp-toolbar">${add}${open}</div>
+          ${list.length ? `<p class="cp-muted">${shared} of ${list.length} entr${list.length === 1 ? 'y is' : 'ies are'} visible to the family. Drafts, staff-only notes and photos without consent stay hidden.</p>` : ''}
+          ${list.length ? `<ol class="cp-feed">${list.map(e => {
+            const img = e.type === 'photo' ? store.diaryPhoto(store.currentUser(), e.data?.photoId) : null;
+            return `<li class="cp-card">
+              <header class="cp-card__head"><div><h2 class="cp-card__title">${esc(e.title)}</h2><p class="cp-muted">${esc(day(e.date))}${time(e)} · ${esc(e.author)}</p></div>${status(e)}${e.legacy && canEdit('diary') ? pencil('diary', e.title, ` data-entry="${esc(e.id)}"`) : ''}</header>
+              ${img ? `<img class="cp-diary-photo" src="${img}" alt="${esc(e.data.caption || 'Diary photo')}">` : ''}
+              ${dl([e.meals && ['Meals', esc(e.meals)], e.rest && ['Rest', esc(e.rest)], e.notes && ['Notes', esc(e.notes)]])}</li>`;
+          }).join('')}</ol>` : empty('No diary entries yet', 'Meals, rest and the day’s highlights appear here once staff add them.')}`;
       }),
 
       learning: c => gate('learning', 'Learning & Portfolio', () => {

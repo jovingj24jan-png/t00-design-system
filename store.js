@@ -202,6 +202,7 @@
     roster: { name: 'Class rosters', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Who is in each class, with capacity and schedules.' },
     compose: { name: 'Message families', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Write to selected families. Prototype: messages are saved, not delivered.' },
     classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Manage classrooms, capacity and today’s staffing.' },
+    diary: { name: 'Daily Diary', icon: 'book', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Meals, naps, toileting, mood, activities, notes and photos for each child, shared with families.' },
     class: { name: 'Class', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'One class: roster, staff, today, routine and room.' },
     settings: { name: 'Settings', icon: 'grid', roles: ['Director', 'Admin', 'Super Admin'], summary: 'School details, academic year, school hours and preferences.' },
     notifications: { name: 'Notifications', icon: 'bell', roles: roles.slice(), summary: 'Updates and requests sent to you.' },
@@ -2380,6 +2381,416 @@
     if (changed) write(remindersKey(school.id), list);
   }
 
+  /* ---------------------------------------------------------------- Daily Diary & Care Log (diary.js; S13 Daily Diary tab)
+     One diary store, `nexora-diary:<school>` — the records S13 already shows — extended with typed care entries:
+       { id, childId, classId, cls, date, type: 'meal'|'nap'|'toilet'|'mood'|'activity'|'note'|'photo', at (event time, ISO),
+         status: 'draft'|'published'|'internal', data: {…per type…}, title/meals/rest/notes (summary fields older readers
+         use), author, byId, createdAt, updatedAt, updatedBy, publishedAt, publishedBy, bulkId, requestId, allergyCheck,
+         history: [{ at, by, action, detail }] }
+     draft = staff only, not yet shared · published = shared with the child's family · internal = staff only, never shared.
+     Older entries (title/meals/rest/notes only) are read as published notes.
+     Photos `nexora-diary-photos:<school>` { id, data (downscaled data URL), mime, size, by, at } are stored once and
+     referenced by each child's photo entry. This is device storage only — production needs private object storage.
+     Menu `nexora-menus:<school>` { [weekday]: [{ id, meal, name, allergens: [ids] | null, tags }] } is a demo menu;
+     allergens null means ingredients aren't recorded, which is never treated as safe.
+     Every rule (permissions, class, attendance, allergy acknowledgement, nap overlap, photo consent) is checked here. */
+
+  const menusKey = id => `nexora-menus:${id}`;
+  const diaryPhotosKey = id => `nexora-diary-photos:${id}`;
+  const DIARY_TYPES = { meal: 'Meal', nap: 'Nap', toilet: 'Toileting', mood: 'Mood', activity: 'Activity', note: 'Note', photo: 'Photo' };
+  const MEAL_TYPES = { breakfast: 'Breakfast', 'morning-snack': 'Morning snack', lunch: 'Lunch', 'afternoon-snack': 'Afternoon snack', other: 'Other' };
+  const MEAL_AMOUNTS = { none: 'None', some: 'Some', most: 'Most', all: 'All' };
+  const TOILET_TYPES = { wet: 'Wet', dry: 'Dry', bm: 'BM', potty: 'Potty', accident: 'Accident' };
+  const MOODS = { 'very-unhappy': 'Very unhappy', unhappy: 'Unhappy', neutral: 'Neutral', happy: 'Happy', 'very-happy': 'Very happy' };
+  const DIARY_STATUS = { draft: 'Draft', published: 'Shared with family', internal: 'Staff only' };
+  const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+  const PHOTO_MAX = 1024 * 1024;
+  const ALLERGENS = { peanut: 'Peanuts', 'tree-nut': 'Tree nuts', dairy: 'Dairy', egg: 'Egg', gluten: 'Gluten', soy: 'Soy', sesame: 'Sesame', fish: 'Fish', shellfish: 'Shellfish', gelatine: 'Gelatine', meat: 'Meat', 'root-veg': 'Root vegetables' };
+  const ALLERGEN_WORDS = [['peanut', /peanut|groundnut/i], ['tree-nut', /cashew|pistachio|almond|walnut|hazelnut|pecan|tree[\s-]?nut/i], ['dairy', /dairy|milk|lactose|cheese|paneer|curd|yogh?urt|butter|ghee/i], ['egg', /\begg/i], ['gluten', /gluten|wheat|co?eliac/i], ['soy', /\bsoy/i], ['sesame', /sesame/i], ['fish', /\bfish/i], ['shellfish', /shellfish|prawn|shrimp|crab|lobster/i], ['gelatine', /gelatin/i]];
+  const NON_FOOD = /\bbee\b|sting|insect|wasp|latex|dust|pollen|penicillin|plaster/i;
+
+  // Demo school menu by weekday (school configuration). An item with allergens: null has no ingredient record.
+  const MENU_SEED = {
+    mon: [['morning-snack', 'Banana and apple slices', []], ['morning-snack', 'Warm milk', ['dairy']], ['lunch', 'Vegetable pulao', []], ['lunch', 'Curd raita', ['dairy']], ['lunch', 'Cashew kheer', ['dairy', 'tree-nut']], ['afternoon-snack', 'Peanut chikki', ['peanut']]],
+    tue: [['morning-snack', 'Papaya cubes', []], ['lunch', 'Idli and sambar', []], ['lunch', 'Coconut chutney', []], ['afternoon-snack', 'Egg muffin', ['egg', 'gluten', 'dairy']], ['afternoon-snack', 'Buttermilk', ['dairy']]],
+    wed: [['morning-snack', 'Orange segments', []], ['lunch', 'Chapati', ['gluten']], ['lunch', 'Dal tadka', []], ['lunch', 'Paneer butter masala', ['dairy']], ['afternoon-snack', 'Sesame ladoo', ['sesame']]],
+    thu: [['morning-snack', 'Watermelon', []], ['lunch', 'Lemon rice', ['peanut']], ['lunch', 'Potato fry', [], ['root-veg']], ['lunch', 'Cucumber salad', []], ['afternoon-snack', 'Birthday cake (from a family)', null]],
+    fri: [['morning-snack', 'Grapes', []], ['lunch', 'Vegetable noodles', ['gluten', 'soy']], ['lunch', 'Chicken curry', [], ['meat']], ['lunch', 'Steamed rice', []], ['afternoon-snack', 'Fruit custard', ['dairy']]]
+  };
+  const getMenus = () => seeded(menusKey(school.id), () => Object.fromEntries(Object.entries(MENU_SEED).map(([day, items]) => [day, items.map(([meal, name, allergens, tags], i) => ({ id: `${day}-${i + 1}`, meal, name, allergens, tags: tags || [] }))])));
+  function menuFor(date) {
+    const day = schoolDay(date);
+    if (!day.open) return { available: false, reason: day.kind === 'holiday' ? `${day.name} — no menu` : 'School closed — no menu', items: [] };
+    const items = getMenus()[weekdayOf(date)] || [];
+    return items.length ? { available: true, reason: '', items } : { available: false, reason: 'No menu has been set for this day', items: [] };
+  }
+
+  // A child's food rules from their current alerts. An allergy naming no known food allergen is "unmatched" (check by hand).
+  function dietaryRule(detail) {
+    const avoid = new Set();
+    const check = new Set();
+    if (/vegetarian|vegan/i.test(detail)) ['meat', 'fish', 'shellfish', 'gelatine'].forEach(x => avoid.add(x));
+    if (/vegan/i.test(detail)) ['dairy', 'egg'].forEach(x => avoid.add(x));
+    if (/jain/i.test(detail)) ['meat', 'fish', 'shellfish', 'egg', 'gelatine', 'root-veg'].forEach(x => avoid.add(x));
+    if (/root veg/i.test(detail)) avoid.add('root-veg');
+    if (/halal/i.test(detail)) check.add('meat');
+    if (/\bno\b|free|avoid|without/i.test(detail)) ALLERGEN_WORDS.forEach(([id, re]) => { if (re.test(detail)) avoid.add(id); });
+    return { avoid: [...avoid], check: [...check] };
+  }
+  function foodRules(child) {
+    const rules = { allergies: [], dietary: [], unmatched: [] };
+    child.alerts.filter(a => a.status !== 'lifted').forEach(a => {
+      if (a.type === 'allergy') {
+        const ids = a.allergen && ALLERGENS[a.allergen] ? [a.allergen] : ALLERGEN_WORDS.filter(([, re]) => re.test(a.detail)).map(([id]) => id);
+        if (ids.length) rules.allergies.push({ ids, detail: a.detail, severe: a.severity === 'severe' });
+        else if (!NON_FOOD.test(a.detail)) rules.unmatched.push(a.detail);
+      } else if (a.type === 'dietary') {
+        const d = dietaryRule(a.detail);
+        if (d.avoid.length || d.check.length) rules.dietary.push({ ...d, detail: a.detail });
+        else rules.unmatched.push(a.detail);
+      }
+    });
+    return rules;
+  }
+  const mealSignature = (childIds, itemIds) => `${[...childIds].sort().join(',')}|${[...itemIds].sort().join(',')}`;
+  // Checks every selected child against every selected item. Roles without Medical access learn that a warning
+  // exists (count only), never the detail.
+  function mealCheck(user, { childIds = [], itemIds = [], date = today() }) {
+    const menu = menuFor(date);
+    const items = itemIds.map(id => menu.items.find(i => i.id === id)).filter(Boolean);
+    const found = new Map();
+    const unmatched = [];
+    const add = (c, kind, label, item, severe = false) => {
+      const k = `${c.id}|${kind}|${label}`;
+      const cur = found.get(k) || { childId: c.id, name: c.preferredName || c.firstName, kind, label, items: [], severe };
+      if (!cur.items.includes(item)) cur.items.push(item);
+      found.set(k, cur);
+    };
+    childIds.forEach(id => {
+      const c = childById(id);
+      if (!c) return;
+      const r = foodRules(c);
+      items.forEach(it => {
+        if (!Array.isArray(it.allergens)) return;
+        const has = new Set([...it.allergens, ...(it.tags || [])]);
+        r.allergies.forEach(a => a.ids.filter(x => has.has(x)).forEach(x => add(c, 'allergy', ALLERGENS[x], it.name, a.severe)));
+        r.dietary.forEach(d => {
+          d.avoid.filter(x => has.has(x)).forEach(x => add(c, 'dietary', ALLERGENS[x], it.name));
+          d.check.filter(x => has.has(x)).forEach(() => add(c, 'check', d.detail, it.name));
+        });
+      });
+      if (items.length) r.unmatched.forEach(detail => unmatched.push({ childId: c.id, name: c.preferredName || c.firstName, detail }));
+    });
+    const conflicts = [...found.values()];
+    const unknownItems = items.filter(i => !Array.isArray(i.allergens)).map(i => i.name);
+    const seeHealth = canView(user, 'medical');
+    return {
+      conflicts: seeHealth ? conflicts : [], hidden: seeHealth ? 0 : conflicts.length + unmatched.length,
+      unknownItems, unmatched: seeHealth ? unmatched : [],
+      needsAck: conflicts.length > 0 || unknownItems.length > 0 || unmatched.length > 0,
+      signature: mealSignature(childIds, itemIds)
+    };
+  }
+
+  const fmtTime = iso => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const fmtDuration = ms => { const m = Math.max(0, Math.round(ms / 60000)); return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`; };
+  // Reads any diary record in the typed shape; older S13 entries become published notes.
+  function diaryEntry(e) {
+    if (e.type) return e;
+    const text = [e.meals && `Meals: ${e.meals}`, e.rest && `Rest: ${e.rest}`, e.notes].filter(Boolean).join(' · ');
+    return { ...e, type: 'note', at: e.createdAt, status: 'published', data: { text: text || e.title }, legacy: true };
+  }
+  const allDiary = () => read(diaryKey(school.id), []);
+  function diaryDay(cls, date = today()) {
+    const c = classByName(cls);
+    const att = attendanceView(cls, date);
+    const live = date === today();
+    const kids = live
+      ? att.rows.map(r => ({ child: r.child, attendance: r.status }))
+      : getChildren().filter(k => k.cls === cls && k.status === 'active').sort((a, b) => childName(a).localeCompare(childName(b))).map(k => ({ child: k, attendance: null }));
+    const onDay = allDiary().filter(e => e.date === date).map(diaryEntry);
+    const rows = kids.map(k => {
+      const entries = onDay.filter(e => e.childId === k.child.id).sort((a, b) => a.at.localeCompare(b.at));
+      const latest = {};
+      entries.forEach(e => { latest[e.type] = e; });
+      return { ...k, entries, latest, activeNap: entries.find(e => e.type === 'nap' && !e.data?.end) || null };
+    });
+    return { cls, classId: c?.id || null, date, live, day: att.day, rows, menu: menuFor(date) };
+  }
+
+  function diaryCtx(user, cls, date, childIds) {
+    if (!canEditSection(user, 'diary') || !classScope(user).includes(cls)) return { error: 'forbidden' };
+    if (date !== today()) return { error: 'past' };
+    if (!schoolDay(date).open) return { error: 'closed' };
+    const att = attendanceView(cls, date);
+    const ids = [...new Set(childIds || [])];
+    if (!ids.length) return { error: 'invalid', errors: { children: 'Choose at least one child.' } };
+    const children = [];
+    const skipped = [];
+    ids.forEach(id => {
+      const r = att.rows.find(x => x.child.id === id);
+      if (!r) skipped.push({ id, name: childById(id)?.firstName || 'A child', reason: 'Not in this class today' });
+      else if (r.status === 'absent') skipped.push({ id, name: r.child.firstName, reason: 'Absent today' });
+      else children.push(r.child);
+    });
+    return { att, children, skipped, classId: classByName(cls)?.id || null };
+  }
+  function eventTime(date, time) {
+    if (!/^\d{2}:\d{2}$/.test(String(time || ''))) return { error: 'Enter a time.' };
+    const at = new Date(`${date}T${time}:00`);
+    if (Number.isNaN(at.getTime())) return { error: 'Enter a valid time.' };
+    if (at.getTime() > Date.now() + 5 * 60000) return { error: 'That time is in the future.' };
+    return { at: at.toISOString() };
+  }
+
+  // Validates one entry's content. Returns { values: { data, title, meals, rest, notes }, errors }.
+  function diaryValues(type, input, date) {
+    const errors = {};
+    const note = clean(input.note).slice(0, 500);
+    if (clean(input.note).length > 500) errors.note = 'Keep the note under 500 characters.';
+    let data = {};
+    let title = '';
+    let meals = '';
+    let rest = '';
+    let notes = note;
+    if (type === 'meal') {
+      const menu = menuFor(date);
+      const itemIds = [...new Set(input.itemIds || [])];
+      const items = itemIds.map(id => menu.items.find(i => i.id === id));
+      if (!MEAL_TYPES[input.mealType]) errors.mealType = 'Choose the meal.';
+      if (!MEAL_AMOUNTS[input.amount]) errors.amount = 'Choose how much was eaten.';
+      if (items.some(i => !i)) errors.items = 'One of the menu items is no longer on today’s menu. Choose again.';
+      const other = clean(input.otherFood).slice(0, 120);
+      if (!items.length && !other) errors.items = menu.available ? 'Choose what was served, or describe it.' : 'Describe what was served — there is no menu for today.';
+      data = { mealType: input.mealType, items: items.filter(Boolean).map(i => ({ id: i.id, name: i.name })), otherFood: other, amount: input.amount, note };
+      const food = [...data.items.map(i => i.name), other].filter(Boolean).join(', ');
+      title = `${MEAL_TYPES[input.mealType] || 'Meal'} · ${MEAL_AMOUNTS[input.amount] || ''}`;
+      meals = `${MEAL_TYPES[input.mealType] || 'Meal'}: ${food} — ate ${String(MEAL_AMOUNTS[input.amount] || '').toLowerCase()}`;
+    } else if (type === 'toilet') {
+      if (!TOILET_TYPES[input.kind]) errors.kind = 'Choose a type.';
+      data = { kind: input.kind, note };
+      title = `Toileting · ${TOILET_TYPES[input.kind] || ''}`;
+    } else if (type === 'mood') {
+      if (!MOODS[input.mood]) errors.mood = 'Choose a mood.';
+      data = { mood: input.mood, note };
+      title = `Mood · ${MOODS[input.mood] || ''}`;
+    } else if (type === 'activity') {
+      const name = clean(input.title).slice(0, 80);
+      if (!name) errors.title = 'Give the activity a title.';
+      if (input.area && !LEARNING_AREAS.includes(input.area)) errors.area = 'Choose a learning area from the list.';
+      const description = clean(input.description).slice(0, 1000);
+      data = { title: name, area: input.area || '', description, note };
+      title = `Activity · ${name}`;
+      notes = [input.area, description, note].filter(Boolean).join(' · ');
+    } else if (type === 'note') {
+      const text = clean(input.text);
+      if (!text) errors.text = 'Write the note.';
+      else if (text.length > 1000) errors.text = 'Keep the note under 1,000 characters.';
+      data = { text: text.slice(0, 1000) };
+      title = 'Note';
+      notes = data.text;
+    } else if (type === 'nap') {
+      const s = eventTime(date, input.start);
+      const e = input.end ? eventTime(date, input.end) : { at: null };
+      if (s.error) errors.start = s.error;
+      if (e.error) errors.end = e.error;
+      if (!s.error && !e.error && e.at && e.at < s.at) errors.end = 'The end time can’t be before the start.';
+      data = { start: s.at || null, end: e.at || null, note };
+      title = data.end && data.start ? `Nap · ${fmtDuration(new Date(data.end) - new Date(data.start))}` : 'Nap · sleeping';
+      rest = data.start ? (data.end ? `Slept ${fmtTime(data.start)}–${fmtTime(data.end)} (${fmtDuration(new Date(data.end) - new Date(data.start))})` : `Asleep since ${fmtTime(data.start)}`) : '';
+    }
+    return { values: { data, title, meals, rest, notes }, errors };
+  }
+  const diaryStatus = (type, wanted) => (type === 'note' && wanted === 'internal' ? 'internal' : wanted === 'published' ? 'published' : 'draft');
+  const photoConsent = childId => getConsents(childId).find(x => x.type === 'photos-gallery')?.status === 'granted';
+
+  // Creates one record per selected child in a single write (all or nothing). Absent children are skipped and reported.
+  function saveDiaryEntries(user, { cls, date, type, childIds, time, status = 'draft', requestId = '', allergyAck = '', ...input }) {
+    if (requestId) {
+      const prior = allDiary().filter(e => e.requestId === requestId);
+      if (prior.length) return settle({ ok: true, repeated: true, entries: prior, skipped: [] });
+    }
+    if (!DIARY_TYPES[type] || type === 'photo') return settle({ ok: false, reason: 'invalid' });
+    const ctx = diaryCtx(user, cls, date, childIds);
+    if (ctx.error) return settle({ ok: false, reason: ctx.error, errors: ctx.errors });
+    if (!ctx.children.length) return settle({ ok: false, reason: 'none', skipped: ctx.skipped });
+    const t = type === 'nap' ? { at: null } : eventTime(date, time);
+    const { values, errors } = diaryValues(type, input, date);
+    if (t.error) errors.time = t.error;
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    let allergyCheck = null;
+    if (type === 'meal') {
+      const check = mealCheck(user, { childIds: ctx.children.map(c => c.id), itemIds: values.data.items.map(i => i.id), date });
+      if (check.needsAck && allergyAck !== check.signature) return settle({ ok: false, reason: 'allergy-ack', check });
+      allergyCheck = check.needsAck ? { acknowledged: true, by: user.name, byId: user.id, at: new Date().toISOString(), warnings: check.conflicts.length + check.hidden + check.unmatched.length, unknownItems: check.unknownItems } : { acknowledged: false, warnings: 0 };
+    }
+    if (type === 'nap') {
+      const day = diaryDay(cls, date);
+      const clash = ctx.children.find(c => { const row = day.rows.find(r => r.child.id === c.id); return row && row.entries.some(e => e.type === 'nap' && overlapsNap(e.data, values.data)); });
+      if (clash) return settle({ ok: false, reason: 'invalid', errors: { start: `${clash.firstName} already has a nap at that time.` } });
+    }
+    const now = new Date().toISOString();
+    const bulkId = ctx.children.length > 1 ? newId('bulk') : null;
+    const st = diaryStatus(type, status);
+    const made = ctx.children.map(c => ({
+      id: newId('dy'), childId: c.id, classId: ctx.classId, cls, date, type, at: type === 'nap' ? values.data.start : t.at,
+      status: st, ...values, data: type === 'activity' && input.perChild?.[c.id] ? { ...values.data, description: clean(input.perChild[c.id]).slice(0, 1000) } : values.data,
+      author: user.name, byId: user.id, createdAt: now, bulkId, requestId, allergyCheck,
+      publishedAt: st === 'published' ? now : null, publishedBy: st === 'published' ? user.name : null,
+      history: [{ at: now, by: user.name, action: 'created', detail: `${DIARY_TYPES[type]} · ${DIARY_STATUS[st]}` }]
+    }));
+    if (!write(diaryKey(school.id), [...allDiary(), ...made])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, `add:diary-${type}`, made.length === 1 ? made[0].childId : cls, `${made.length} ${DIARY_TYPES[type].toLowerCase()} entr${made.length === 1 ? 'y' : 'ies'}${allergyCheck?.acknowledged ? ' · allergy warning checked' : ''}`);
+    return settle({ ok: true, entries: made, skipped: ctx.skipped });
+  }
+  const overlapsNap = (a, b) => {
+    const as = new Date(a.start).getTime(); const ae = a.end ? new Date(a.end).getTime() : Infinity;
+    const bs = new Date(b.start).getTime(); const be = b.end ? new Date(b.end).getTime() : Infinity;
+    return as < be && bs < ae;
+  };
+
+  function startNaps(user, { cls, childIds, requestId = '' }) {
+    if (requestId) { const prior = allDiary().filter(e => e.requestId === requestId); if (prior.length) return settle({ ok: true, repeated: true, entries: prior, skipped: [] }); }
+    const ctx = diaryCtx(user, cls, today(), childIds);
+    if (ctx.error) return settle({ ok: false, reason: ctx.error, errors: ctx.errors });
+    const day = diaryDay(cls);
+    const skipped = [...ctx.skipped];
+    const now = new Date().toISOString();
+    const bulkId = ctx.children.length > 1 ? newId('bulk') : null;
+    const made = [];
+    ctx.children.forEach(c => {
+      if (day.rows.find(r => r.child.id === c.id)?.activeNap) { skipped.push({ id: c.id, name: c.firstName, reason: 'Already napping' }); return; }
+      made.push({ id: newId('dy'), childId: c.id, classId: ctx.classId, cls, date: today(), type: 'nap', at: now, status: 'draft', data: { start: now, end: null, note: '' }, title: 'Nap · sleeping', meals: '', rest: `Asleep since ${fmtTime(now)}`, notes: '', author: user.name, byId: user.id, createdAt: now, bulkId, requestId, history: [{ at: now, by: user.name, action: 'nap-started', detail: fmtTime(now) }] });
+    });
+    if (!made.length) return settle({ ok: false, reason: 'none', skipped });
+    if (!write(diaryKey(school.id), [...allDiary(), ...made])) return settle({ ok: false, reason: 'storage' });
+    return settle({ ok: true, entries: made, skipped });
+  }
+
+  function stopNaps(user, { cls, childIds }) {
+    if (!canEditSection(user, 'diary') || !classScope(user).includes(cls)) return settle({ ok: false, reason: 'forbidden' });
+    // Any child of this class with a running nap can be woken, even if they were later marked absent or collected.
+    const ids = new Set((childIds || []).filter(id => childById(id)?.cls === cls));
+    const all = allDiary();
+    const now = new Date().toISOString();
+    const stopped = [];
+    all.forEach(e => {
+      if (e.type !== 'nap' || e.date !== today() || e.data?.end || !ids.has(e.childId)) return;
+      e.data = { ...e.data, end: now };
+      const dur = fmtDuration(new Date(now) - new Date(e.data.start));
+      Object.assign(e, { title: `Nap · ${dur}`, rest: `Slept ${fmtTime(e.data.start)}–${fmtTime(now)} (${dur})`, updatedAt: now, updatedBy: user.name, history: [...(e.history || []), { at: now, by: user.name, action: 'nap-stopped', detail: fmtTime(now) }] });
+      stopped.push(e);
+    });
+    if (!stopped.length) return settle({ ok: false, reason: 'none' });
+    if (!write(diaryKey(school.id), all)) return settle({ ok: false, reason: 'storage' });
+    return settle({ ok: true, entries: stopped });
+  }
+
+  // Edits one entry (any date the user's class owns). The change is kept in the entry's history.
+  function updateDiaryEntry(user, entryId, { time, status, allergyAck = '', ...input }) {
+    const all = allDiary();
+    const e = all.find(x => x.id === entryId);
+    if (!e || !e.type) return settle({ ok: false, reason: 'missing' });
+    const child = childById(e.childId);
+    if (!child || !canEditSection(user, 'diary') || !classScope(user).includes(child.cls)) return settle({ ok: false, reason: 'forbidden' });
+    if (e.type === 'photo') {
+      const caption = clean(input.caption).slice(0, 200);
+      if (status === 'published' && !photoConsent(e.childId)) return settle({ ok: false, reason: 'consent', errors: { status: `${child.firstName}’s family hasn’t given photo consent, so this photo can’t be shared.` } });
+      e.data = { ...e.data, caption };
+    } else {
+      const merged = e.type === 'meal' ? { ...e.data, itemIds: input.itemIds || e.data.items.map(i => i.id), ...input } : { ...e.data, ...input };
+      const { values, errors } = diaryValues(e.type, merged, e.date);
+      const t = e.type === 'nap' ? { at: values.data.start } : time ? eventTime(e.date, time) : { at: e.at };
+      if (t.error) errors.time = t.error;
+      if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+      if (e.type === 'meal') {
+        const changedItems = mealSignature([e.childId], values.data.items.map(i => i.id)) !== mealSignature([e.childId], e.data.items.map(i => i.id));
+        const check = mealCheck(user, { childIds: [e.childId], itemIds: values.data.items.map(i => i.id), date: e.date });
+        if (changedItems && check.needsAck && allergyAck !== check.signature) return settle({ ok: false, reason: 'allergy-ack', check });
+        if (changedItems) e.allergyCheck = check.needsAck ? { acknowledged: true, by: user.name, byId: user.id, at: new Date().toISOString(), warnings: check.conflicts.length + check.hidden + check.unmatched.length, unknownItems: check.unknownItems } : { acknowledged: false, warnings: 0 };
+      }
+      if (e.type === 'nap') {
+        const others = all.filter(x => x.id !== e.id && x.childId === e.childId && x.date === e.date && x.type === 'nap');
+        if (others.some(x => overlapsNap(x.data, values.data))) return settle({ ok: false, reason: 'invalid', errors: { start: 'This overlaps another nap for the same child.' } });
+      }
+      Object.assign(e, values, { at: t.at });
+    }
+    const now = new Date().toISOString();
+    const before = e.status;
+    if (status) {
+      const st = diaryStatus(e.type, status);
+      if (before === 'internal' && st !== 'internal') return settle({ ok: false, reason: 'invalid', errors: { status: 'Staff-only notes can’t be shared with families. Write a new note instead.' } });
+      e.status = st;
+      if (st === 'published' && before !== 'published') Object.assign(e, { publishedAt: now, publishedBy: user.name });
+    }
+    Object.assign(e, { updatedAt: now, updatedBy: user.name, history: [...(e.history || []), { at: now, by: user.name, action: 'edited', detail: before !== e.status ? `${DIARY_STATUS[before]} → ${DIARY_STATUS[e.status]}` : 'Details changed' }] });
+    if (!write(diaryKey(school.id), all)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'edit:diary', e.childId, e.title);
+    return settle({ ok: true, entry: e });
+  }
+
+  // Shares drafts with families. Staff-only notes and photos without consent are skipped and reported.
+  function publishDiaryEntries(user, entryIds) {
+    const all = allDiary();
+    const now = new Date().toISOString();
+    const published = [];
+    const skipped = [];
+    [...new Set(entryIds)].forEach(id => {
+      const e = all.find(x => x.id === id);
+      const child = e && childById(e.childId);
+      if (!e || !e.type || !child || !canEditSection(user, 'diary') || !classScope(user).includes(child.cls)) { skipped.push({ id, reason: 'Not found or not yours' }); return; }
+      if (e.status === 'published') return;
+      if (e.status === 'internal') { skipped.push({ id, name: child.firstName, reason: 'Staff-only note' }); return; }
+      if (e.type === 'nap' && !e.data?.end) { skipped.push({ id, name: child.firstName, reason: 'Nap still running' }); return; }
+      if (e.type === 'photo' && !photoConsent(e.childId)) { skipped.push({ id, name: child.firstName, reason: 'No photo consent' }); return; }
+      Object.assign(e, { status: 'published', publishedAt: now, publishedBy: user.name, history: [...(e.history || []), { at: now, by: user.name, action: 'published', detail: 'Shared with family' }] });
+      published.push(e);
+    });
+    if (published.length && !write(diaryKey(school.id), all)) return settle({ ok: false, reason: 'storage' });
+    if (published.length) logAudit(user, 'publish:diary', published.length === 1 ? published[0].childId : published[0].cls, `${published.length} diary entr${published.length === 1 ? 'y' : 'ies'} shared`);
+    return settle({ ok: true, published: published.map(e => e.id), skipped });
+  }
+
+  // One photo, linked to each selected child. Several children need explicit confirmation; sharing needs every
+  // pictured child's photo consent. Stored on this device only.
+  function addDiaryPhoto(user, { cls, date, childIds, data, mime, size, caption = '', time, status = 'draft', confirmMulti = false, requestId = '' }) {
+    if (requestId) { const prior = allDiary().filter(e => e.requestId === requestId); if (prior.length) return settle({ ok: true, repeated: true, entries: prior, skipped: [] }); }
+    const ctx = diaryCtx(user, cls, date, childIds);
+    if (ctx.error) return settle({ ok: false, reason: ctx.error, errors: ctx.errors });
+    const errors = {};
+    if (!PHOTO_TYPES.includes(mime) || !new RegExp(`^data:${String(mime).replace('/', '\\/')};base64,`).test(String(data || ''))) errors.file = 'Choose a JPEG, PNG or WebP photo.';
+    else if (!(Number(size) > 0) || Number(size) > PHOTO_MAX || String(data).length > PHOTO_MAX * 1.4) errors.file = 'The photo is too large. Choose one under 1 MB.';
+    const t = eventTime(date, time);
+    if (t.error) errors.time = t.error;
+    if (!ctx.children.length) errors.children = 'Choose at least one child who is here today.';
+    if (ctx.children.length > 1 && !confirmMulti) errors.confirmMulti = 'Confirm that this photo shows every selected child.';
+    const st = status === 'published' ? 'published' : 'draft';
+    const noConsent = st === 'published' ? ctx.children.filter(c => !photoConsent(c.id)) : [];
+    if (noConsent.length) errors.status = `Can’t share: no photo consent for ${noConsent.map(c => c.firstName).join(', ')}. Save as a draft instead.`;
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const now = new Date().toISOString();
+    const photo = { id: newId('ph'), data, mime, size: Number(size), by: user.name, byId: user.id, at: now, classId: ctx.classId };
+    const cap = clean(caption).slice(0, 200);
+    const bulkId = ctx.children.length > 1 ? newId('bulk') : null;
+    const made = ctx.children.map(c => ({ id: newId('dy'), childId: c.id, classId: ctx.classId, cls, date, type: 'photo', at: t.at, status: st, data: { photoId: photo.id, caption: cap, with: ctx.children.map(x => x.id) }, title: cap ? `Photo · ${cap}` : 'Photo', meals: '', rest: '', notes: cap, author: user.name, byId: user.id, createdAt: now, bulkId, requestId, publishedAt: st === 'published' ? now : null, publishedBy: st === 'published' ? user.name : null, history: [{ at: now, by: user.name, action: 'created', detail: `Photo · ${DIARY_STATUS[st]}` }] }));
+    if (!commit([{ key: diaryPhotosKey(school.id), value: [...read(diaryPhotosKey(school.id), []), photo] }, { key: diaryKey(school.id), value: [...allDiary(), ...made] }])) return settle({ ok: false, reason: 'storage', errors: { file: 'This device has run out of space for photos. Nothing was saved.' } });
+    logAudit(user, 'add:diary-photo', made.length === 1 ? made[0].childId : cls, `${made.length} child${made.length === 1 ? '' : 'ren'}`);
+    return settle({ ok: true, entries: made, skipped: ctx.skipped });
+  }
+  // Photos are only handed to school staff who can see the diary of a pictured child.
+  function diaryPhoto(user, photoId) {
+    if (!canView(user, 'diary')) return null;
+    const linked = allDiary().filter(e => e.type === 'photo' && e.data?.photoId === photoId);
+    if (!linked.some(e => { const c = childById(e.childId); return c && classScope(user).includes(c.cls); })) return null;
+    return read(diaryPhotosKey(school.id), []).find(p => p.id === photoId)?.data || null;
+  }
+  // What the child's family would see: shared entries only; a photo also needs every pictured child's consent.
+  function familyDiary(childId) {
+    return allDiary().filter(e => e.childId === childId).map(diaryEntry)
+      .filter(e => e.status === 'published' && (e.type !== 'photo' || (e.data?.with || [e.childId]).every(photoConsent)))
+      .sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at));
+  }
+
 
   /* S17 class operations. Enrolled = active + starting-soon children (the same count S14 uses for
      capacity); present today = present + late marks in today's S19 register. */
@@ -3187,6 +3598,25 @@
     markAbsent,
     remindersFor,
     processDueReminders,
+    DIARY_TYPES,
+    DIARY_STATUS,
+    MEAL_TYPES,
+    MEAL_AMOUNTS,
+    TOILET_TYPES,
+    MOODS,
+    ALLERGENS,
+    menuFor,
+    mealCheck,
+    diaryDay,
+    diaryEntry,
+    saveDiaryEntries,
+    startNaps,
+    stopNaps,
+    updateDiaryEntry,
+    publishDiaryEntries,
+    addDiaryPhoto,
+    diaryPhoto,
+    familyDiary,
     getStaffAttendance,
     setStaffAttendance,
     canManageStaff,

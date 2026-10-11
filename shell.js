@@ -78,6 +78,18 @@
       <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
       <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></symbol>
       <symbol id="i-door" viewBox="0 0 24 24"><path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17M3 21h18"/><path d="M15 12h.01" stroke-width="3"/></symbol>
+      <symbol id="i-utensils" viewBox="0 0 24 24"><path d="M7 3v8M4 3v5a3 3 0 0 0 6 0V3M7 11v10"/><path d="M17 21V3c-2 1-3 4-3 7v3h3"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+      <symbol id="i-droplet" viewBox="0 0 24 24"><path d="M12 3s-6 6.5-6 11a6 6 0 0 0 12 0c0-4.5-6-11-6-11z"/></symbol>
+      <symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0M9 9.5h.01M15 9.5h.01" stroke-width="2"/></symbol>
+      <symbol id="i-shapes" viewBox="0 0 24 24"><rect x="3" y="13" width="8" height="8" rx="1"/><circle cx="17" cy="17" r="4"/><path d="M12 3l4.5 7.5h-9z"/></symbol>
+      <symbol id="i-note" viewBox="0 0 24 24"><path d="M5 4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v11l-6 6H6a1 1 0 0 1-1-1z"/><path d="M13 21v-5a1 1 0 0 1 1-1h5M9 8h6M9 12h4"/></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8a1 1 0 0 1 1-1h3l2-3h4l2 3h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+      <symbol id="i-mood-very-unhappy" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 17a5 5 0 0 1 8 0M8 9l2 1M16 9l-2 1"/></symbol>
+      <symbol id="i-mood-unhappy" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 16a4 4 0 0 1 6 0M9 9.5h.01M15 9.5h.01" stroke-width="2"/></symbol>
+      <symbol id="i-mood-neutral" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 15h6M9 9.5h.01M15 9.5h.01" stroke-width="2"/></symbol>
+      <symbol id="i-mood-happy" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 14.5a4 4 0 0 0 6 0M9 9.5h.01M15 9.5h.01" stroke-width="2"/></symbol>
+      <symbol id="i-mood-very-happy" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M7.5 13h9a4.5 4.5 0 0 1-9 0zM8.5 9.5l1.5-1 1.5 1M12.5 9.5l1.5-1 1.5 1"/></symbol>
     </svg>`;
 
   const NAV = [
@@ -89,7 +101,7 @@
   // App pages, in sidebar order: every catalogue module, then Notifications and Plans.
   // Every page is listed; the guard decides what each role and plan can open.
   // `plans` and `setup` are their own pages; the rest open in app.html.
-  const APP_PAGES = ['dashboard', 'children', 'families', 'roster', 'waitlist', ...store.moduleKeys, 'classes', 'notifications', 'settings', 'plans', 'setup'];
+  const APP_PAGES = ['dashboard', 'children', 'families', 'roster', 'waitlist', ...store.moduleKeys, 'classes', 'diary', 'notifications', 'settings', 'plans', 'setup'];
   const OWN_PAGES = { dashboard: { name: 'Dashboard', href: () => dash }, plans: { name: 'Plans &amp; upgrade', href: () => routes.plans() }, setup: { name: 'School setup', href: () => routes.setup } };
 
   function schoolGroupHtml(user) {

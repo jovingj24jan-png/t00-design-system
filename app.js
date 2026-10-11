@@ -42,6 +42,7 @@
   else if (window.NexoraClasses?.render(key, main, user)) { /* S17 classes */ }
   else if (window.NexoraClassDetail?.render(key, main, user)) { /* S17 class detail */ }
   else if (window.NexoraAttendance?.render(key, main, user)) { /* S19 live attendance (staff/ratio views stay in modules.js) */ }
+  else if (window.NexoraDiary?.render(key, main, user)) { /* Daily Diary & Care Log */ }
   else if (key === 'settings') renderSettings();
   else if (window.NexoraFamilies?.render(key, main, user)) { /* S15 families, S16 family detail */ }
   else if (window.NexoraEnrol?.render(key, main, user)) { /* S14 enrol, S09 waitlist, S18 rosters */ }
