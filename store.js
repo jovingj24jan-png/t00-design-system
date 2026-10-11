@@ -2054,7 +2054,9 @@
       const enrolled = enrolledIn(c.name).length;
       const entry = register[c.name];
       const present = entry ? Object.values(entry.marks).filter(m => m !== 'absent').length : null;
-      return { ...c, staff: staffOf(c.name), enrolled, capacityInfo: capacityState(enrolled, c.capacity), present, attendanceTakenAt: entry?.takenAt || null, ratioToday: classRatio(c.name, { register, staff }) };
+      // duty: today's staff attendance ('present' | 'absent' | undefined = not recorded); countedIn: the class their ratio counts in.
+      const team = staffOf(c.name).map(e => ({ id: e.id, name: e.name, duty: staff[e.id], countedIn: countedClassOf(e.id) }));
+      return { ...c, staff: team, enrolled, capacityInfo: capacityState(enrolled, c.capacity), present, onRegister: entry ? Object.keys(entry.marks).length : null, attendanceTakenAt: entry?.takenAt || null, ratioToday: classRatio(c.name, { register, staff }) };
     });
   }
 

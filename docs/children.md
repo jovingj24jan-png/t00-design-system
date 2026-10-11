@@ -216,6 +216,16 @@ announcement audiences, today's register seed, notifications and the ratio.
 Children still point at a class by **name** (`child.cls`). A rename updates children (with a history
 entry), today's register and the waitlist in one `commit()`.
 
+## Page
+
+Header: title, subtitle, yellow **Add class** (leaders only) and four summary tiles computed from the
+same card data — classes, children enrolled (with total places), classes at or near capacity, and
+classes needing staffing attention (below ratio or without staff; "not yet recorded" is listed but not
+counted). Card order: identity (name, level, ages, Mixed age, room, colour) → staff (lead + avatar
+stack; **All staff** opens a list with each person's duty today and where their ratio counts; Escape
+or click outside closes it) → Capacity → Today's ratio chip (observed `1:N` + Met / Not met, or
+Ratio unavailable with the reason) → Present today `present / on register` → View children.
+
 ## Card figures
 
 - **Enrolled** = active + starting-soon children (the same count S14 uses for capacity).
@@ -238,11 +248,17 @@ entry), today's register and the waitlist in one `commit()`.
   ratio adults and children positive whole numbers; staff must exist.
 - Lowering capacity below current enrolment returns `over-capacity` unless `confirmOverCapacity` is
   set (the modal's "Save anyway"). Children are never moved.
-- Duplicate opens the modal prefilled as "<name> (Copy)"; it gets a new ID on save and copies no
-  children, registers or history. Nothing is created until it is saved.
+- Duplicate opens the modal prefilled as "<name> (Copy)"; it gets a new ID on save and copies only
+  configuration (level, ages, mixed age, room, colour, capacity, ratio) — no staff, children, registers or history. Nothing is created until it is saved.
 - Archive re-counts enrolled children at the moment of archiving and returns `has-children` with the
   count if any. The UI checks when the action is chosen and again on confirm. Archived classes leave
   every active list, enrolment choice and audience but still resolve by name for history.
+
+## Production note
+
+This prototype has no backend; the archive and save rules live in the store so every caller goes
+through them. A real API must enforce the same rules server-side (re-count active children inside
+the archive transaction).
 
 ## Test hook
 

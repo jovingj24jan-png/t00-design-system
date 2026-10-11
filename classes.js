@@ -32,35 +32,66 @@
     const [lead, ...others] = c.staff;
     const shown = others.slice(0, 3);
     const more = others.length - shown.length;
+    const duty = e => {
+      if (e.duty === 'present' && e.countedIn && e.countedIn !== c.name) return { tone: 'na', text: `Counted in ${e.countedIn}` };
+      return { present: { tone: 'ok', text: 'On duty today' }, absent: { tone: 'off', text: 'Absent today' } }[e.duty] || { tone: 'na', text: 'Attendance not recorded' };
+    };
+    const popId = `cls-staff-${c.id}`;
     return `<div class="cls-staff">
       <span class="cls-lead"><span class="cls-av cls-av--lead" aria-hidden="true">${esc(initials(lead.name))}</span><span><b>${esc(lead.name)}</b><small>Lead teacher</small></span></span>
-      ${others.length ? `<span class="cls-others" role="img" aria-label="Also assigned: ${esc(others.map(e => e.name).join(', '))}">${shown.map(e => `<span class="cls-av" title="${esc(e.name)}" aria-hidden="true">${esc(initials(e.name))}</span>`).join('')}${more > 0 ? `<span class="cls-av cls-av--more" aria-hidden="true">+${more}</span>` : ''}</span>` : ''}
+      <span class="cls-staffwrap">
+        <button class="cls-others" type="button" aria-expanded="false" aria-controls="${esc(popId)}" data-staff-toggle aria-label="View all ${c.staff.length} staff in ${esc(c.name)}">${shown.map(e => `<span class="cls-av" aria-hidden="true">${esc(initials(e.name))}</span>`).join('')}${more > 0 ? `<span class="cls-av cls-av--more" aria-hidden="true">+${more}</span>` : ''}<span class="cls-others__all">${others.length ? 'All staff' : 'Staff'}</span></button>
+        <div class="cls-staffpop" id="${esc(popId)}" hidden>
+          <p class="cls-staffpop__title">${plural(c.staff.length, 'person', 'people')} assigned</p>
+          <ul>${c.staff.map((e, i) => { const d = duty(e); return `<li><span class="cls-av${i ? '' : ' cls-av--lead'}" aria-hidden="true">${esc(initials(e.name))}</span><span><b>${esc(e.name)}</b><small>${i ? 'Assigned staff' : 'Lead teacher'}</small></span><span class="cls-duty cls-duty--${d.tone}">${esc(d.text)}</span></li>`; }).join('')}</ul>
+        </div>
+      </span>
     </div>`;
   }
 
   function capacityBlock(c) {
     const { pct, tone } = c.capacityInfo;
-    if (pct == null) return `<div class="cls-cap"><p class="cls-cap__text"><b>${c.enrolled}</b> ${c.enrolled === 1 ? 'child' : 'children'} · capacity not set</p></div>`;
+    if (pct == null) return `<div class="cls-cap"><p class="cls-cap__text"><span class="cls-label">Capacity</span><span><b>${c.enrolled}</b> ${c.enrolled === 1 ? 'child' : 'children'} · capacity not set</span></p></div>`;
     const over = c.enrolled - c.capacity;
     const label = tone === 'full' ? (over > 0 ? `Over capacity by ${over}` : 'Full') : tone === 'near' ? 'Nearly full' : `${c.capacity - c.enrolled} ${c.capacity - c.enrolled === 1 ? 'place' : 'places'} left`;
     return `<div class="cls-cap cls-cap--${tone}">
-      <p class="cls-cap__text"><span><b>${c.enrolled} / ${c.capacity}</b> children</span><span class="cls-cap__state">${tone === 'full' ? icon('alert-triangle', 'icon--sm') : ''}${esc(label)}</span></p>
+      <p class="cls-cap__text"><span class="cls-label">Capacity</span><span class="cls-cap__count"><b>${c.enrolled} / ${c.capacity}</b><span class="sr-only"> children enrolled.</span></span></p>
       <span class="cls-bar" aria-hidden="true"><span class="cls-bar__fill" style="--fill:${Math.min(100, pct).toFixed(1)}%"></span></span>
+      <p class="cls-cap__state">${tone === 'ok' ? '' : icon('alert-triangle', 'icon--sm')}${esc(label)}</p>
       ${over > 0 ? `<p class="cls-cap__warn" role="note">${plural(c.enrolled, 'child', 'children')} enrolled for ${c.capacity} places. Nobody has been moved.</p>` : ''}
     </div>`;
   }
 
+  // Observed adults : children, reduced to "1:N" (one decimal when uneven, e.g. 2 adults for 9 → 1:4.5).
+  const observed = r => {
+    if (!r.children) return 'No children';
+    if (!r.educators) return `0:${r.children}`;
+    return `1:${Math.round((r.children / r.educators) * 10) / 10}`;
+  };
+
   function todayBlock(c) {
     const r = c.ratioToday;
-    const rule = `${c.ratio.adults} : ${c.ratio.children}`;
-    let chip;
-    if (r.status === 'ok') chip = `<span class="badge badge--success cls-ratio">${icon('check-circle', 'icon--sm')}Ratio met · ${plural(r.educators, 'adult')} for ${r.children}</span>`;
-    else if (r.status === 'breach') chip = `<span class="badge badge--error cls-ratio">${icon('alert-triangle', 'icon--sm')}Ratio not met · needs ${plural(r.required - r.educators, 'more adult', 'more adults')}</span>`;
-    else chip = `<span class="badge cls-ratio cls-ratio--na" title="${esc(r.reason)}">${icon('info', 'icon--sm')}Ratio unavailable</span>`;
+    const rule = `${c.ratio.adults}:${c.ratio.children}`;
+    let chip, note = '';
+    if (r.status === 'ok') {
+      chip = `<span class="cls-ratio cls-ratio--ok">${icon('check-circle', 'icon--sm')}<b>${esc(observed(r))}</b><span class="cls-ratio__word">Met</span></span>`;
+      note = `${plural(r.educators, 'adult')} with ${plural(r.children, 'child', 'children')}`;
+    } else if (r.status === 'breach') {
+      chip = `<span class="cls-ratio cls-ratio--breach">${icon('alert-triangle', 'icon--sm')}<b>${esc(observed(r))}</b><span class="cls-ratio__word">Not met</span></span>`;
+      note = `Needs ${plural(r.required - r.educators, 'more adult', 'more adults')} for ${plural(r.children, 'child', 'children')}`;
+    } else {
+      chip = `<span class="cls-ratio cls-ratio--na">${icon('info', 'icon--sm')}<b>Ratio unavailable</b></span>`;
+      note = r.reason;
+    }
     return `<div class="cls-today">
-      <p class="cls-today__present">${c.present == null ? `${icon('clock', 'icon--sm')}<span>Attendance not recorded</span>` : `${icon('calendar-check', 'icon--sm')}<span><b>${c.present}</b> ${c.present === 1 ? 'child' : 'children'} present today</span>`}</p>
-      <div class="cls-today__ratio">${chip}<span class="cls-rule" title="Adults : children">Rule ${esc(rule)}</span></div>
-      ${r.status === 'unavailable' ? `<p class="cls-today__why">${esc(r.reason)}.</p>` : ''}
+      <div class="cls-today__row">
+        <span class="cls-label">Today’s ratio</span>
+        ${chip}
+      </div>
+      <p class="cls-today__why"><span>${esc(note)}</span><span class="cls-rule">Rule ${esc(rule)} <span class="sr-only">adults to children</span></span></p>
+      <p class="cls-today__present">${c.present == null
+        ? `${icon('clock', 'icon--sm')}<span>Present today: <b>not recorded</b></span>`
+        : `${icon('calendar-check', 'icon--sm')}<span>Present today: <b>${c.present} / ${c.onRegister}</b></span>`}</p>
     </div>`;
   }
 
@@ -102,7 +133,8 @@
       copyName = `${copyOf.name} (Copy)`;
       for (let i = 2; all.some(c => c.name.toLowerCase() === copyName.toLowerCase()); i++) copyName = `${copyOf.name} (Copy ${i})`;
     }
-    const v = src ? { ...src, name: cls ? cls.name : copyName } : { name: '', level: '', colour: 'amber', room: '', ageMin: '', ageMax: '', mixedAge: false, capacity: '', ratio: { adults: 1, children: '' }, staffIds: [] };
+    // A duplicate copies configuration only: staff are assigned afresh, children and history stay behind.
+    const v = src ? { ...src, name: cls ? cls.name : copyName, staffIds: cls ? src.staffIds : [] } : { name: '', level: '', colour: 'amber', room: '', ageMin: '', ageMax: '', mixedAge: false, capacity: '', ratio: { adults: 1, children: '' }, staffIds: [] };
     const enrolled = cls ? store.enrolledIn(cls.name).length : 0;
     const counted = id => store.classesOfStaff(id).filter(x => !cls || x !== cls.name);
     const staffChip = e => {
@@ -112,7 +144,7 @@
     const d = kids.dialog({
       label: cls ? 'Classes / Edit' : copyOf ? 'Classes / Duplicate' : 'Classes / New',
       title: cls ? `Edit ${cls.name}` : copyOf ? `Duplicate ${copyOf.name}` : 'Add class',
-      desc: copyOf ? 'Settings are copied. Children, attendance and history stay with the original class.' : cls && enrolled ? `${plural(enrolled, 'child is', 'children are')} enrolled. Changing the class never moves children.` : '',
+      desc: copyOf ? 'Age range, room, colour, capacity and ratio are copied. Staff, children, attendance and history stay with the original class.' : cls && enrolled ? `${plural(enrolled, 'child is', 'children are')} enrolled. Changing the class never moves children.` : '',
       body: `<div class="cls-form">
         ${kids.field(n('name'), 'Class name', `<input class="input" id="${n('name')}" name="name" maxlength="60" autocomplete="off" required value="${esc(v.name)}">`, { required: true })}
         <div class="cls-form__row">
@@ -258,9 +290,10 @@
     main.innerHTML = `
       <div class="kids">
         <header class="kids-head">
-          <div class="kids-head__text"><h1 class="kids-head__title" id="page-title" tabindex="-1">Classes <span class="kids-head__count" data-total></span></h1><p class="kids-head__sub">${user.role === 'Teacher' ? 'Your classrooms, capacity and today’s staffing.' : 'Manage classrooms, capacity and today’s staffing.'}</p></div>
+          <div class="kids-head__text"><h1 class="kids-head__title" id="page-title" tabindex="-1">Classes <span class="kids-head__count" data-total></span></h1><p class="kids-head__sub">${user.role === 'Teacher' ? 'Your classrooms, capacity and today’s staffing ratios.' : 'Manage classrooms, capacity and today’s staffing ratios.'}</p></div>
           <div class="kids-head__actions">${manage ? `<button class="btn btn--primary kids-yellow" type="button" data-add>${icon('plus', 'icon--sm')}Add class</button>` : ''}</div>
         </header>
+        <section class="cls-sum" aria-label="Classes summary" data-summary hidden></section>
         <p class="sr-only" aria-live="polite" data-live></p>
         <section class="cls-grid" aria-labelledby="page-title" aria-busy="true" data-results>${skeleton()}</section>
       </div>`;
@@ -268,12 +301,33 @@
     const res = $('[data-results]');
     const scoped = () => { const scope = store.classScope(user); return store.classCards().filter(c => scope.includes(c.name)); };
 
+    function summary(list) {
+      const enrolled = list.reduce((t, c) => t + c.enrolled, 0);
+      const places = list.reduce((t, c) => t + (c.capacityInfo.pct == null ? 0 : c.capacity), 0);
+      const full = list.filter(c => c.capacityInfo.tone === 'full').length;
+      const near = list.filter(c => c.capacityInfo.tone === 'near').length;
+      const breach = list.filter(c => c.ratioToday.status === 'breach').length;
+      const unstaffed = list.filter(c => !c.staff.length).length;
+      const unknown = list.filter(c => c.ratioToday.status === 'unavailable' && c.staff.length).length;
+      const stat = (iconName, label, value, context, tone = '') => `<div class="kpi kpi--static cls-sum__item${tone ? ` kpi--${tone}` : ''}">
+          <span class="kpi__top"><span class="kpi__icon" aria-hidden="true">${icon(iconName)}</span><span class="kpi__label">${esc(label)}</span></span>
+          <span class="kpi__value">${value}</span><span class="kpi__context">${context}</span></div>`;
+      const parts = (...xs) => xs.filter(Boolean).join(' · ') || 'None right now';
+      return stat('grid', 'Classes', list.length, 'Active classes')
+        + stat('users', 'Children enrolled', enrolled, places ? `${places} places in total` : 'Capacity not set')
+        + stat('alert-triangle', 'At or near capacity', full + near, esc(parts(full && `${full} full or over`, near && `${near} nearly full`)), full ? 'alert' : near ? 'warn' : '')
+        + stat('shield', 'Staffing attention', breach + unstaffed, esc(parts(breach && `${breach} below ratio`, unstaffed && `${unstaffed} without staff`, unknown && `${unknown} not yet recorded`)), breach + unstaffed ? 'alert' : '');
+    }
+
     function draw() {
       if (!loaded) return;
       const list = scoped();
       $('[data-total]').textContent = `(${list.length})`;
       $('[data-live]').textContent = plural(list.length, 'class', 'classes');
       res.removeAttribute('aria-busy');
+      const sum = $('[data-summary]');
+      sum.hidden = !list.length;
+      sum.innerHTML = list.length ? summary(list) : '';
       if (!list.length) {
         res.innerHTML = `<div class="kids-empty cls-empty"><span class="state-icon" aria-hidden="true">${icon('grid')}</span><h2 class="kids-empty__title">${user.role === 'Teacher' ? 'No classes assigned to you' : 'No classes yet'}</h2><p>${user.role === 'Teacher' ? 'Ask your school admin to add you to a class.' : 'Add your first class to start enrolling children and taking registers.'}</p>${manage ? `<button class="btn btn--primary kids-yellow" type="button" data-add>${icon('plus', 'icon--sm')}Add class</button>` : ''}</div>`;
         return;
@@ -283,6 +337,7 @@
 
     function load() {
       loaded = false;
+      $('[data-summary]').hidden = true;
       res.setAttribute('aria-busy', 'true');
       res.innerHTML = skeleton();
       setTimeout(() => {
@@ -317,13 +372,36 @@
       if (focusBtn) b.focus();
       openMenu = null;
     }
+    let openStaff = null;
+    function closeStaff(focusBtn = false) {
+      if (!openStaff) return;
+      openStaff.setAttribute('aria-expanded', 'false');
+      document.getElementById(openStaff.getAttribute('aria-controls')).hidden = true;
+      openStaff.closest('.cls-card')?.classList.remove('has-menu');
+      if (focusBtn) openStaff.focus();
+      openStaff = null;
+    }
     main.addEventListener('click', e => {
       if (e.target.closest('[data-add]')) { classDialog(user, { onSaved: s => focusCard(s.id) }); return; }
+      const staffBtn = e.target.closest('[data-staff-toggle]');
+      if (staffBtn) {
+        const was = openStaff === staffBtn;
+        closeStaff();
+        closeMenu();
+        if (!was) {
+          staffBtn.setAttribute('aria-expanded', 'true');
+          document.getElementById(staffBtn.getAttribute('aria-controls')).hidden = false;
+          staffBtn.closest('.cls-card').classList.add('has-menu');
+          openStaff = staffBtn;
+        }
+        return;
+      }
       const menuBtn = e.target.closest('[data-menu]');
       if (menuBtn) {
         const wrap = menuBtn.closest('.menu-wrap');
         if (openMenu === wrap) { closeMenu(); return; }
         closeMenu();
+        closeStaff();
         const menu = wrap.querySelector('.menu');
         menu.hidden = false;
         menu.classList.toggle('is-up', menuBtn.getBoundingClientRect().bottom + 180 > innerHeight);
@@ -341,6 +419,7 @@
       }
     });
     main.addEventListener('keydown', e => {
+      if (openStaff && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeStaff(true); return; }
       if (!openMenu) return;
       const items = [...openMenu.querySelectorAll('.menu button')];
       const i = items.indexOf(document.activeElement);
@@ -350,7 +429,10 @@
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(true); }
       if (e.key === 'Tab') closeMenu();
     });
-    document.addEventListener('click', e => { if (openMenu && !openMenu.contains(e.target)) closeMenu(); });
+    document.addEventListener('click', e => {
+      if (openMenu && !openMenu.contains(e.target)) closeMenu();
+      if (openStaff && !openStaff.parentElement.contains(e.target)) closeStaff();
+    });
 
     let queued = false;
     store.subscribe(({ key }) => {
@@ -360,6 +442,8 @@
       requestAnimationFrame(() => {
         queued = false;
         const had = document.activeElement?.dataset?.menu;
+        openMenu = null;
+        openStaff = null;
         draw();
         if (had) res.querySelector(`[data-menu="${CSS.escape(had)}"]`)?.focus();
       });
