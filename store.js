@@ -197,6 +197,7 @@
     waitlist: { name: 'Waitlist', icon: 'clock', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Children waiting for a seat in a full class.' },
     families: { name: 'Families', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Families as a unit: households, guardians, children and parent-app access.' },
     statement: { name: 'Family statement', icon: 'wallet', roles: ['Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Invoices and payments for one family, with a running balance.' },
+    meetings: { name: 'Parent–Teacher Meetings', icon: 'calendar-check', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Teacher availability, family bookings and conference records with agreed actions.' },
     forms: { name: 'Forms & Permissions', icon: 'list', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Surveys, permission slips and acknowledgements, with signatures, reminders and results.' },
     messages: { name: 'Messages', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Conversations with families, colleagues and class groups. (?family= shows one family’s message log.)' },
     family: { name: 'Family', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'One family: households, guardians, children, parent app and balance.' },
@@ -696,6 +697,7 @@
     incidents: { view: ['Director', 'Super Admin'], edit: [], module: 'safeguarding' },
     documents: { view: CLASS_STAFF, edit: LEADERS },
     consents: { view: CLASS_STAFF, edit: LEADERS },
+    conferences: { view: CLASS_STAFF, edit: [] },
     billing: { view: ['Director', 'Accountant', 'Admin', 'Super Admin'], edit: [], module: 'fees' }
   };
   const canView = (user, section) => Boolean(PROFILE_ACCESS[section]?.view.includes(user.role));
@@ -5381,6 +5383,390 @@
     return { csv: `﻿${[header, ...rows].map(r => r.map(cell).join(',')).join('\r\n')}`, rows: rows.length, filename: `${f.type}-form-responses-${stamp}.csv` };
   }
 
+  /* Parent–teacher meetings & conference records (meetings.js at ?page=meetings)
+     Slots `nexora-ptm-slots:<school>` { id, teacherId (educator), date, start, end, mode: both|in_person|video,
+       status: active|removed, createdBy, createdAt, demo }. Booked/open/past is never stored on the slot: it comes from
+       the bookings, so a booked slot can't be shown as open and a cancelled booking frees its slot automatically.
+     Bookings `nexora-ptm-bookings:<school>` { id, slotId, teacherId, date, start, end, familyId, childId, mode, topic,
+       internalNote, location, videoLink, status: upcoming|completed|cancelled|no_show, clientId, notifications[],
+       createdBy, createdAt, cancelledAt, cancelledBy, reopened, demo } — at most one non-cancelled booking per slot.
+     Records `nexora-ptm-records:<school>` { id, bookingId, childId, familyId, teacherId, date, topic, notes, strengths,
+       concerns, familySummary, shareStrengths, followUpDate, actions: [{ id, text, owner: { kind: staff|family, id },
+       due, done, doneAt, learningRef, share }], shared, sharedAt, sharedBy, shareHistory[], createdBy, createdAt,
+       updatedAt } — one per booking. Families only ever see familyConferenceView(): the family summary, strengths if
+       chosen, and actions marked to share. Notes and concerns are never included.
+     Prototype: bookings are checked and written in one synchronous store operation, which stops double booking inside
+     this browser; real multi-user safety needs a server-side atomic write. Families have no app, so notices are
+     recorded as queued (demo) or skipped, never as delivered. */
+  const ptmSlotsKey = id => `nexora-ptm-slots:${id}`;
+  const ptmBookingsKey = id => `nexora-ptm-bookings:${id}`;
+  const ptmRecordsKey = id => `nexora-ptm-records:${id}`;
+  const MEETING_MODES = { in_person: 'In person', video: 'Video' };
+  const SLOT_MODES = { both: 'In person or video', in_person: 'In person only', video: 'Video only' };
+  const BOOKING_STATUSES = { upcoming: 'Upcoming', completed: 'Completed', cancelled: 'Cancelled', no_show: 'No-show' };
+  const SLOT_LENGTHS = [10, 15, 20];
+  const canUseMeetings = user => can(user, 'meetings');
+  const educatorOf = user => educators.find(e => e.userId === user.id) || null;
+  const meetingTeachers = user => (LEADERS.includes(user.role) ? educators.slice() : [educatorOf(user)].filter(Boolean));
+  const canTeachFor = (user, teacherId) => LEADERS.includes(user.role) || educatorOf(user)?.id === teacherId;
+  const teacherName = id => educators.find(e => e.id === id)?.name || 'Teacher';
+  const teacherLocation = id => { const c = activeClasses().find(x => x.staffIds.includes(id)); return c?.room ? `${c.room}` : 'School office'; };
+  const slotStart = s => new Date(`${s.date}T${s.start}:00`);
+  const ptmTime = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const isoDay = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const addDaysIso = (s, n) => { const d = new Date(`${s}T12:00:00`); d.setDate(d.getDate() + n); return isoDay(d); };
+  const familyDelivery = familyId => { const f = listFamilies().find(x => x.id === familyId); const app = getParentApp(); return f && f.guardians.some(g => accountOf(app, g.id).status === 'active') ? 'queued (demo — not delivered)' : 'skipped: no parent-app account'; };
+
+  function seedMeetings() {
+    const day = n => addDaysIso(today(), n);
+    let d1 = 1; while (!schoolDay(day(d1)).open) d1 += 1;
+    let d2 = d1 + 1; while (!schoolDay(day(d2)).open) d2 += 1;
+    const past = day(-3);
+    const at = atToday(9, 0, -5);
+    const slots = [];
+    const mkSlots = (teacherId, date, from, n, mode = 'both') => { for (let k = 0; k < n; k += 1) { const s = toMinutes(from) + k * 15; slots.push({ id: `ps-${teacherId.slice(3)}-${date}-${k}`, teacherId, date, start: ptmTime(s), end: ptmTime(s + 15), mode, status: 'active', createdBy: 'Mrs. Rao', createdAt: at, demo: true }); } };
+    mkSlots('ed-lakshmi', day(d1), '13:30', 7);
+    mkSlots('ed-arjun', day(d1), '13:30', 6);
+    mkSlots('ed-lakshmi', day(d2), '14:00', 6, 'video');
+    mkSlots('ed-lakshmi', past, '13:30', 4);
+    const fams = listFamilies();
+    const famWith = (cls, skip = 0) => fams.filter(f => f.children.some(c => c.status === 'active' && c.cls === cls))[skip];
+    const kidIn = (f, cls) => f.children.find(c => c.status === 'active' && c.cls === cls);
+    const book = (id, slot, f, cls, extra) => { const k = kidIn(f, cls); return { id, slotId: slot.id, teacherId: slot.teacherId, date: slot.date, start: slot.start, end: slot.end, familyId: f.id, childId: k.id, mode: 'in_person', topic: '', internalNote: '', location: teacherLocation(slot.teacherId), videoLink: '', status: 'upcoming', clientId: id, notifications: [{ kind: 'booked', at, result: familyDelivery(f.id) }], createdBy: 'Mrs. Rao', createdAt: at, demo: true, ...extra }; };
+    const A = 'Montessori A';
+    const U = 'UKG A';
+    const fa0 = famWith(A, 0); const fa1 = famWith(A, 1); const fa2 = famWith(A, 2); const fu0 = famWith(U, 0);
+    const bookings = [];
+    if (fa0) bookings.push(book('pb-demo-1', slots[0], fa0, A, { topic: 'Settling in and friendships' }));
+    if (fa1) bookings.push(book('pb-demo-2', slots[2], fa1, A, { topic: 'Practical life progress', mode: 'in_person' }));
+    if (fu0) bookings.push(book('pb-demo-3', slots.find(s => s.teacherId === 'ed-arjun'), fu0, U, { topic: 'Early reading' }));
+    const pastSlots = slots.filter(s => s.date === past);
+    if (fa2) bookings.push(book('pb-demo-4', pastSlots[0], fa2, A, { topic: 'Term review', status: 'completed', completedAt: atToday(14, 0, -3) }));
+    if (fa1) bookings.push(book('pb-demo-5', pastSlots[1], fa1, A, { topic: 'Term review', status: 'cancelled', cancelledAt: atToday(10, 0, -4), cancelledBy: 'Mrs. Rao', reopened: false, notifications: [{ kind: 'booked', at, result: familyDelivery(fa1.id) }, { kind: 'cancelled', at: atToday(10, 0, -4), result: familyDelivery(fa1.id) }] }));
+    const records = [];
+    const done = bookings.find(b => b.id === 'pb-demo-4');
+    if (done) {
+      const f = fams.find(x => x.id === done.familyId);
+      const g = f.primary || f.guardians[0];
+      records.push({ id: 'pr-demo-1', bookingId: done.id, childId: done.childId, familyId: done.familyId, teacherId: done.teacherId, date: done.date, topic: 'Term review',
+        notes: 'Parents mentioned a new baby sibling at home; some tiredness in the mornings. Keep an eye on rest time.', strengths: 'Concentrates for long periods with the pink tower and knobbed cylinders. Kind to younger children.',
+        concerns: 'Reluctant to join group circle time.', familySummary: 'A lovely term — your child is focused and caring, and is growing in confidence. We agreed a few small steps to help with group time.', shareStrengths: true, followUpDate: day(14),
+        actions: [
+          { id: 'pa-1', text: 'Invite to help set up circle time twice a week', owner: { kind: 'staff', id: done.teacherId }, due: day(-1), done: false, doneAt: null, learningRef: '', share: true },
+          { id: 'pa-2', text: 'Read a picture book about new siblings at home', owner: { kind: 'family', id: g?.id || '' }, due: day(7), done: false, doneAt: null, learningRef: '', share: true },
+          { id: 'pa-3', text: 'Share rest-time notes in the daily diary for two weeks', owner: { kind: 'staff', id: done.teacherId }, due: day(-2), done: true, doneAt: atToday(15, 0, -2), learningRef: '', share: false }
+        ], shared: false, sharedAt: null, sharedBy: null, shareHistory: [], createdBy: 'Ms. Lakshmi', createdAt: atToday(15, 0, -3), updatedAt: atToday(15, 0, -2), demo: true });
+    }
+    return { slots, bookings, records };
+  }
+  function ptmData() {
+    const saved = read(ptmSlotsKey(school.id), null);
+    if (saved) return { slots: saved, bookings: read(ptmBookingsKey(school.id), []), records: read(ptmRecordsKey(school.id), []) };
+    const s = seedMeetings();
+    try {
+      localStorage.setItem(ptmSlotsKey(school.id), JSON.stringify(s.slots));
+      localStorage.setItem(ptmBookingsKey(school.id), JSON.stringify(s.bookings));
+      localStorage.setItem(ptmRecordsKey(school.id), JSON.stringify(s.records));
+    } catch { /* in memory */ }
+    return s;
+  }
+  const activeBookingFor = (slotId, bookings) => bookings.find(b => b.slotId === slotId && b.status !== 'cancelled') || null;
+  function slotState(s, bookings, now = Date.now()) {
+    if (s.status === 'removed') return 'unavailable';
+    if (activeBookingFor(s.id, bookings)) return 'booked';
+    if (slotStart(s).getTime() <= now) return 'past';
+    return 'open';
+  }
+  const canSeeBooking = (user, b) => LEADERS.includes(user.role) || educatorOf(user)?.id === b.teacherId || classScope(user).includes(childById(b.childId)?.cls);
+
+  // Slots between two dates with their state; booking details only for people allowed to see them.
+  function meetingSlots(user, { from, to, teacherIds = null } = {}) {
+    if (!canUseMeetings(user)) return [];
+    const { slots, bookings } = ptmData();
+    const now = Date.now();
+    return slots.filter(s => s.date >= from && s.date <= to && (!teacherIds || teacherIds.includes(s.teacherId))).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start)).map(s => {
+      const b = activeBookingFor(s.id, bookings);
+      const cancelled = bookings.filter(x => x.slotId === s.id && x.status === 'cancelled');
+      return { ...s, state: slotState(s, bookings, now), booking: b && canSeeBooking(user, b) ? b : null, bookedHidden: Boolean(b && !canSeeBooking(user, b)), cancelledCount: cancelled.length };
+    });
+  }
+  const openSlotsFor = (user, teacherId, mode = '') => meetingSlots(user, { from: today(), to: '9999-12-31', teacherIds: [teacherId] }).filter(s => s.state === 'open' && (!mode || s.mode === 'both' || s.mode === mode));
+
+  // One algorithm for the preview and for creating, so the preview always matches what's saved.
+  function planSlots(user, input = {}) {
+    const errors = {};
+    const allowed = meetingTeachers(user).map(e => e.id);
+    const teacherIds = [...new Set(input.teacherIds || [])].filter(id => allowed.includes(id));
+    const from = clean(input.from);
+    const to = clean(input.to);
+    const len = Number(input.length);
+    const gap = Number(input.gap);
+    const days = (input.weekdays || ['mon', 'tue', 'wed', 'thu', 'fri']).filter(d => WEEKDAYS.includes(d));
+    const mode = SLOT_MODES[input.mode] ? input.mode : 'both';
+    const hoursOnly = input.hoursOnly !== false;
+    if (!teacherIds.length) errors.teachers = 'Choose at least one teacher.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) errors.from = 'Choose a start date.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) errors.to = 'Choose an end date.';
+    if (!errors.from && !errors.to && from > to) errors.to = 'The end date must be on or after the start date.';
+    if (!errors.from && !errors.to && from <= to && (new Date(`${to}T12:00:00`) - new Date(`${from}T12:00:00`)) / 864e5 > 30) errors.to = 'Choose a range of 31 days or fewer.';
+    if (!errors.to && to && to < today()) errors.to = 'The date range is in the past.';
+    if (!/^\d{2}:\d{2}$/.test(input.start || '')) errors.start = 'Choose a start time.';
+    if (!/^\d{2}:\d{2}$/.test(input.end || '')) errors.end = 'Choose an end time.';
+    if (!errors.start && !errors.end && toMinutes(input.start) >= toMinutes(input.end)) errors.end = 'The end time must be after the start time.';
+    if (!SLOT_LENGTHS.includes(len)) errors.length = 'Choose 10, 15 or 20 minutes.';
+    if (!Number.isInteger(gap) || gap < 0) errors.gap = 'The break can’t be negative.';
+    else if (gap > 60) errors.gap = 'Keep breaks to 60 minutes or less.';
+    if (!days.length) errors.weekdays = 'Choose at least one weekday.';
+    const empty = { slots: [], teachers: teacherIds.length, days: 0, skipped: { exists: 0, hours: 0, past: 0 }, closedDays: [], samples: {}, errors };
+    if (Object.keys(errors).length) return empty;
+    const { slots: existing } = ptmData();
+    const now = Date.now();
+    const out = [];
+    const skipped = { exists: 0, hours: 0, past: 0 };
+    const closed = new Set();
+    const usedDays = new Set();
+    const samples = {};
+    for (let d = from; d <= to; d = addDaysIso(d, 1)) {
+      if (!days.includes(weekdayOf(d))) continue;
+      const sd = schoolDay(d);
+      if (!sd.open) { closed.add(`${d} (${sd.name})`); continue; }
+      teacherIds.forEach(tid => {
+        const shift = shiftOf(tid, d);
+        for (let t = toMinutes(input.start); t + len <= toMinutes(input.end); t += len + gap) {
+          const s = { teacherId: tid, date: d, start: ptmTime(t), end: ptmTime(t + len) };
+          if (slotStart(s).getTime() <= now) { skipped.past += 1; continue; }
+          if (hoursOnly && (!shift || t < toMinutes(shift.start) || t + len > toMinutes(shift.end))) { skipped.hours += 1; continue; }
+          if (existing.some(x => x.status !== 'removed' && x.teacherId === tid && x.date === d && overlaps(x, s)) || out.some(x => x.teacherId === tid && x.date === d && overlaps(x, s))) { skipped.exists += 1; continue; }
+          out.push({ ...s, mode });
+          usedDays.add(d);
+          (samples[tid] = samples[tid] || []).push(`${d} ${s.start}–${s.end}`);
+        }
+      });
+    }
+    return { slots: out, teachers: teacherIds.length, days: usedDays.size, skipped, closedDays: [...closed], samples, errors, hoursOnly };
+  }
+  function createSlots(user, input) {
+    if (!canUseMeetings(user)) return settle({ ok: false, reason: 'forbidden' });
+    const plan = planSlots(user, input);
+    if (Object.keys(plan.errors).length) return settle({ ok: false, reason: 'invalid', errors: plan.errors });
+    if (!plan.slots.length) return settle({ ok: false, reason: 'invalid', errors: { form: 'No new slots can be created with these settings — they already exist, are in the past, or fall outside working hours.' } });
+    const { slots } = ptmData();
+    const now = new Date().toISOString();
+    const made = plan.slots.map(s => ({ id: newId('ps'), ...s, status: 'active', createdBy: user.name, createdAt: now }));
+    if (!write(ptmSlotsKey(school.id), [...slots, ...made])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'create:ptm-slots', '', `${made.length} slots for ${plan.teachers} teacher(s)`);
+    const sk = plan.skipped;
+    return settle({ ok: true, created: made.length, skipped: sk.exists + sk.hours + sk.past, detail: sk });
+  }
+  function removeSlot(user, slotId) {
+    const { slots, bookings } = ptmData();
+    const s = slots.find(x => x.id === slotId);
+    if (!s) return settle({ ok: false, reason: 'missing' });
+    if (!canTeachFor(user, s.teacherId)) return settle({ ok: false, reason: 'forbidden' });
+    if (activeBookingFor(slotId, bookings)) return settle({ ok: false, reason: 'booked' });
+    s.status = 'removed';
+    return settle(write(ptmSlotsKey(school.id), slots) ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+
+  // Checks and writes in one step against the latest stored data, so two forms (or a double click) can't both book
+  // the same slot here. A repeated clientId returns the first booking instead of creating another.
+  function bookMeeting(user, input = {}) {
+    if (!canUseMeetings(user)) return settle({ ok: false, reason: 'forbidden' });
+    const { slots, bookings } = ptmData();
+    if (input.clientId) { const again = bookings.find(b => b.clientId === input.clientId); if (again) return settle({ ok: true, booking: again, repeated: true }); }
+    const errors = {};
+    const s = slots.find(x => x.id === input.slotId);
+    if (!s) errors.slotId = 'Choose a time.';
+    else if (!canTeachFor(user, s.teacherId)) return settle({ ok: false, reason: 'forbidden' });
+    const fam = listFamilies().find(f => f.id === input.familyId);
+    if (!fam) errors.familyId = 'Choose a family.';
+    const child = fam?.children.find(c => c.id === input.childId && c.status === 'active');
+    if (fam && !child) errors.childId = 'Choose a child in this family.';
+    else if (child && !LEADERS.includes(user.role) && !classScope(user).includes(child.cls)) errors.childId = 'You can only book for children in your classes.';
+    const mode = MEETING_MODES[input.mode] ? input.mode : '';
+    if (!mode) errors.mode = 'Choose in person or video.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    if (s.status === 'removed') return settle({ ok: false, reason: 'conflict', errors: { slotId: 'This time is no longer available. Please choose another time.' } });
+    if (activeBookingFor(s.id, bookings)) return settle({ ok: false, reason: 'conflict', errors: { slotId: 'This slot has just been booked. Please choose another time.' } });
+    if (slotStart(s).getTime() <= Date.now()) return settle({ ok: false, reason: 'conflict', errors: { slotId: 'This time has passed. Please choose another time.' } });
+    if (s.mode !== 'both' && s.mode !== mode) return settle({ ok: false, reason: 'invalid', errors: { mode: `This slot is ${SLOT_MODES[s.mode].toLowerCase()}.` } });
+    const dup = bookings.find(b => b.status === 'upcoming' && b.childId === child.id && b.teacherId === s.teacherId && b.date === s.date);
+    if (dup) return settle({ ok: false, reason: 'invalid', errors: { childId: `${child.firstName || child.name} already has a meeting with ${teacherName(s.teacherId)} that day at ${dup.start}.` } });
+    const videoLink = clean(input.videoLink);
+    if (videoLink && !/^https:\/\/[^\s]+\.[^\s]+$/.test(videoLink)) return settle({ ok: false, reason: 'invalid', errors: { videoLink: 'Enter a full https:// link, or leave it empty.' } });
+    const now = new Date().toISOString();
+    const b = { id: newId('pb'), slotId: s.id, teacherId: s.teacherId, date: s.date, start: s.start, end: s.end, familyId: fam.id, childId: child.id, mode, topic: clean(input.topic).slice(0, 200), internalNote: String(input.internalNote || '').trim().slice(0, 1000),
+      location: mode === 'in_person' ? teacherLocation(s.teacherId) : '', videoLink: mode === 'video' ? videoLink : '', status: 'upcoming', clientId: clean(input.clientId) || newId('cl'), notifications: [{ kind: 'booked', at: now, result: familyDelivery(fam.id) }], createdBy: user.name, createdById: user.id, createdAt: now };
+    if (!write(ptmBookingsKey(school.id), [...bookings, b])) return settle({ ok: false, reason: 'storage' });
+    const tUser = educators.find(e => e.id === s.teacherId)?.userId;
+    if (tUser && tUser !== user.id) notifyUsers({ module: 'meetings', kind: 'meeting', title: `Meeting booked: ${child.name}`, body: `${s.date} ${s.start} · ${MEETING_MODES[mode]} · booked by ${user.name}`, recordType: 'meeting', recordId: b.id, dedupeKey: `ptm-booked:${b.id}`, actorId: user.id }, { toUserIds: [tUser] });
+    logAudit(user, 'book:ptm', child.id, `${teacherName(s.teacherId)} ${s.date} ${s.start}`);
+    return settle({ ok: true, booking: b });
+  }
+  function cancelMeeting(user, id, { keepOpen = true, reason = '' } = {}) {
+    const { slots, bookings } = ptmData();
+    const b = bookings.find(x => x.id === id);
+    if (!b) return settle({ ok: false, reason: 'missing' });
+    if (!canTeachFor(user, b.teacherId) && !LEADERS.includes(user.role)) return settle({ ok: false, reason: 'forbidden' });
+    if (b.status === 'cancelled') return settle({ ok: false, reason: 'already' });
+    if (b.status !== 'upcoming') return settle({ ok: false, reason: 'locked' });
+    const s = slots.find(x => x.id === b.slotId);
+    const future = s && slotStart(s).getTime() > Date.now();
+    const now = new Date().toISOString();
+    const reopened = Boolean(keepOpen && future && s.status !== 'removed');
+    if (s && !reopened && future) s.status = 'removed';
+    Object.assign(b, { status: 'cancelled', cancelledAt: now, cancelledBy: user.name, cancelReason: clean(reason).slice(0, 200), reopened });
+    const result = familyDelivery(b.familyId);
+    b.notifications = [...(b.notifications || []), { kind: 'cancelled', at: now, result }];
+    if (!commit([{ key: ptmBookingsKey(school.id), value: bookings }, { key: ptmSlotsKey(school.id), value: slots }])) return settle({ ok: false, reason: 'storage' });
+    const tUser = educators.find(e => e.id === b.teacherId)?.userId;
+    if (tUser && tUser !== user.id) notifyUsers({ module: 'meetings', kind: 'meeting', title: `Meeting cancelled: ${childById(b.childId)?.firstName || 'a child'}`, body: `${b.date} ${b.start} · cancelled by ${user.name}`, recordType: 'meeting', recordId: b.id, dedupeKey: `ptm-cancel:${b.id}`, actorId: user.id }, { toUserIds: [tUser] });
+    logAudit(user, 'cancel:ptm', b.childId, `${b.date} ${b.start}${reopened ? ' (slot reopened)' : ''}`);
+    return settle({ ok: true, booking: b, reopened, notification: result, past: !future });
+  }
+  function setMeetingOutcome(user, id, status) {
+    const { bookings } = ptmData();
+    const b = bookings.find(x => x.id === id);
+    if (!b) return settle({ ok: false, reason: 'missing' });
+    if (!canTeachFor(user, b.teacherId)) return settle({ ok: false, reason: 'forbidden' });
+    if (!['completed', 'no_show', 'upcoming'].includes(status)) return settle({ ok: false, reason: 'invalid' });
+    if (b.status === 'cancelled') return settle({ ok: false, reason: 'locked' });
+    if (status !== 'upcoming' && slotStart(b).getTime() > Date.now()) return settle({ ok: false, reason: 'early' });
+    Object.assign(b, { status, completedAt: status === 'completed' ? new Date().toISOString() : null, outcomeBy: user.name });
+    return settle(write(ptmBookingsKey(school.id), bookings) ? { ok: true, booking: b } : { ok: false, reason: 'storage' });
+  }
+  function setMeetingVideoLink(user, id, url) {
+    const { bookings } = ptmData();
+    const b = bookings.find(x => x.id === id);
+    if (!b) return settle({ ok: false, reason: 'missing' });
+    if (!canTeachFor(user, b.teacherId)) return settle({ ok: false, reason: 'forbidden' });
+    const v = clean(url);
+    if (v && !/^https:\/\/[^\s]+\.[^\s]+$/.test(v)) return settle({ ok: false, reason: 'invalid', errors: { videoLink: 'Enter a full https:// link, or leave it empty.' } });
+    b.videoLink = v.slice(0, 300);
+    return settle(write(ptmBookingsKey(school.id), bookings) ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+  function meetingBookings(user) {
+    if (!canUseMeetings(user)) return [];
+    return ptmData().bookings.filter(b => canSeeBooking(user, b)).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+  }
+
+  const conferenceActionStatus = a => (a.done ? 'completed' : a.due && a.due < today() ? 'overdue' : 'pending');
+  const canSeeRecord = (user, r) => canUseMeetings(user) && (LEADERS.includes(user.role) || educatorOf(user)?.id === r.teacherId || classScope(user).includes(childById(r.childId)?.cls));
+  const canEditRecord = (user, r) => canUseMeetings(user) && (LEADERS.includes(user.role) || educatorOf(user)?.id === r.teacherId);
+  const conferenceRecords = user => ptmData().records.filter(r => canSeeRecord(user, r)).sort((a, b) => b.date.localeCompare(a.date));
+  const conferenceRecordsForChild = (user, childId) => (canView(user, 'conferences') ? conferenceRecords(user).filter(r => r.childId === childId) : []);
+  function actionOwners(familyId, teacherId) {
+    const fam = listFamilies().find(f => f.id === familyId);
+    return [...educators.filter(e => !e.relief || e.id === teacherId).map(e => ({ kind: 'staff', id: e.id, name: e.name, label: `${e.name} (staff)` })), ...(fam?.guardians || []).map(g => ({ kind: 'family', id: g.id, name: g.name, label: `${g.name} (family)` }))];
+  }
+  const ownerName = o => (o?.kind === 'family' ? guardianById(o.id)?.name || 'Family' : teacherName(o?.id));
+
+  function recordValues(input, base) {
+    const errors = {};
+    const owners = actionOwners(base.familyId, base.teacherId);
+    const learning = getLearning(base.childId);
+    const actions = (input.actions || []).slice(0, 30).map((a, i) => {
+      const text = clean(a.text).slice(0, 300);
+      const due = clean(a.due);
+      const owner = owners.find(o => o.kind === a.owner?.kind && o.id === a.owner?.id);
+      if (!text) errors[`action-${i}`] = 'Describe the action.';
+      else if (!owner) errors[`action-${i}`] = 'Choose who will do this.';
+      else if (due && !/^\d{4}-\d{2}-\d{2}$/.test(due)) errors[`action-${i}`] = 'Enter a valid due date.';
+      return { id: clean(a.id) || newId('pa'), text, owner: owner ? { kind: owner.kind, id: owner.id } : null, due, done: Boolean(a.done), doneAt: a.done ? a.doneAt || new Date().toISOString() : null, learningRef: learning.some(l => l.id === a.learningRef) ? a.learningRef : '', share: Boolean(a.share) };
+    });
+    const followUpDate = clean(input.followUpDate);
+    if (followUpDate && !/^\d{4}-\d{2}-\d{2}$/.test(followUpDate)) errors.followUpDate = 'Enter a valid date.';
+    const v = { topic: clean(input.topic).slice(0, 200), notes: String(input.notes || '').trim().slice(0, 4000), strengths: String(input.strengths || '').trim().slice(0, 2000), concerns: String(input.concerns || '').trim().slice(0, 2000), familySummary: String(input.familySummary || '').trim().slice(0, 2000), shareStrengths: Boolean(input.shareStrengths), followUpDate, actions };
+    if (!v.notes && !v.strengths && !v.concerns && !v.familySummary && !actions.length) errors.notes = 'Add at least a note, a summary or an action.';
+    return { v, errors };
+  }
+  // Create (from a meeting that has started) or update a record. One record per meeting.
+  function saveConferenceRecord(user, input = {}, id = null) {
+    if (!canUseMeetings(user)) return settle({ ok: false, reason: 'forbidden' });
+    const data = ptmData();
+    let r = id ? data.records.find(x => x.id === id) : data.records.find(x => x.bookingId === input.bookingId);
+    let b = null;
+    if (r) { if (!canEditRecord(user, r)) return settle({ ok: false, reason: 'forbidden' }); }
+    else {
+      b = data.bookings.find(x => x.id === input.bookingId);
+      if (!b) return settle({ ok: false, reason: 'missing' });
+      if (!canTeachFor(user, b.teacherId)) return settle({ ok: false, reason: 'forbidden' });
+      if (b.status === 'cancelled') return settle({ ok: false, reason: 'locked' });
+      if (slotStart(b).getTime() > Date.now()) return settle({ ok: false, reason: 'early' });
+    }
+    const base = r || { familyId: b.familyId, teacherId: b.teacherId, childId: b.childId };
+    const { v, errors } = recordValues(input, base);
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const now = new Date().toISOString();
+    if (r) Object.assign(r, v, { updatedAt: now, updatedBy: user.name });
+    else {
+      r = { id: newId('pr'), bookingId: b.id, childId: b.childId, familyId: b.familyId, teacherId: b.teacherId, date: b.date, ...v, topic: v.topic || b.topic, shared: false, sharedAt: null, sharedBy: null, shareHistory: [], createdBy: user.name, createdAt: now, updatedAt: now };
+      data.records.push(r);
+      if (b.status === 'upcoming') Object.assign(b, { status: 'completed', completedAt: now, outcomeBy: user.name });
+    }
+    if (!commit([{ key: ptmRecordsKey(school.id), value: data.records }, { key: ptmBookingsKey(school.id), value: data.bookings }])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, id ? 'edit:conference' : 'create:conference', r.childId, r.topic || 'Conference record');
+    return settle({ ok: true, record: r });
+  }
+  function setConferenceAction(user, recordId, actionId, patch = {}) {
+    const data = ptmData();
+    const r = data.records.find(x => x.id === recordId);
+    if (!r) return settle({ ok: false, reason: 'missing' });
+    if (!canEditRecord(user, r)) return settle({ ok: false, reason: 'forbidden' });
+    const i = r.actions.findIndex(a => a.id === actionId);
+    if (i < 0) return settle({ ok: false, reason: 'missing' });
+    if (patch.remove) r.actions.splice(i, 1);
+    else if ('done' in patch) Object.assign(r.actions[i], { done: Boolean(patch.done), doneAt: patch.done ? new Date().toISOString() : null });
+    r.updatedAt = new Date().toISOString();
+    return settle(write(ptmRecordsKey(school.id), data.records) ? { ok: true, record: r } : { ok: false, reason: 'storage' });
+  }
+  // Exactly what the family would see. Internal notes and concerns are never part of it.
+  function familyConferenceView(record) {
+    if (!record) return null;
+    const child = childById(record.childId);
+    return {
+      date: record.date, teacher: teacherName(record.teacherId), child: child ? childName(child) : '', topic: record.topic,
+      summary: record.familySummary, strengths: record.shareStrengths ? record.strengths : '',
+      actions: record.actions.filter(a => a.share).map(a => ({ text: a.text, owner: a.owner?.kind === 'family' ? ownerName(a.owner) : `${ownerName(a.owner)} (school)`, due: a.due, status: conferenceActionStatus(a) }))
+    };
+  }
+  function shareConferenceRecord(user, id, on) {
+    const data = ptmData();
+    const r = data.records.find(x => x.id === id);
+    if (!r) return settle({ ok: false, reason: 'missing' });
+    if (!canEditRecord(user, r)) return settle({ ok: false, reason: 'forbidden' });
+    if (Boolean(r.shared) === Boolean(on)) return settle({ ok: true, record: r, repeated: true });
+    const fv = familyConferenceView(r);
+    if (on && !fv.summary && !fv.strengths && !fv.actions.length) return settle({ ok: false, reason: 'invalid', errors: { share: 'Nothing is marked to share yet. Write a family summary or mark actions to share.' } });
+    const now = new Date().toISOString();
+    const result = on ? familyDelivery(r.familyId) : '';
+    Object.assign(r, { shared: Boolean(on), sharedAt: on ? now : r.sharedAt, sharedBy: on ? user.name : r.sharedBy, unsharedAt: on ? null : now });
+    r.shareHistory = [...(r.shareHistory || []), { at: now, by: user.name, shared: Boolean(on), result }];
+    if (!write(ptmRecordsKey(school.id), data.records)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, on ? 'share:conference' : 'unshare:conference', r.childId, r.topic || '');
+    return settle({ ok: true, record: r, notification: result });
+  }
+  function meetingSummary(user) {
+    const now = Date.now();
+    const slots = meetingSlots(user, { from: today(), to: '9999-12-31' });
+    const bookings = meetingBookings(user);
+    const soon = addDaysIso(today(), 7);
+    const acts = conferenceRecords(user).flatMap(r => r.actions.filter(a => !a.done && a.due && a.due <= soon));
+    return { open: slots.filter(s => s.state === 'open').length, upcoming: bookings.filter(b => b.status === 'upcoming' && slotStart(b).getTime() > now).length, awaiting: bookings.filter(b => b.status === 'upcoming' && slotStart(b).getTime() <= now).length, completed: bookings.filter(b => b.status === 'completed').length, due: acts.length, overdue: acts.filter(a => a.due < today()).length };
+  }
+  // Ticker: one reminder per overdue staff-owned action (and due date), to that teacher.
+  function processMeetings() {
+    const raw = read(ptmRecordsKey(school.id), null);
+    if (!raw) return 0;
+    let n = 0;
+    raw.forEach(r => r.actions.forEach(a => {
+      if (a.done || !a.due || a.due >= today() || a.owner?.kind !== 'staff') return;
+      const uid = educators.find(e => e.id === a.owner.id)?.userId;
+      if (uid) n += notifyUsers({ module: 'meetings', kind: 'conference', title: 'Follow-up action overdue', body: `${a.text} · due ${a.due}`, recordType: 'conference', recordId: r.id, dedupeKey: `ptm-action:${a.id}:${a.due}` }, { toUserIds: [uid] });
+    }));
+    return n;
+  }
+
   /* S32 Emergency broadcasts: shown to every role until each user acknowledges it. */
   const broadcastsKey = id => `nexora-broadcasts:${id}`;
   const getBroadcasts = (schoolId = school.id) => read(broadcastsKey(schoolId), []);
@@ -5569,6 +5955,8 @@
       case 'enquiry': return getAdmissionEnquiries().some(e => e.id === n.recordId) ? go('admissions', { status: 'all', focus: n.recordId }) : missing;
       case 'invoice': return getInvoices().some(i => i.id === n.recordId) ? go('fees', { status: 'all', focus: n.recordId }) : missing;
       case 'incident': return getIncidents().some(i => i.id === n.recordId) ? go('safeguarding', { status: 'all', focus: n.recordId }) : missing;
+      case 'meeting': return ptmData().bookings.some(b => b.id === n.recordId) ? go('meetings', { tab: 'bookings', booking: n.recordId }) : missing;
+      case 'conference': return ptmData().records.some(r => r.id === n.recordId) ? go('meetings', { tab: 'records', record: n.recordId }) : missing;
       case 'form': return getForms().some(f => f.id === n.recordId) ? go('forms', { results: n.recordId }) : missing;
       case 'announcement': return getAnnouncements().some(a => a.id === n.recordId) ? go('communication', { focus: n.recordId }) : missing;
       case 'class': return classByName(n.recordId) ? go('attendance', { cls: n.recordId, view: n.kind === 'ratio' ? 'ratio' : '' }) : missing;
@@ -6013,6 +6401,37 @@
     formQuestionSummary,
     formAnswerText,
     formResponsesCsv,
+    MEETING_MODES,
+    SLOT_MODES,
+    BOOKING_STATUSES,
+    SLOT_LENGTHS,
+    canUseMeetings,
+    educatorOf,
+    meetingTeachers,
+    teacherName,
+    teacherLocation,
+    meetingSlots,
+    openSlotsFor,
+    planSlots,
+    createSlots,
+    removeSlot,
+    bookMeeting,
+    cancelMeeting,
+    setMeetingOutcome,
+    setMeetingVideoLink,
+    meetingBookings,
+    conferenceActionStatus,
+    conferenceRecords,
+    conferenceRecordsForChild,
+    canEditRecord,
+    actionOwners,
+    ownerName,
+    saveConferenceRecord,
+    setConferenceAction,
+    familyConferenceView,
+    shareConferenceRecord,
+    meetingSummary,
+    processMeetings,
     postAnnouncement,
     getBroadcasts,
     activeBroadcasts,

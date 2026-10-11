@@ -27,6 +27,7 @@
     { id: 'incidents', label: 'Incidents', access: 'incidents' },
     { id: 'documents', label: 'Documents', access: 'documents' },
     { id: 'consents', label: 'Consents', access: 'consents' },
+    { id: 'conferences', label: 'Conferences', access: 'conferences' },
     { id: 'billing', label: 'Billing', access: 'billing' }
   ];
   const STATUS_BADGE = { active: 'badge--success', starting: 'badge--info', withdrawn: 'badge--error', graduated: '' };
@@ -277,6 +278,14 @@
           <span class="badge ${CONSENT_BADGE[x.status]}">${esc(store.CONSENT_STATUSES[x.status])}</span>
           ${canEdit('consents') ? pencil('consent', x.label, ` data-consent="${esc(x.type)}"`) : ''}</li>`).join('')}</ul>`),
 
+      conferences: c => gate('conferences', 'Conferences', () => {
+        const recs = store.conferenceRecordsForChild(user, c.id);
+        const upcoming = store.meetingBookings(user).filter(b => b.childId === c.id && b.status === 'upcoming' && b.date >= store.today());
+        const open = id => routes.page('meetings', { tab: 'records', record: id });
+        const actionText = r => { const st = r.actions.map(store.conferenceActionStatus); const over = st.filter(x => x === 'overdue').length; return `${st.filter(x => x === 'completed').length}/${st.length} actions done${over ? ` · <span class="text-warning">${over} overdue</span>` : ''}`; };
+        return `${upcoming.length ? card('Upcoming meetings', `<ul class="cp-mini">${upcoming.map(b => `<li><b><a href="${routes.page('meetings', { tab: 'bookings', booking: b.id })}">${esc(day(b.date))} · ${esc(b.start)}</a></b><span>${esc(store.teacherName(b.teacherId))} · ${esc(store.MEETING_MODES[b.mode])}${b.topic ? ` · ${esc(b.topic)}` : ''}</span></li>`).join('')}</ul>`, { id: 'cf-up' }) : ''}
+          ${card('Conference records', recs.length ? `<ul class="cp-confs">${recs.map(r => `<li><a class="cp-conf" href="${open(r.id)}"><b>${esc(day(r.date))} · ${esc(store.teacherName(r.teacherId))}</b><span>${esc(r.topic || 'Conference')}</span>${r.familySummary || r.strengths ? `<span class="cp-muted">${esc((r.familySummary || r.strengths).slice(0, 160))}${(r.familySummary || r.strengths).length > 160 ? '…' : ''}</span>` : ''}<span class="cp-muted">${actionText(r)} · ${r.shared ? 'Shared with family' : 'Not shared'}</span></a></li>`).join('')}</ul>` : empty('No conference records yet', 'Records from parent–teacher meetings will appear here.'), { id: 'cf-recs', action: `<a class="btn btn--sm btn--tertiary" href="${routes.page('meetings', { tab: 'records' })}">All meetings${icon('arrow-right', 'icon--sm')}</a>` })}`;
+      }),
       billing: c => gate('billing', 'Billing', () => {
         const lines = store.feeLedger().filter(l => l.studentId === c.id);
         const pays = store.getPayments().filter(p => p.studentId === c.id).sort((a, b) => b.date.localeCompare(a.date));
