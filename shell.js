@@ -101,7 +101,7 @@
   // App pages, in sidebar order: every catalogue module, then Notifications and Plans.
   // Every page is listed; the guard decides what each role and plan can open.
   // `plans` and `setup` are their own pages; the rest open in app.html.
-  const APP_PAGES = ['dashboard', 'children', 'families', 'roster', 'waitlist', ...store.moduleKeys, 'classes', 'diary', 'calendar', 'lessons', 'resources', 'notifications', 'settings', 'plans', 'setup'];
+  const APP_PAGES = ['dashboard', 'children', 'families', 'roster', 'waitlist', ...store.moduleKeys, 'classes', 'diary', 'calendar', 'lessons', 'resources', 'messages', 'notifications', 'settings', 'plans', 'setup'];
   const OWN_PAGES = { dashboard: { name: 'Dashboard', href: () => dash }, plans: { name: 'Plans &amp; upgrade', href: () => routes.plans() }, setup: { name: 'School setup', href: () => routes.setup } };
 
   function schoolGroupHtml(user) {
@@ -119,7 +119,9 @@
           const locked = !own && !store.isEntitled(key, plan);
           if (key === 'setup' && !store.canManagePlan(user)) return '';
           const setupBadge = key === 'setup' && store.getSetup(store.school.id).status !== 'complete' ? '<span class="nav-link__flag">Not finished</span>' : '';
-          const badge = key === 'notifications' ? `<span class="nav-link__badge" data-unread-badge${unread ? '' : ' hidden'}><span aria-hidden="true">${unread > 99 ? '99+' : unread}</span><span class="sr-only"> (${unread} unread)</span></span>` : '';
+          const chat = key === 'messages' && store.canAccess(user, 'messages') ? store.totalChatUnread(user) : 0;
+          const badge = key === 'notifications' ? `<span class="nav-link__badge" data-unread-badge${unread ? '' : ' hidden'}><span aria-hidden="true">${unread > 99 ? '99+' : unread}</span><span class="sr-only"> (${unread} unread)</span></span>`
+            : key === 'messages' ? `<span class="nav-link__badge" data-chat-badge${chat ? '' : ' hidden'}><span aria-hidden="true">${chat > 99 ? '99+' : chat}</span><span class="sr-only"> (${chat} unread messages)</span></span>` : '';
           const lock = locked ? `<svg class="icon nav-link__lock" aria-hidden="true"><use href="#i-lock"/></svg><span class="sr-only"> (not in your plan)</span>` : '';
           return `<li><a class="nav-link${current ? ' is-current' : ''}${locked ? ' is-locked' : ''}" href="${href}"${current ? ' aria-current="page"' : ''}><span class="nav-link__num">${String(i + 14).padStart(2, '0')}</span><span class="nav-link__text">${name}</span>${lock}${badge}${setupBadge}</a></li>`;
         }).join('')}</ul>
@@ -240,6 +242,29 @@
     const n = store.unreadCount(store.currentUser());
     el.hidden = !n;
     el.innerHTML = `<span aria-hidden="true">${n > 99 ? '99+' : n}</span><span class="sr-only"> (${n} unread)</span>`;
+    const chat = document.querySelector('[data-chat-badge]');
+    if (chat) {
+      const user = store.currentUser();
+      const c = store.canAccess(user, 'messages') ? store.totalChatUnread(user) : 0;
+      chat.hidden = !c;
+      chat.innerHTML = `<span aria-hidden="true">${c > 99 ? '99+' : c}</span><span class="sr-only"> (${c} unread messages)</span>`;
+    }
+  }
+
+  // Messages arriving while the app is open (scheduled sends, demo family replies) — on every signed-in page.
+  function startMessagingTicker() {
+    if (!store.processMessaging) return;
+    setInterval(() => {
+      const arrived = store.processMessaging();
+      const user = store.currentUser();
+      if (!store.canAccess(user, 'messages')) return;
+      arrived.forEach(a => {
+        if (window.NexoraOpenConversation === a.conversationId && !document.hidden) return;
+        const view = store.conversationView(user, a.conversationId);
+        if (view.error || a.message.senderId === user.id) return;
+        window.NexoraToast?.show(`New message${a.demo ? ' (demo)' : ''}`, `${a.message.senderType === 'staff' ? 'From a colleague' : 'From a family'} · ${view.title}`, 'message', { duration: 6000, action: { label: 'Open', onClick: () => { location.href = store.routes.page('messages', { c: a.conversationId }); } } });
+      });
+    }, 1000);
   }
 
   // topbar: false when the page puts the bell in its own header (the dashboard).
@@ -265,6 +290,7 @@
       let queued = false;
       store.subscribe(() => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; updateUnreadBadge(); }); } });
       initNav();
+      startMessagingTicker();
       window.NexoraConnectivity?.init();
       bindRoleSwitch();
     } else {

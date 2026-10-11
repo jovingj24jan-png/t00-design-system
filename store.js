@@ -197,7 +197,7 @@
     waitlist: { name: 'Waitlist', icon: 'clock', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Children waiting for a seat in a full class.' },
     families: { name: 'Families', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Families as a unit: households, guardians, children and parent-app access.' },
     statement: { name: 'Family statement', icon: 'wallet', roles: ['Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Invoices and payments for one family, with a running balance.' },
-    messages: { name: 'Family messages', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Messages sent to one family’s guardians.' },
+    messages: { name: 'Messages', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Conversations with families, colleagues and class groups. (?family= shows one family’s message log.)' },
     family: { name: 'Family', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'One family: households, guardians, children, parent app and balance.' },
     roster: { name: 'Class rosters', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Who is in each class, with capacity and schedules.' },
     compose: { name: 'Message families', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Write to selected families. Prototype: messages are saved, not delivered.' },
@@ -3859,6 +3859,314 @@
     return settle({ ok: true, item: it, movement: mv, status: stockStatus(it), alert: Boolean(alert) });
   }
 
+  /* ---------------------------------------------------------------- Messages & Communications (inbox.js at ?page=messages)
+     The S16 family message log (?page=messages&family=…) is unchanged; this is the two-way inbox.
+     Conversations `nexora-conversations:<school>` { id, schoolId, type: 'family'|'staff'|'class', title, familyId,
+       childIds, guardianIds, staffUserIds (members who can open it), classId, broadcast, demo, createdBy, createdAt,
+       lastMessageAt } — only members can read or write.
+     Messages `nexora-chat-messages:<school>` { id, conversationId, senderType: 'staff'|'guardian', senderId, body,
+       attachments [fileId], status: 'sent'|'scheduled'|'cancelled', scheduledFor, createdAt, sentAt, clientId, demo,
+       private (a family's reply in a class broadcast: staff see it, other families never would), translations }.
+     Reads `nexora-chat-reads:<school>` { messageId, readerType: 'user'|'guardian', readerId, at, demo }.
+     Files `nexora-chat-files:<school>` — images and PDFs checked by their content (not the name), ≤ 1 MB, device-local.
+     Guardians have no app login in this prototype, so family replies only exist in DEMO MODE: a reply is queued
+     (`nexora-chat-demo-queue`) ~3 s after a family message is sent, delivered by processMessaging() (run on every page),
+     flagged demo and labelled in the UI. Staff ↔ staff threads are real between the demo accounts on this device.
+     Scheduled messages are delivered by processMessaging() while the app is open — there is no server scheduler.
+     Translation goes through translateMessage(); no translation service is configured, so only the demo replies'
+     built-in translations (labelled as demo) can be shown — nothing else is ever invented. */
+
+  const convKey = id => `nexora-conversations:${id}`;
+  const chatMsgKey = id => `nexora-chat-messages:${id}`;
+  const chatReadKey = id => `nexora-chat-reads:${id}`;
+  const chatFilesKey = id => `nexora-chat-files:${id}`;
+  const quickRepliesKey = id => `nexora-quick-replies:${id}`;
+  const msgDemoKey = id => `nexora-messaging-demo:${id}`;
+  const demoQueueKey = id => `nexora-chat-demo-queue:${id}`;
+  const CONV_TYPES = { family: 'Family', staff: 'Staff', class: 'Class group' };
+  const CHAT_FILE_SIGNATURES = { 'application/pdf': 'JVBERi0', 'image/png': 'iVBORw0KGgo', 'image/jpeg': '/9j/', 'image/webp': 'UklGR' };
+  const DEFAULT_QUICK_REPLIES = ['Thank you for the update.', 'We will follow up shortly.', 'Please contact the school office.', 'Your message has been received.'];
+  const DEMO_REPLIES = {
+    en: [['Thank you, that’s helpful!'], ['Noted — we’ll bring it tomorrow.'], ['Thanks for letting us know.']],
+    ta: [['நன்றி, தகவலுக்கு!', 'Thank you for the information!'], ['சரி, நாளை கொண்டு வருகிறோம்.', 'Okay, we’ll bring it tomorrow.']],
+    hi: [['जानकारी के लिए धन्यवाद!', 'Thank you for the information!']],
+    ar: [['شكراً على التحديث', 'Thank you for the update']]
+  };
+  const messagingDemo = () => read(msgDemoKey(school.id), { enabled: true }).enabled !== false;
+  function setMessagingDemo(user, enabled) {
+    if (!LEADERS.includes(user.role)) return settle({ ok: false, reason: 'forbidden' });
+    if (!enabled) write(demoQueueKey(school.id), []);
+    return settle(write(msgDemoKey(school.id), { enabled: Boolean(enabled) }) ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+  const getConversations = () => seeded(convKey(school.id), () => {
+    // Demo threads (flagged demo) so the inbox isn't empty in the prototype.
+    const now = Date.now();
+    const iso = ms => new Date(ms).toISOString();
+    const fam = listFamilies().find(f => f.children.some(c => c.id === 's1'));
+    const convs = [];
+    if (fam) convs.push({ id: 'cv-demo-1', schoolId: school.id, type: 'family', title: fam.name, familyId: fam.id, childIds: fam.children.filter(c => c.status === 'active').map(c => c.id), guardianIds: fam.guardians.map(g => g.id), staffUserIds: ['u-teacher', 'u-director'], classId: null, broadcast: false, demo: true, createdBy: 'Ms. Lakshmi', createdAt: iso(now - 86400000 * 2), lastMessageAt: iso(now - 3600000 * 20) });
+    convs.push({ id: 'cv-demo-2', schoolId: school.id, type: 'staff', title: '', familyId: null, childIds: [], guardianIds: [], staffUserIds: ['u-director', 'u-teacher'], classId: null, broadcast: false, demo: true, createdBy: 'Mrs. Rao', createdAt: iso(now - 86400000), lastMessageAt: iso(now - 3600000 * 3) });
+    return convs;
+  });
+  const getChatMessages = () => seeded(chatMsgKey(school.id), () => {
+    const now = Date.now();
+    const iso = ms => new Date(ms).toISOString();
+    const fam = getConversations().find(c => c.id === 'cv-demo-1');
+    const g = fam?.guardianIds[0];
+    const out = [];
+    if (fam) out.push(
+      { id: 'cm-demo-1', conversationId: 'cv-demo-1', senderType: 'staff', senderId: 'u-teacher', body: 'Aarav built the pink tower on his own today and counted every cube aloud.', attachments: [], status: 'sent', createdAt: iso(now - 3600000 * 22), sentAt: iso(now - 3600000 * 22), demo: true },
+      { id: 'cm-demo-2', conversationId: 'cv-demo-1', senderType: 'guardian', senderId: g, body: 'நன்றி, தகவலுக்கு!', attachments: [], status: 'sent', createdAt: iso(now - 3600000 * 20), sentAt: iso(now - 3600000 * 20), demo: true, translations: { en: 'Thank you for the information!' }, lang: 'ta' });
+    out.push(
+      { id: 'cm-demo-3', conversationId: 'cv-demo-2', senderType: 'staff', senderId: 'u-director', body: 'Could you send me the Farm visit consent count by Thursday?', attachments: [], status: 'sent', createdAt: iso(now - 3600000 * 3), sentAt: iso(now - 3600000 * 3), demo: true });
+    return out;
+  });
+  const getChatReads = () => read(chatReadKey(school.id), []);
+  const getQuickReplies = () => read(quickRepliesKey(school.id), DEFAULT_QUICK_REPLIES);
+  function saveQuickReplies(user, list) {
+    if (!LEADERS.includes(user.role)) return settle({ ok: false, reason: 'forbidden' });
+    const v = [...new Set((list || []).map(clean).filter(Boolean).map(s => s.slice(0, 200)))].slice(0, 12);
+    if (!v.length) return settle({ ok: false, reason: 'invalid', errors: { replies: 'Add at least one quick reply.' } });
+    return settle(write(quickRepliesKey(school.id), v) ? { ok: true, replies: v } : { ok: false, reason: 'storage' });
+  }
+
+  const isMember = (user, c) => Boolean(c) && c.schoolId === school.id && c.staffUserIds.includes(user.id) && canAccess(user, 'messages');
+  const staffUser = id => users.find(u => u.id === id && u.schoolId === school.id) || null;
+  function convTitle(user, c) {
+    if (c.type === 'staff') return c.staffUserIds.filter(id => id !== user.id).map(id => staffUser(id)?.name).filter(Boolean).join(', ') || 'Staff';
+    if (c.type === 'class') return `${classById(c.classId)?.name || 'Class'} families`;
+    return c.title || 'Family';
+  }
+  // Everyone a message goes to, besides its sender (users read for real; guardians only through demo receipts).
+  function recipientsOf(c, m) {
+    const staff = c.staffUserIds.filter(id => !(m.senderType === 'staff' && m.senderId === id)).map(id => ({ type: 'user', id }));
+    const fams = m.private ? [] : c.guardianIds.filter(id => !(m.senderType === 'guardian' && m.senderId === id)).map(id => ({ type: 'guardian', id }));
+    return [...staff, ...fams];
+  }
+  const isRead = (reads, m, r) => reads.some(x => x.messageId === m.id && x.readerType === r.type && x.readerId === r.id);
+  const unreadIn = (user, c, msgs = getChatMessages(), reads = getChatReads()) => msgs.filter(m => m.conversationId === c.id && m.status === 'sent' && !(m.senderType === 'staff' && m.senderId === user.id) && !isRead(reads, m, { type: 'user', id: user.id })).length;
+  const totalChatUnread = user => { const msgs = getChatMessages(); const reads = getChatReads(); return getConversations().filter(c => isMember(user, c)).reduce((t, c) => t + unreadIn(user, c, msgs, reads), 0); };
+
+  // The user's conversations, newest activity first. Search covers names, children and message text the user can read.
+  function listConversations(user, { filter = 'all', q = '' } = {}) {
+    const msgs = getChatMessages();
+    const reads = getChatReads();
+    const query = clean(q).toLowerCase();
+    return getConversations().filter(c => isMember(user, c)).map(c => {
+      const mine = msgs.filter(m => m.conversationId === c.id && m.status !== 'cancelled' && (m.status === 'sent' || (m.senderType === 'staff' && m.senderId === user.id)));
+      const last = mine.filter(m => m.status === 'sent').sort((a, b) => (a.sentAt || a.createdAt).localeCompare(b.sentAt || b.createdAt)).pop() || null;
+      const kids = c.childIds.map(id => childById(id)).filter(Boolean);
+      return { conv: c, title: convTitle(user, c), children: kids.map(k => childName(k)), last, unread: unreadIn(user, c, msgs, reads), scheduled: mine.filter(m => m.status === 'scheduled').length, hay: [convTitle(user, c), ...kids.map(k => childName(k)), ...c.guardianIds.map(id => guardianById(id)?.name), ...mine.map(m => m.body)].join(' ').toLowerCase() };
+    }).filter(r => (filter === 'all' || (filter === 'unread' && r.unread) || (filter === 'families' && r.conv.type === 'family') || (filter === 'staff' && r.conv.type === 'staff') || (filter === 'groups' && r.conv.type === 'class')) && (!query || r.hay.includes(query)))
+      .sort((a, b) => (b.last?.sentAt || b.conv.lastMessageAt || b.conv.createdAt).localeCompare(a.last?.sentAt || a.conv.lastMessageAt || a.conv.createdAt));
+  }
+  function conversationView(user, convId) {
+    const c = getConversations().find(x => x.id === convId);
+    if (!c) return { error: 'missing' };
+    if (!isMember(user, c)) return { error: 'forbidden' };
+    const reads = getChatReads();
+    const messages = getChatMessages().filter(m => m.conversationId === c.id && m.status !== 'cancelled' && (m.status === 'sent' || (m.senderType === 'staff' && m.senderId === user.id)))
+      .sort((a, b) => (a.sentAt || a.scheduledFor || a.createdAt).localeCompare(b.sentAt || b.scheduledFor || b.createdAt))
+      .map(m => {
+        const mine = m.senderType === 'staff' && m.senderId === user.id;
+        const rs = recipientsOf(c, m);
+        const readers = rs.filter(r => isRead(reads, m, r));
+        return { ...m, mine, receipt: mine && m.status === 'sent' ? { total: rs.length, read: readers.length, allRead: rs.length > 0 && readers.length === rs.length, demo: readers.some(r => r.type === 'guardian') } : null, senderName: m.senderType === 'staff' ? staffUser(m.senderId)?.name || 'Staff' : guardianById(m.senderId)?.name || 'Family' };
+      });
+    return { conv: c, title: convTitle(user, c), messages };
+  }
+
+  // Who the user may start a conversation with.
+  function messageTargets(user) {
+    const scope = classScope(user);
+    const families = listFamilies().filter(f => f.children.some(c => c.status === 'active' && (LEADERS.includes(user.role) || scope.includes(c.cls))));
+    return {
+      families: families.map(f => ({ id: f.id, name: f.name, children: f.children.filter(c => c.status === 'active').map(c => ({ id: c.id, name: c.name, cls: c.cls })), guardians: f.guardians.map(g => ({ id: g.id, name: g.name })) })),
+      staff: users.filter(u => u.schoolId === school.id && u.id !== user.id && canAccess(u, 'messages')).map(u => ({ id: u.id, name: u.name, role: u.role })),
+      classes: getClassRegistry().filter(c => c.status === 'active' && (LEADERS.includes(user.role) || scope.includes(c.name))).map(c => ({ id: c.id, name: c.name, families: listFamilies().filter(f => f.children.some(k => k.cls === c.name && k.status === 'active')).length }))
+    };
+  }
+  function startConversation(user, { type, familyId, staffUserId, classId }) {
+    if (!canAccess(user, 'messages')) return settle({ ok: false, reason: 'forbidden' });
+    const t = messageTargets(user);
+    const list = getConversations();
+    const now = new Date().toISOString();
+    let c = null;
+    if (type === 'family') {
+      const f = t.families.find(x => x.id === familyId);
+      if (!f) return settle({ ok: false, reason: 'invalid', errors: { target: 'Choose a family in your classes.' } });
+      c = list.find(x => x.type === 'family' && x.familyId === f.id && x.staffUserIds.includes(user.id) && !x.demo);
+      if (!c) { c = { id: newId('cv'), schoolId: school.id, type, title: f.name, familyId: f.id, childIds: f.children.map(k => k.id), guardianIds: f.guardians.map(g => g.id), staffUserIds: [user.id], classId: null, broadcast: false, demo: false, createdBy: user.name, createdAt: now, lastMessageAt: now }; list.push(c); }
+    } else if (type === 'staff') {
+      const s = t.staff.find(x => x.id === staffUserId);
+      if (!s) return settle({ ok: false, reason: 'invalid', errors: { target: 'Choose a colleague.' } });
+      c = list.find(x => x.type === 'staff' && x.staffUserIds.length === 2 && x.staffUserIds.includes(user.id) && x.staffUserIds.includes(s.id) && !x.demo);
+      if (!c) { c = { id: newId('cv'), schoolId: school.id, type, title: '', familyId: null, childIds: [], guardianIds: [], staffUserIds: [user.id, s.id], classId: null, broadcast: false, demo: false, createdBy: user.name, createdAt: now, lastMessageAt: now }; list.push(c); }
+    } else if (type === 'class') {
+      const k = t.classes.find(x => x.id === classId);
+      if (!k) return settle({ ok: false, reason: 'invalid', errors: { target: 'Choose one of your classes.' } });
+      const cls = classById(k.id);
+      const kids = getChildren().filter(ch => ch.cls === cls.name && ch.status === 'active');
+      const teachers = educators.filter(e => e.userId && cls.staffIds.includes(e.id)).map(e => e.userId);
+      c = list.find(x => x.type === 'class' && x.classId === cls.id && x.staffUserIds.includes(user.id));
+      if (!c) { c = { id: newId('cv'), schoolId: school.id, type, title: `${cls.name} families`, familyId: null, childIds: kids.map(ch => ch.id), guardianIds: [...new Set(kids.flatMap(ch => (ch.guardianLinks || []).map(l => l.guardianId)))], staffUserIds: [...new Set([user.id, ...teachers])], classId: cls.id, broadcast: true, demo: false, createdBy: user.name, createdAt: now, lastMessageAt: now }; list.push(c); }
+    } else return settle({ ok: false, reason: 'invalid', errors: { type: 'Choose who the conversation is with.' } });
+    if (!write(convKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'start:conversation', c.id, CONV_TYPES[c.type]);
+    return settle({ ok: true, conversation: c });
+  }
+
+  function uploadChatFile(user, { name, mime, size, data }) {
+    if (!canAccess(user, 'messages')) return settle({ ok: false, reason: 'forbidden' });
+    const sig = CHAT_FILE_SIGNATURES[mime];
+    const body = String(data || '').split(',')[1] || '';
+    if (!sig || !String(data).startsWith(`data:${mime};base64,`) || !body.startsWith(sig)) return settle({ ok: false, reason: 'invalid', errors: { file: 'Attach an image (JPEG, PNG, WebP) or a PDF.' } });
+    if (!(Number(size) > 0) || Number(size) > 1024 * 1024 || body.length > 1024 * 1024 * 1.4) return settle({ ok: false, reason: 'invalid', errors: { file: 'Attachments must be 1 MB or less.' } });
+    const f = { id: newId('cf'), name: clean(name).slice(0, 120) || 'Attachment', mime, size: Number(size), data, uploadedBy: user.id, at: new Date().toISOString(), messageId: null };
+    if (!write(chatFilesKey(school.id), [...read(chatFilesKey(school.id), []), f])) return settle({ ok: false, reason: 'storage', errors: { file: 'There isn’t room on this device for this file.' } });
+    return settle({ ok: true, file: { id: f.id, name: f.name, mime: f.mime, size: f.size } });
+  }
+  function chatFile(user, fileId) {
+    const f = read(chatFilesKey(school.id), []).find(x => x.id === fileId);
+    if (!f) return null;
+    if (!f.messageId) return f.uploadedBy === user.id ? f : null;
+    const m = getChatMessages().find(x => x.id === f.messageId);
+    const c = m && getConversations().find(x => x.id === m.conversationId);
+    return isMember(user, c) ? f : null;
+  }
+
+  function notifyMembers(c, m, exceptUserId, demoReply = false) {
+    const ids = c.staffUserIds.filter(id => id !== exceptUserId);
+    if (!ids.length) return 0;
+    const from = m.senderType === 'staff' ? staffUser(m.senderId)?.name : guardianById(m.senderId)?.name;
+    // The notification names the sender and thread only — message text stays in Messages.
+    return notifyUsers({ module: 'messages', kind: 'message', title: `New message from ${from || 'a family'}${demoReply ? ' (demo)' : ''}`, body: c.type === 'class' ? `${classById(c.classId)?.name || 'Class'} families` : c.type === 'family' ? c.title : 'Staff conversation', recordType: 'conversation', recordId: c.id, dedupeKey: `chat:${m.id}`, actorId: m.senderType === 'staff' ? m.senderId : undefined }, { toUserIds: ids });
+  }
+
+  function sendChatMessage(user, convId, { body = '', attachmentIds = [], clientId = '', scheduleAt = '' }) {
+    const list = getConversations();
+    const c = list.find(x => x.id === convId);
+    if (!c) return settle({ ok: false, reason: 'missing' });
+    if (!isMember(user, c)) return settle({ ok: false, reason: 'forbidden' });
+    const msgs = getChatMessages();
+    if (clientId) { const dup = msgs.find(m => m.clientId === clientId && m.senderId === user.id); if (dup) return settle({ ok: true, message: dup, repeated: true }); }
+    const text = String(body || '').replace(/\r\n/g, '\n').trim();
+    const files = read(chatFilesKey(school.id), []);
+    const ids = [...new Set(attachmentIds)];
+    if (ids.some(id => { const f = files.find(x => x.id === id); return !f || f.uploadedBy !== user.id || f.messageId; })) return settle({ ok: false, reason: 'invalid', errors: { file: 'An attachment is missing. Remove it and attach it again.' } });
+    if (!text && !ids.length) return settle({ ok: false, reason: 'invalid', errors: { body: 'Write a message or attach a file.' } });
+    if (text.length > 4000) return settle({ ok: false, reason: 'invalid', errors: { body: 'Keep the message under 4,000 characters.' } });
+    let status = 'sent';
+    let scheduledFor = null;
+    if (scheduleAt) {
+      const at = new Date(scheduleAt);
+      if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now() + 60000) return settle({ ok: false, reason: 'invalid', errors: { schedule: 'Choose a time at least a minute from now.' } });
+      status = 'scheduled';
+      scheduledFor = at.toISOString();
+    }
+    const now = new Date().toISOString();
+    const m = { id: newId('cm'), conversationId: c.id, senderType: 'staff', senderId: user.id, body: text, attachments: ids, status, scheduledFor, createdAt: now, sentAt: status === 'sent' ? now : null, clientId, demo: false };
+    files.forEach(f => { if (ids.includes(f.id)) f.messageId = m.id; });
+    if (status === 'sent') c.lastMessageAt = now;
+    const writes = [{ key: chatMsgKey(school.id), value: [...msgs, m] }, { key: convKey(school.id), value: list }];
+    if (ids.length) writes.push({ key: chatFilesKey(school.id), value: files });
+    if (!commit(writes)) return settle({ ok: false, reason: 'storage' });
+    if (status === 'sent') afterSend(user, c, m);
+    return settle({ ok: true, message: m });
+  }
+  function afterSend(user, c, m) {
+    notifyMembers(c, m, user.id);
+    if (messagingDemo() && c.type === 'family' && c.guardianIds.length) {
+      const q = read(demoQueueKey(school.id), []);
+      if (!q.some(x => x.conversationId === c.id)) write(demoQueueKey(school.id), [...q, { id: newId('dq'), conversationId: c.id, replyTo: m.id, deliverAt: Date.now() + 3000 }]);
+    }
+  }
+  function cancelScheduled(user, messageId) {
+    const msgs = getChatMessages();
+    const m = msgs.find(x => x.id === messageId);
+    if (!m || m.senderId !== user.id || m.status !== 'scheduled') return settle({ ok: false, reason: 'missing' });
+    m.status = 'cancelled';
+    m.cancelledAt = new Date().toISOString();
+    return settle(write(chatMsgKey(school.id), msgs) ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+  function markConversationRead(user, convId) {
+    const c = getConversations().find(x => x.id === convId);
+    if (!isMember(user, c)) return 0;
+    const reads = getChatReads();
+    const fresh = getChatMessages().filter(m => m.conversationId === c.id && m.status === 'sent' && !(m.senderType === 'staff' && m.senderId === user.id) && !isRead(reads, m, { type: 'user', id: user.id }));
+    if (fresh.length) write(chatReadKey(school.id), [...reads, ...fresh.map(m => ({ messageId: m.id, readerType: 'user', readerId: user.id, at: new Date().toISOString() }))]);
+    const notes = listNotifications(user).filter(n => n.recordType === 'conversation' && n.recordId === c.id && !n.read).map(n => n.id);
+    if (notes.length) setNotificationsRead(user, notes, true);
+    return fresh.length;
+  }
+
+  // Runs on every page: delivers due scheduled messages and (demo mode) queued family replies. Returns what arrived.
+  function processMessaging() {
+    const arrived = [];
+    const msgs = getChatMessages();
+    const convs = getConversations();
+    let changed = false;
+    msgs.filter(m => m.status === 'scheduled' && new Date(m.scheduledFor).getTime() <= Date.now()).forEach(m => {
+      const c = convs.find(x => x.id === m.conversationId);
+      const sender = staffUser(m.senderId);
+      // Re-check at send time: the sender must still be a member who can use Messages.
+      if (!c || !sender || !isMember(sender, c)) { m.status = 'failed'; m.failReason = 'Sender no longer has access'; changed = true; return; }
+      m.status = 'sent'; m.sentAt = new Date().toISOString(); c.lastMessageAt = m.sentAt; changed = true;
+      arrived.push({ conversationId: c.id, message: m, scheduled: true });
+    });
+    let queue = read(demoQueueKey(school.id), []);
+    const due = messagingDemo() ? queue.filter(x => x.deliverAt <= Date.now()) : [];
+    const reads = getChatReads();
+    const newReads = [];
+    due.forEach(x => {
+      const c = convs.find(k => k.id === x.conversationId);
+      if (!c || !c.guardianIds.length) return;
+      const g = guardianById(c.guardianIds[0]);
+      const lang = guardianLanguage(g);
+      const pool = DEMO_REPLIES[lang] || DEMO_REPLIES.en;
+      const [text, en] = pool[msgs.filter(m => m.conversationId === c.id && m.senderType === 'guardian').length % pool.length];
+      const at = new Date().toISOString();
+      // The family "reads" what staff sent before replying — demo receipts, flagged as such.
+      msgs.filter(m => m.conversationId === c.id && m.senderType === 'staff' && m.status === 'sent' && !isRead(reads, m, { type: 'guardian', id: g.id })).forEach(m => newReads.push({ messageId: m.id, readerType: 'guardian', readerId: g.id, at, demo: true }));
+      const m = { id: newId('cm'), conversationId: c.id, senderType: 'guardian', senderId: g.id, body: text, attachments: [], status: 'sent', createdAt: at, sentAt: at, demo: true, lang, translations: en ? { en } : {} };
+      msgs.push(m);
+      c.lastMessageAt = at;
+      changed = true;
+      arrived.push({ conversationId: c.id, message: m, demo: true });
+    });
+    if (due.length) queue = queue.filter(x => !due.includes(x));
+    if (!changed && !due.length) return [];
+    const writes = [{ key: chatMsgKey(school.id), value: msgs }, { key: convKey(school.id), value: convs }, { key: demoQueueKey(school.id), value: queue }];
+    if (newReads.length) writes.push({ key: chatReadKey(school.id), value: [...reads, ...newReads] });
+    if (!commit(writes)) return [];
+    arrived.forEach(a => { const c = convs.find(k => k.id === a.conversationId); if (c) notifyMembers(c, a.message, a.scheduled ? a.message.senderId : null, a.demo); });
+    return arrived;
+  }
+
+  // Translation boundary. No service is configured: only a demo reply's built-in translation can be returned.
+  function translateMessage(user, messageId, target = 'en') {
+    const m = getChatMessages().find(x => x.id === messageId);
+    const c = m && getConversations().find(x => x.id === m.conversationId);
+    if (!isMember(user, c)) return settle({ ok: false, reason: 'forbidden' });
+    const text = m.translations?.[target];
+    if (text && m.demo) return settle({ ok: true, text, target, demo: true, source: m.lang || '' });
+    return settle({ ok: false, reason: 'no-service' });
+  }
+  // What the context panel may show: children (with alerts only where the role allows), languages, staff details.
+  function conversationContext(user, convId) {
+    const c = getConversations().find(x => x.id === convId);
+    if (!isMember(user, c)) return null;
+    const scope = classScope(user);
+    const children = c.childIds.map(id => childById(id)).filter(Boolean).map(k => {
+      const mayOpen = canAccess(user, 'children') && scope.includes(k.cls);
+      const alerts = mayOpen ? k.alerts.filter(a => canView(user, a.type === 'custody' ? 'custody' : 'medical')).map(a => ({ type: a.type, label: ALERT_TYPES[a.type] })) : [];
+      return { id: k.id, name: childName(k), cls: k.cls, photo: k.photo || null, mayOpen, alerts };
+    });
+    const guardians = c.guardianIds.map(id => guardianById(id)).filter(Boolean).map(g => ({ id: g.id, name: g.name, language: GUARDIAN_LANGUAGES[guardianLanguage(g)] }));
+    const staff = c.staffUserIds.map(id => staffUser(id)).filter(Boolean).map(u => ({ id: u.id, name: u.name, role: u.role, email: u.email }));
+    return { conv: c, children: c.type === 'class' ? [] : children, childCount: children.length, guardians: c.type === 'class' ? [] : guardians, familyCount: c.type === 'class' ? new Set(c.guardianIds).size : 0, staff, cls: c.classId ? classById(c.classId) : null };
+  }
+
   /* S17 class operations. Enrolled = active + starting-soon children (the same count S14 uses for
      capacity); present today = present + late marks in today's S19 register. */
   const canManageClasses = user => MANAGE_PLAN_ROLES.includes(user.role);
@@ -4432,6 +4740,7 @@
       case 'class': return classByName(n.recordId) ? go('attendance', { cls: n.recordId, view: n.kind === 'ratio' ? 'ratio' : '' }) : missing;
       case 'child': { const c = childById(n.recordId); return c && canAccess(user, 'children') && classScope(user).includes(c.cls) ? { href: routes.record(c.id) } : missing; }
       case 'broadcast': return { href: routes.dashboard };
+      case 'conversation': return getConversations().some(c => c.id === n.recordId && isMember(user, c)) ? go('messages', { c: n.recordId }) : { error: 'This conversation isn’t available to you.' };
       case 'repair': return getRepairs().some(r => r.id === n.recordId) ? go('resources', { tab: 'materials', repairs: '1' }) : missing;
       case 'stock': return getInventory().some(i => i.id === n.recordId) ? go('resources', { tab: 'inventory', focus: n.recordId }) : missing;
       case 'plan': { const p = getPlans().find(x => x.id === n.recordId); const c = p && classById(p.classId); return c ? go('lessons', { cls: c.name, week: p.weekStart }) : missing; }
@@ -4772,6 +5081,24 @@
     stockStatus,
     saveInventoryItem,
     adjustStock,
+    CONV_TYPES,
+    messagingDemo,
+    setMessagingDemo,
+    getQuickReplies,
+    saveQuickReplies,
+    listConversations,
+    conversationView,
+    messageTargets,
+    startConversation,
+    uploadChatFile,
+    chatFile,
+    sendChatMessage,
+    cancelScheduled,
+    markConversationRead,
+    processMessaging,
+    translateMessage,
+    conversationContext,
+    totalChatUnread,
     users,
     getStaffAttendance,
     setStaffAttendance,
