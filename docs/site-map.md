@@ -51,8 +51,8 @@ Signed-out visitors who open an app page go to sign-in and come back afterwards.
   - **Contrast:** buttons with small labels use `--color-primary-strong` (`#A35C43`, 5:1 with cream), and text drawn in
     the brand colour uses deep clay. The large homepage CTA uses brand terracotta.
   - **Status colours** (success, warning, error, info) stay distinct.
-- **Homepage hero:** `assets/images/hero-classroom.svg`, a local illustration (no remote images). To use a real
-  classroom photo, add it to `assets/images/` and change the `url(...)` in the `.hm-hero` rule in `styles.css`.
+- **Homepage hero:** `assets/images/hero-child.jpg`, a local classroom photo (no remote images). To change it,
+  replace the file or the `url(...)` in the `.hm-hero` rules in `styles.css`.
 - One URL doesn't mean one database: all data is still demo data kept in each browser's localStorage, as before.
 
 ## Homepage (`index.html` + `home.js`)
