@@ -99,7 +99,7 @@
     function tourDialog(e) {
       const next = new Date(); next.setDate(next.getDate() + 1);
       kids.dialog({
-        label: 'Admissions', title: 'Book a tour', desc: `${esc(e.child)} moves to <b>Tour booked</b>. Add the tour time so it counts in “Tours booked”; leave it empty if it isn’t scheduled yet.`,
+        label: 'Admissions', title: 'Book a tour', desc: `${esc(e.child)} moves to <b>Tour booked</b>. Add the tour time so it counts in “Tours booked”; leave it empty if it isn’t scheduled yet. To book a real slot with a guide and capacity, use <a href="${routes.page('tours')}">School Tours</a>.`,
         body: `<div class="cls-form__row">${kids.field('kd-tdate', 'Tour date', `<input class="input" type="date" id="kd-tdate" name="tdate" min="${store.today()}">`)}${kids.field('kd-ttime', 'Time', '<input class="input" type="time" id="kd-ttime" name="ttime" value="10:00">')}</div><p class="field__hint field__hint--error" data-error-for="tourAt" hidden></p>`,
         submit: 'Move to Tour booked',
         async onSubmit(form) {
@@ -420,7 +420,7 @@
     const act = actions(user, () => draw());
     const me = () => store.currentUser();
     const back = `<a class="btn btn--secondary" href="${routes.page('admissions')}">${icon('arrow-left', 'icon--sm')}Back to pipeline</a>`;
-    const TYPE_ICON = { created: 'user-plus', owner: 'user', stage: 'arrow-right', lost: 'x', followup: 'calendar-check', edit: 'pencil', 'enrol-started': 'file', enrolled: 'check-circle', note: 'note', call: 'phone', email: 'mail', task: 'list', document: 'upload', offer: 'file', sibling: 'users' };
+    const TYPE_ICON = { created: 'user-plus', owner: 'user', stage: 'arrow-right', lost: 'x', followup: 'calendar-check', edit: 'pencil', 'enrol-started': 'file', enrolled: 'check-circle', note: 'note', call: 'phone', email: 'mail', task: 'list', document: 'upload', offer: 'file', sibling: 'users', tour: 'calendar-check' };
     const TRACK = ['enquiry', 'tour', 'applied', 'offer', 'enrolled'];
     const owners = store.admissionsOwners();
     const canEnrol = store.canManageChildren(user);

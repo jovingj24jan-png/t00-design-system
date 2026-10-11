@@ -197,6 +197,7 @@
     waitlist: { name: 'Waitlist', icon: 'clock', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Children waiting for a seat in a full class.' },
     families: { name: 'Families', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Families as a unit: households, guardians, children and parent-app access.' },
     statement: { name: 'Family statement', icon: 'wallet', roles: ['Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Invoices and payments for one family, with a running balance.' },
+    tours: { name: 'School Tours', icon: 'calendar-check', requiredPlan: 'growth', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Tour slots, bookings linked to enquiries, and attendance.', description: 'Schedule school tours, keep guides from double-booking, link every visit to an enquiry and record who attended.', features: ['Recurring tour slots with capacity', 'Bookings linked to admissions enquiries', 'Attendance and no-show follow-ups', 'Guide clash checks'] },
     meetings: { name: 'Parent–Teacher Meetings', icon: 'calendar-check', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Teacher availability, family bookings and conference records with agreed actions.' },
     forms: { name: 'Forms & Permissions', icon: 'list', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Surveys, permission slips and acknowledgements, with signatures, reminders and results.' },
     messages: { name: 'Messages', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Conversations with families, colleagues and class groups. (?family= shows one family’s message log.)' },
@@ -4996,6 +4997,294 @@
     return settle({ ok: true, enquiry: r.e, moved: prev !== 'offer' });
   }
 
+  /* School tours (tours.js at ?page=tours) — every booking belongs to an admissions enquiry.
+     Patterns `nexora-tour-patterns:<school>` { id, name, days[], start, end, duration, capacity, guideId, from, to, status }
+     Slots `nexora-tour-slots:<school>` { id, patternId, date, start, end, capacity, guideId, status: active|cancelled }
+       — generated from a pattern, never outside its date range; with no end date, eight weeks ahead.
+     Bookings `nexora-tours:<school>` { id, slotId, enquiryId, date, start, end, guideId, status: booked|attended|no_show|
+       cancelled, notes, moves: [{ from: { slotId, date, start, end, guideId }, at, by, reason }], followTaskId, clientId,
+       createdAt, createdBy, attendedAt/By, noShowAt/By, cancelledAt/By, cancelReason }
+     Capacity: only status "booked" occupies a slot; cancelled bookings never do, and finished tours aren't offered.
+     A guide can't have two overlapping slots, and can't have two booked tours at the same time.
+     All checks and writes happen in one synchronous store step (safe within this browser). Real multi-user protection
+     needs a server-side transaction — documented in docs/tours.md. */
+  const tourPatternsKey = id => `nexora-tour-patterns:${id}`;
+  const tourSlotsKey = id => `nexora-tour-slots:${id}`;
+  const toursKey = id => `nexora-tours:${id}`;
+  const TOUR_DURATIONS = [15, 30, 45, 60];
+  const TOUR_STATUSES = { booked: 'Booked', attended: 'Attended', no_show: 'No-show', cancelled: 'Cancelled' };
+  const tourGuides = () => admissionsOwners();
+  const canManageTours = user => can(user, 'tours');
+  const slotStartAt = s => new Date(`${s.date}T${s.start}:00`);
+  const slotEndAt = s => new Date(`${s.date}T${s.end}:00`);
+  const sameTime = (a, b) => a.date === b.date && toMinutes(a.start) < toMinutes(b.end) && toMinutes(b.start) < toMinutes(a.end);
+
+  function seedTours() {
+    const now = new Date().toISOString();
+    const from = daysFromToday(-21);
+    const to = daysFromToday(35);
+    const pattern = { id: 'tp-demo', name: 'Morning tours', days: ['tue', 'thu'], start: '10:00', end: '11:30', duration: 30, capacity: 3, guideId: 'u-admin', from, to, status: 'active', createdBy: 'Mrs. Rao', createdAt: now, demo: true };
+    const slots = planPatternSlots(pattern, [], { includePast: true }).slots.map((s, i) => ({ id: `ts-demo-${i}`, patternId: pattern.id, ...s, status: 'active', demo: true }));
+    const list = getAdmissionEnquiries();
+    const fut = slots.filter(s => slotStartAt(s) > new Date());
+    const past = slots.filter(s => slotEndAt(s) < new Date());
+    const bookings = [];
+    const book = (id, slot, enquiryId, status, extra = {}) => bookings.push({ id, slotId: slot.id, enquiryId, date: slot.date, start: slot.start, end: slot.end, guideId: slot.guideId, status, notes: '', moves: [], followTaskId: null, clientId: id, createdAt: now, createdBy: 'Ms. Fernandes', demo: true, ...extra });
+    const e3 = list.find(e => e.id === 'ae3');
+    if (e3 && fut[1]) { book('tb-demo-1', fut[1], 'ae3', 'booked', { notes: 'Interested in the garden and lunch routine.' }); e3.tourAt = `${fut[1].date}T${fut[1].start}`; e3.tourId = 'tb-demo-1'; }
+    if (past.length >= 2) {
+      book('tb-demo-2', past[past.length - 1], 'ae4', 'booked');
+      book('tb-demo-3', past[past.length - 2], 'ae5', 'attended', { attendedAt: now, attendedBy: 'Ms. Fernandes' });
+    }
+    try { localStorage.setItem(admissionsKey(school.id), JSON.stringify(list)); } catch { /* in memory */ }
+    return { patterns: [pattern], slots, bookings };
+  }
+  function toursData() {
+    const saved = read(tourSlotsKey(school.id), null);
+    if (saved) return { patterns: read(tourPatternsKey(school.id), []), slots: saved, bookings: read(toursKey(school.id), []) };
+    const s = seedTours();
+    try {
+      localStorage.setItem(tourPatternsKey(school.id), JSON.stringify(s.patterns));
+      localStorage.setItem(tourSlotsKey(school.id), JSON.stringify(s.slots));
+      localStorage.setItem(toursKey(school.id), JSON.stringify(s.bookings));
+    } catch { /* in memory */ }
+    return s;
+  }
+  const bookedOn = (slotId, bookings) => bookings.filter(b => b.slotId === slotId && b.status === 'booked');
+  // Open / partial / full while it's still ahead; completed once it has ended; cancelled if the slot was removed.
+  function slotStatus(s, bookings, now = Date.now()) {
+    if (s.status === 'cancelled') return 'cancelled';
+    if (slotEndAt(s).getTime() <= now) return 'completed';
+    const n = bookedOn(s.id, bookings).length;
+    return n >= s.capacity ? 'full' : n > 0 ? 'partial' : 'open';
+  }
+  function tourSlots(user, { from, to } = {}) {
+    if (!can(user, 'tours')) return [];
+    const { slots, bookings } = toursData();
+    return slots.filter(s => (!from || s.date >= from) && (!to || s.date <= to)).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))
+      .map(s => { const bs = bookings.filter(b => b.slotId === s.id && b.status !== 'cancelled'); return { ...s, state: slotStatus(s, bookings), booked: bookedOn(s.id, bookings).length, bookings: bs }; });
+  }
+  const tourBookings = user => (can(user, 'tours') ? toursData().bookings.slice().sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start)) : []);
+
+  // One generator for the preview and for saving. Existing identical slots are skipped; overlaps with the same guide's
+  // other slots are reported as conflicts (with date, time and guide) and never overwritten.
+  function planPatternSlots(p, existing, { includePast = false } = {}) {
+    const out = [];
+    const conflicts = [];
+    let duplicates = 0;
+    let closed = 0;
+    let past = 0;
+    const hardTo = p.to || addDaysIso(p.from > today() ? p.from : today(), 56);
+    for (let d = p.from; d <= hardTo; d = addDaysIso(d, 1)) {
+      if (!p.days.includes(weekdayOf(d))) continue;
+      if (!schoolDay(d).open) { closed += 1; continue; }
+      for (let t = toMinutes(p.start); t + p.duration <= toMinutes(p.end); t += p.duration) {
+        const s = { date: d, start: ptmTime(t), end: ptmTime(t + p.duration), capacity: p.capacity, guideId: p.guideId };
+        if (!includePast && slotStartAt(s).getTime() <= Date.now()) { past += 1; continue; }
+        const same = existing.find(x => x.status === 'active' && x.guideId === s.guideId && x.date === d && x.start === s.start && x.end === s.end);
+        if (same) { duplicates += 1; continue; }
+        const clash = existing.find(x => x.status === 'active' && x.guideId === s.guideId && sameTime(x, s));
+        if (clash) { conflicts.push({ date: d, start: s.start, end: s.end, with: `${clash.start}–${clash.end}`, guide: users.find(u => u.id === s.guideId)?.name || 'Guide' }); continue; }
+        out.push(s);
+      }
+    }
+    return { slots: out, conflicts, duplicates, closed, past, to: hardTo };
+  }
+  function patternValues(user, input) {
+    const errors = {};
+    const p = { name: clean(input.name).slice(0, 60), days: [...new Set((input.days || []).filter(d => WEEKDAYS.includes(d)))], start: clean(input.start), end: clean(input.end), duration: Number(input.duration), capacity: Number(input.capacity), guideId: clean(input.guideId), from: clean(input.from), to: clean(input.to) };
+    if (!p.days.length) errors.days = 'Choose at least one day.';
+    if (!/^\d{2}:\d{2}$/.test(p.start)) errors.start = 'Choose a start time.';
+    if (!/^\d{2}:\d{2}$/.test(p.end)) errors.end = 'Choose an end time.';
+    else if (!errors.start && toMinutes(p.end) <= toMinutes(p.start)) errors.end = 'The end time must be later than the start time.';
+    if (!TOUR_DURATIONS.includes(p.duration)) errors.duration = 'Choose 15, 30, 45 or 60 minutes.';
+    else if (!errors.end && !errors.start && toMinutes(p.end) - toMinutes(p.start) < p.duration) errors.duration = 'The time range is shorter than one tour.';
+    if (!Number.isInteger(p.capacity) || p.capacity < 1 || p.capacity > 20) errors.capacity = 'Enter a whole number from 1 to 20.';
+    if (!tourGuides().some(g => g.id === p.guideId)) errors.guideId = 'Choose a guide.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(p.from)) errors.from = 'Choose the first date.';
+    if (p.to && !/^\d{4}-\d{2}-\d{2}$/.test(p.to)) errors.to = 'Enter a valid end date.';
+    else if (p.to && !errors.from && p.to < p.from) errors.to = 'The end date must be on or after the start date.';
+    else if (p.to && p.from && (new Date(`${p.to}T12:00:00`) - new Date(`${p.from}T12:00:00`)) / 864e5 > 366) errors.to = 'Choose a range of one year or less.';
+    return { p, errors };
+  }
+  function previewTourPattern(user, input) {
+    const { p, errors } = patternValues(user, input);
+    if (Object.keys(errors).length) return { errors, slots: [], conflicts: [] };
+    const plan = planPatternSlots(p, toursData().slots);
+    const existingDup = toursData().patterns.find(x => x.status === 'active' && x.guideId === p.guideId && x.start === p.start && x.end === p.end && x.duration === p.duration && x.from === p.from && (x.to || '') === (p.to || '') && x.days.join() === p.days.join());
+    return { errors: {}, ...plan, duplicatePattern: Boolean(existingDup) };
+  }
+  // Saves the pattern and its new slots. Conflicts block saving unless the user explicitly chooses to skip them.
+  function saveTourPattern(user, input, { skipConflicts = false } = {}) {
+    if (!canManageTours(user)) return settle({ ok: false, reason: 'forbidden' });
+    const { p, errors } = patternValues(user, input);
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const data = toursData();
+    const plan = planPatternSlots(p, data.slots);
+    if (plan.conflicts.length && !skipConflicts) return settle({ ok: false, reason: 'conflict', conflicts: plan.conflicts });
+    if (!plan.slots.length) return settle({ ok: false, reason: 'invalid', errors: { form: plan.duplicates ? 'These slots already exist — nothing new to create.' : 'No slots fall in this date range and time window.' } });
+    const now = new Date().toISOString();
+    const pattern = { id: newId('tp'), ...p, status: 'active', createdBy: user.name, createdAt: now };
+    const made = plan.slots.map(s => ({ id: newId('ts'), patternId: pattern.id, ...s, status: 'active' }));
+    if (!commit([{ key: tourPatternsKey(school.id), value: [...data.patterns, pattern] }, { key: tourSlotsKey(school.id), value: [...data.slots, ...made] }])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'create:tour-pattern', '', `${made.length} slots, ${p.days.join('/')} ${p.start}–${p.end}`);
+    return settle({ ok: true, pattern, created: made.length, skipped: { conflicts: plan.conflicts.length, duplicates: plan.duplicates, closed: plan.closed } });
+  }
+  // Removing a pattern cancels its future empty slots. Future slots with bookings need an explicit decision:
+  // keep them (they stay bookable-as-booked) or cancel those tours too.
+  function tourPatternImpact(id) {
+    const { slots, bookings } = toursData();
+    const fut = slots.filter(s => s.patternId === id && s.status === 'active' && slotStartAt(s) > new Date());
+    const withBookings = fut.filter(s => bookedOn(s.id, bookings).length);
+    return { empty: fut.length - withBookings.length, booked: withBookings.map(s => ({ slotId: s.id, date: s.date, start: s.start, families: bookedOn(s.id, bookings).length })) };
+  }
+  function removeTourPattern(user, id, { bookedSlots = null } = {}) {
+    if (!canManageTours(user)) return settle({ ok: false, reason: 'forbidden' });
+    const data = toursData();
+    const pat = data.patterns.find(x => x.id === id && x.status === 'active');
+    if (!pat) return settle({ ok: false, reason: 'missing' });
+    const impact = tourPatternImpact(id);
+    if (impact.booked.length && !['keep', 'cancel'].includes(bookedSlots)) return settle({ ok: false, reason: 'decision', impact });
+    const now = new Date().toISOString();
+    pat.status = 'removed';
+    pat.removedAt = now;
+    const list = getAdmissionEnquiries();
+    data.slots.forEach(s => {
+      if (s.patternId !== id || s.status !== 'active' || slotStartAt(s) <= new Date()) return;
+      const bs = bookedOn(s.id, data.bookings);
+      if (!bs.length) { s.status = 'cancelled'; return; }
+      if (bookedSlots === 'cancel') {
+        s.status = 'cancelled';
+        bs.forEach(b => { cancelInPlace(user, b, list, 'Tour slots withdrawn'); });
+      } else s.patternId = null;
+    });
+    if (!commit([{ key: tourPatternsKey(school.id), value: data.patterns }, { key: tourSlotsKey(school.id), value: data.slots }, { key: toursKey(school.id), value: data.bookings }, { key: admissionsKey(school.id), value: list }])) return settle({ ok: false, reason: 'storage' });
+    return settle({ ok: true, cancelledSlots: impact.empty + (bookedSlots === 'cancel' ? impact.booked.length : 0), keptSlots: bookedSlots === 'keep' ? impact.booked.length : 0 });
+  }
+
+  const tourWhen = b => `${new Date(`${b.date}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} ${b.start}–${b.end}`;
+  function guideClash(bookings, slots, slot, exceptId = null) {
+    const busy = bookings.filter(b => b.id !== exceptId && b.status === 'booked' && b.guideId === slot.guideId && b.slotId !== slot.id);
+    return busy.find(b => sameTime(b, slot)) || null;
+  }
+  function slotChecks(user, data, slotId, exceptBookingId = null) {
+    const s = data.slots.find(x => x.id === slotId);
+    if (!s) return { error: 'missing' };
+    if (s.status !== 'active') return { error: 'cancelled', message: 'This slot has been withdrawn. Choose another time.' };
+    if (slotStartAt(s).getTime() <= Date.now()) return { error: 'past', message: 'This slot has already started. Choose another time.' };
+    const used = bookedOn(s.id, data.bookings).filter(b => b.id !== exceptBookingId).length;
+    if (used >= s.capacity) return { error: 'full', message: 'This tour slot is full. Choose another available time to continue.' };
+    const clash = guideClash(data.bookings, data.slots, s, exceptBookingId);
+    if (clash) return { error: 'guide', message: `${users.find(u => u.id === s.guideId)?.name || 'The guide'} already has a tour at ${tourWhen(clash)}. Choose another slot or guide.` };
+    return { slot: s, used };
+  }
+  const tourNote = (user, e, text, extra = {}) => { e.history = [...e.history, histEvent(user, 'tour', { detail: text, ...extra })]; e.updatedAt = new Date().toISOString(); };
+  const notifyTour = (user, e, b, title, key) => { const ids = [...new Set([b.guideId, e.ownerId].filter(id => id && id !== user.id))]; if (ids.length) notifyUsers({ module: 'admissions', kind: 'enquiry', title, body: `${e.child} · ${tourWhen(b)}`, recordType: 'enquiry', recordId: e.id, dedupeKey: `${key}:${b.id}:${b.date}:${b.start}`, actorId: user.id }, { toUserIds: ids }); };
+
+  function bookTour(user, { slotId, enquiryId, notes = '', clientId = '' } = {}) {
+    if (!canManageTours(user)) return settle({ ok: false, reason: 'forbidden' });
+    const data = toursData();
+    if (clientId) { const again = data.bookings.find(b => b.clientId === clientId); if (again) return settle({ ok: true, booking: again, repeated: true }); }
+    const chk = slotChecks(user, data, slotId);
+    if (chk.error) return settle({ ok: false, reason: chk.error, message: chk.message });
+    const list = getAdmissionEnquiries();
+    const e = list.find(x => x.id === enquiryId);
+    if (!e) return settle({ ok: false, reason: 'invalid', errors: { enquiry: 'Choose an enquiry to link.' } });
+    if (e.stage === 'enrolled') return settle({ ok: false, reason: 'invalid', errors: { enquiry: `${e.child} is already enrolled.` } });
+    if (e.stage === 'lost') return settle({ ok: false, reason: 'invalid', errors: { enquiry: `${e.child}’s enquiry is marked Lost. Reopen it in Admissions first.` } });
+    const open = data.bookings.find(b => b.enquiryId === e.id && b.status === 'booked' && slotEndAt(b) > new Date());
+    if (open) return settle({ ok: false, reason: 'invalid', errors: { enquiry: `${e.child} already has a tour on ${tourWhen(open)}. Reschedule that tour instead.` } });
+    const s = chk.slot;
+    const now = new Date().toISOString();
+    const b = { id: newId('tb'), slotId: s.id, enquiryId: e.id, date: s.date, start: s.start, end: s.end, guideId: s.guideId, status: 'booked', notes: String(notes || '').trim().slice(0, 500), moves: [], followTaskId: null, clientId: clientId || newId('cl'), createdAt: now, createdBy: user.name, createdById: user.id };
+    const prev = e.stage;
+    e.tourAt = `${s.date}T${s.start}`;
+    e.tourId = b.id;
+    tourNote(user, e, `Tour booked: ${tourWhen(b)} with ${users.find(u => u.id === s.guideId)?.name || 'guide'}`, { action: 'booked', tourId: b.id });
+    if (prev === 'enquiry') { Object.assign(e, { stage: 'tour', status: STAGE_STATUS.tour, stageAt: now }); e.history.push(histEvent(user, 'stage', { from: prev, to: 'tour', detail: `Tour on ${tourWhen(b)}` })); }
+    if (!commit([{ key: toursKey(school.id), value: [...data.bookings, b] }, { key: admissionsKey(school.id), value: list }])) return settle({ ok: false, reason: 'storage' });
+    notifyTour(user, e, b, `Tour booked: ${e.child}`, 'tour-booked');
+    logAudit(user, 'book:tour', '', `${e.child} ${tourWhen(b)}`);
+    return settle({ ok: true, booking: b, moved: prev === 'enquiry' });
+  }
+  function withBooking(user, id) {
+    if (!canManageTours(user)) return { error: 'forbidden' };
+    const data = toursData();
+    const b = data.bookings.find(x => x.id === id);
+    if (!b) return { error: 'missing' };
+    const list = getAdmissionEnquiries();
+    return { data, b, list, e: list.find(x => x.id === b.enquiryId) };
+  }
+  function markTourAttended(user, id) {
+    const r = withBooking(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    if (r.b.status === 'attended') return settle({ ok: true, booking: r.b, repeated: true });
+    if (r.b.status !== 'booked') return settle({ ok: false, reason: 'locked' });
+    if (r.b.date > today()) return settle({ ok: false, reason: 'early', message: 'Attendance can be recorded from the day of the tour.' });
+    Object.assign(r.b, { status: 'attended', attendedAt: new Date().toISOString(), attendedBy: user.name });
+    if (r.e) tourNote(user, r.e, `Attended school tour (${tourWhen(r.b)})`, { action: 'attended', tourId: r.b.id });
+    if (!commit([{ key: toursKey(school.id), value: r.data.bookings }, { key: admissionsKey(school.id), value: r.list }])) return settle({ ok: false, reason: 'storage' });
+    return settle({ ok: true, booking: r.b });
+  }
+  // No-show creates exactly one follow-up task (re-running returns the same one).
+  function markTourNoShow(user, id, { due = '', assigneeId = '' } = {}) {
+    const r = withBooking(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    if (r.b.status === 'no_show') return settle({ ok: true, booking: r.b, repeated: true });
+    if (r.b.status !== 'booked') return settle({ ok: false, reason: 'locked' });
+    if (r.b.date > today()) return settle({ ok: false, reason: 'early', message: 'A no-show can be recorded from the day of the tour.' });
+    const assignee = assigneeId || r.e?.ownerId || user.id;
+    const errors = taskErrors({ title: 'x', due, assigneeId: assignee });
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    Object.assign(r.b, { status: 'no_show', noShowAt: new Date().toISOString(), noShowBy: user.name });
+    let task = null;
+    if (r.e) {
+      tourNote(user, r.e, `Did not attend school tour (${tourWhen(r.b)})`, { action: 'no_show', tourId: r.b.id });
+      if (!r.b.followTaskId || !(r.e.tasks || []).some(t => t.id === r.b.followTaskId)) {
+        task = addTaskTo(r.e, user, { title: 'Follow up after missed school tour', due, assigneeId: assignee });
+        r.b.followTaskId = task.id;
+        r.e.history.push(histEvent(user, 'task', { action: 'created', taskId: task.id, detail: `Follow-up created: ${task.title} — due ${dLabel(due)}, ${users.find(u => u.id === assignee)?.name || ''}` }));
+      }
+    }
+    if (!commit([{ key: toursKey(school.id), value: r.data.bookings }, { key: admissionsKey(school.id), value: r.list }])) return settle({ ok: false, reason: 'storage' });
+    if (task) notifyTask(user, r.e, task, 'needs you to follow up a missed tour');
+    return settle({ ok: true, booking: r.b, task });
+  }
+  // The new slot is checked and taken in the same step that releases the old one; if the check fails nothing changes.
+  function rescheduleTour(user, id, { slotId, reason = '' } = {}) {
+    const r = withBooking(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    if (r.b.status !== 'booked') return settle({ ok: false, reason: 'locked' });
+    if (slotId === r.b.slotId) return settle({ ok: false, reason: 'invalid', message: 'Choose a different slot.' });
+    const chk = slotChecks(user, r.data, slotId, r.b.id);
+    if (chk.error) return settle({ ok: false, reason: chk.error, message: chk.message });
+    const s = chk.slot;
+    const from = { slotId: r.b.slotId, date: r.b.date, start: r.b.start, end: r.b.end, guideId: r.b.guideId };
+    r.b.moves = [...(r.b.moves || []), { from, at: new Date().toISOString(), by: user.name, reason: clean(reason).slice(0, 200) }];
+    Object.assign(r.b, { slotId: s.id, date: s.date, start: s.start, end: s.end, guideId: s.guideId });
+    if (r.e) { if (r.e.tourId === r.b.id || !r.e.tourId) { r.e.tourAt = `${s.date}T${s.start}`; r.e.tourId = r.b.id; } tourNote(user, r.e, `Tour rescheduled: ${tourWhen(from)} → ${tourWhen(r.b)}${clean(reason) ? ` (${clean(reason)})` : ''}`, { action: 'rescheduled', tourId: r.b.id }); }
+    if (!commit([{ key: toursKey(school.id), value: r.data.bookings }, { key: admissionsKey(school.id), value: r.list }])) return settle({ ok: false, reason: 'storage' });
+    if (r.e) notifyTour(user, r.e, r.b, `Tour rescheduled: ${r.e.child}`, 'tour-moved');
+    return settle({ ok: true, booking: r.b });
+  }
+  function cancelInPlace(user, b, list, reason) {
+    Object.assign(b, { status: 'cancelled', cancelledAt: new Date().toISOString(), cancelledBy: user.name, cancelReason: reason });
+    const e = list.find(x => x.id === b.enquiryId);
+    if (e) { if (e.tourId === b.id) { e.tourAt = null; e.tourId = null; } tourNote(user, e, `Tour cancelled: ${tourWhen(b)}${reason ? ` — ${reason}` : ''}`, { action: 'cancelled', tourId: b.id }); }
+    return e;
+  }
+  // Cancelling keeps the booking (as Cancelled) and frees the place. The enquiry's stage isn't changed.
+  function cancelTour(user, id, { reason = '' } = {}) {
+    const r = withBooking(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    if (r.b.status === 'cancelled') return settle({ ok: true, booking: r.b, repeated: true });
+    if (r.b.status !== 'booked') return settle({ ok: false, reason: 'locked' });
+    const e = cancelInPlace(user, r.b, r.list, clean(reason).slice(0, 200));
+    if (!commit([{ key: toursKey(school.id), value: r.data.bookings }, { key: admissionsKey(school.id), value: r.list }])) return settle({ ok: false, reason: 'storage' });
+    if (e) notifyTour(user, e, r.b, `Tour cancelled: ${e.child}`, 'tour-cancel');
+    return settle({ ok: true, booking: r.b });
+  }
+
   /* Fees: one term invoice per child, and the payments recorded against it. Amounts in rupees. */
   const TERM = 'Term 2 · 2026–27';
   const FEE_BY_LEVEL = { Nursery: 15000, LKG: 16500, UKG: 18000, Montessori: 21000 };
@@ -6896,6 +7185,22 @@
     canOffer,
     saveOfferDraft,
     sendOffer,
+    TOUR_DURATIONS,
+    TOUR_STATUSES,
+    tourGuides,
+    canManageTours,
+    tourSlots,
+    tourBookings,
+    previewTourPattern,
+    saveTourPattern,
+    tourPatternImpact,
+    removeTourPattern,
+    bookTour,
+    markTourAttended,
+    markTourNoShow,
+    rescheduleTour,
+    cancelTour,
+    getTourPatterns: () => toursData().patterns,
     isOpenEnquiry,
     followUpDue,
     addAdmissionEnquiry,
