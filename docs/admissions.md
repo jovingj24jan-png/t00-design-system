@@ -81,3 +81,23 @@ They're recalculated on every change through the store's change events.
 | Server-side permissions and tenant isolation | Enforced in the browser today. |
 
 Test hook: `?fail=1` (load error with **Try again**).
+
+## S07 Applicant details — `?page=admissions&applicant=<id>[&tab=timeline|details|documents|tasks]`
+
+Same enquiry record as the pipeline (no separate store). Layout: header (age at preferred start, programme, start,
+owner, stage) · stage tracker (Enquiry → Tour booked → Applied → Offer sent → Enrolled, plus Lost) · 60:40 grid with the
+timeline on the left and Family / Child / Documents / Siblings / Follow-up cards on the right. Tablet stacks the
+timeline above a two-column card grid; mobile uses four tabs (Timeline · Details · Documents · Tasks).
+
+| Feature | Store function | Notes |
+| --- | --- | --- |
+| Note / call / email | `logEnquiryNote`, `logEnquiryCall`, `logEnquiryEmail` | A call with a follow-up date creates a linked task and notifies the assignee. Emails are **recorded as "not sent"** — no email service is connected. |
+| Follow-up tasks | `addEnquiryTask`, `updateEnquiryTask` | Overdue = open and past its due date/time (date only = end of day). Completion, reassignment and due-date changes are logged. `processAdmissions()` (shell ticker) sends one overdue notification per task and due date. The pipeline's "next follow-up" is the earliest of the follow-up date and open tasks. |
+| Documents | `uploadApplicantDocument`, `removeApplicantDocument`, `applicantFile` | Birth certificate, immunisation record, previous school report: PDF/JPEG/PNG; child photo: JPEG/PNG; ≤ 1 MB, checked by content. A row turns Uploaded only after the write succeeds. Files are device-local data URLs — not secure storage. |
+| Siblings | `enquirySiblings`, `linkSibling`, `unlinkSibling` | Search existing children (debounced) and confirm. Linking connects the applicant to that child's family; a child from a different family than the one already linked is refused; never matched by name. |
+| Send offer | `offerValues`, `renderOffer`, `saveOfferDraft`, `sendOffer` | Edit the starter template → preview with `{{child_name}}`, `{{start_date}}`, `{{fees}}` resolved from the record and the fee table (missing values are marked and block sending; nothing is invented) → send. With no email service the send is a **labelled demo**; only then does the stage move to Offer sent (never backwards). Drafts and failed sends don't move the stage. Moving to Offer sent from the pipeline or Move stage always goes through this workflow. |
+| Convert to enrolled | `startEnquiryEnrolment` → S14 → `completeEnquiryEnrolment` | S14 opens prefilled (child, DOB, guardian contact, class, start; the linked family's households and guardians as linked records). Only when S14 saves the child does the applicant become Enrolled, linked to the child (S12) and family (S15); uploaded documents are copied to the child's Documents once. Opening S14 for an already-converted applicant shows "already enrolled" instead of a second wizard. |
+| Lost | `moveEnquiry(…, 'lost', { reason, detail })` | Reason required; Other needs an explanation. Record and history are kept. |
+
+Every action appends to the applicant's `history`; actions carry a `clientId`, so a retried save is recorded once.
+Test hook: `?sendfail=1` (the first offer send fails, to check the stage doesn't change).

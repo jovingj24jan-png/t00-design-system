@@ -28,6 +28,7 @@
     locked: 'This child is already enrolled, so the enquiry can’t be moved.',
     busy: 'Still saving the last change — please wait a moment.',
     'enrol-via-s14': 'Enrolment is completed in the enrolment form.',
+    'offer-via-send': 'Use Send offer — the stage changes when the offer is sent.',
     storage: 'This couldn’t be saved on this device. Nothing was changed. Please try again.'
   };
   const failText = r => (r.errors && Object.values(r.errors)[0]) || FAIL[r.reason] || FAIL.storage;
@@ -44,12 +45,13 @@
     return `<span class="badge badge--plain an-chip an-chip--${tone} ad-days" title="Days since it entered ${esc(store.ENQUIRY_STAGES[e.stage])}">${tone === 'error' ? icon('alert-triangle') : tone === 'warning' ? icon('clock') : ''}${n}d in stage${label}</span>`;
   }
   function followText(e) {
-    if (!e.followUp) return '<span class="cp-muted">No follow-up set</span>';
+    const fu = store.nextFollowUp(e);
+    if (!fu) return '<span class="cp-muted">No follow-up set</span>';
     const t = store.today();
-    if (['enrolled', 'lost'].includes(e.stage)) return `<span class="cp-muted">Follow-up ${esc(fmt(e.followUp, { day: 'numeric', month: 'short' }))}</span>`;
-    if (e.followUp < t) return `<span class="ad-fu is-over">${icon('alert-triangle', 'icon--sm')}Follow-up overdue · ${esc(fmt(e.followUp, { day: 'numeric', month: 'short' }))}</span>`;
-    if (e.followUp === t) return `<span class="ad-fu is-today">${icon('phone', 'icon--sm')}Follow up today</span>`;
-    return `<span class="ad-fu">${icon('calendar-check', 'icon--sm')}Follow up ${esc(fmt(e.followUp, { weekday: 'short', day: 'numeric', month: 'short' }))}</span>`;
+    if (['enrolled', 'lost'].includes(e.stage)) return `<span class="cp-muted">Follow-up ${esc(fmt(fu, { day: 'numeric', month: 'short' }))}</span>`;
+    if (fu < t) return `<span class="ad-fu is-over">${icon('alert-triangle', 'icon--sm')}Follow-up overdue · ${esc(fmt(fu, { day: 'numeric', month: 'short' }))}</span>`;
+    if (fu === t) return `<span class="ad-fu is-today">${icon('phone', 'icon--sm')}Follow up today</span>`;
+    return `<span class="ad-fu">${icon('calendar-check', 'icon--sm')}Follow up ${esc(fmt(fu, { weekday: 'short', day: 'numeric', month: 'short' }))}</span>`;
   }
 
   function render(key, main, user) {
@@ -129,8 +131,75 @@
       if (to === 'lost') lostDialog(e);
       else if (to === 'enrolled') enrolDialog(e);
       else if (to === 'tour') tourDialog(e);
+      else if (to === 'offer') offerDialog(e);
       else doMove(e, to);
     }
+
+    // Send offer: edit the starter letter → preview with every variable resolved (missing ones marked) → send.
+    // There's no email service, so a send is recorded as a labelled demo; only then does the stage move to Offer sent.
+    function offerDialog(e, failSend = { on: params.get('sendfail') === '1' }) {
+      if (!store.canOffer(e)) { toast('Offer not available', e.stage === 'enrolled' ? 'This child is already enrolled.' : 'Reopen the enquiry before sending an offer.', 'info'); return; }
+      const newCid = () => `cl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+      let clientId = newCid();
+      let stage = 1;
+      const v0 = store.offerValues(e);
+      const d = kids.dialog({
+        label: 'Admissions / Offer', title: 'Send offer', desc: `${esc(e.child)} · step 1 of 3: edit the letter`,
+        body: `<div class="ad-offer"><div data-s1>
+            ${kids.field('kd-recipient', 'Send to', `<input class="input" id="kd-recipient" name="recipient" type="email" required value="${esc(e.email || '')}" placeholder="family@example.com">`, { required: true })}
+            ${kids.field('kd-template', 'Offer letter', `<textarea class="input ad-offer__text" id="kd-template" name="template" rows="11" maxlength="6000">${esc(store.OFFER_TEMPLATE)}</textarea>`, { hint: 'Variables: {{child_name}}, {{start_date}}, {{fees}}. This is an editable starter template, not approved legal wording.' })}
+            <div class="cls-form__row">${kids.field('kd-ostart', 'Start date in the letter', `<input class="input" id="kd-ostart" name="ostart" maxlength="60" value="${esc(v0.start_date)}" placeholder="Missing — add the start date">`)}${kids.field('kd-ofees', 'Fees in the letter', `<input class="input" id="kd-ofees" name="ofees" maxlength="120" value="${esc(v0.fees)}" placeholder="Missing — not in the fee table">`, { hint: v0.fees ? 'From the school’s fee table.' : `No fee is set for ${e.programme}. Enter the agreed fee.` })}</div>
+            <button class="btn btn--tertiary btn--sm" type="button" data-odraft>${icon('pencil', 'icon--sm')}Save as draft (not sent)</button>
+          </div><div data-s2 hidden></div></div>`,
+        submit: 'Preview',
+        async onSubmit(form) {
+          const template = form.elements.template.value;
+          const values = { start_date: form.elements.ostart.value.trim(), fees: form.elements.ofees.value.trim() };
+          const vals = { child_name: e.child, start_date: values.start_date, fees: values.fees };
+          const out = store.renderOffer(template, vals);
+          const s1 = form.querySelector('[data-s1]');
+          const s2 = form.querySelector('[data-s2]');
+          const desc = form.closest('dialog').querySelector('.modal__desc');
+          const toEdit = () => { stage = 1; s1.hidden = false; s2.hidden = true; desc.innerHTML = `${esc(e.child)} · step 1 of 3: edit the letter`; };
+          const badTo = !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.elements.recipient.value.trim());
+          if (stage === 2 && (out.missing.length || out.unknown.length || badTo)) { toEdit(); return { keepOpen: true, submitLabel: 'Preview' }; }
+          if (stage === 1) {
+            stage = 2;
+            const marked = esc(out.text).replace(/\{\{\s*([a-z_]+)\s*\}\}/g, m => `<mark class="ad-offer__miss">${m}</mark>`);
+            const blocked = out.missing.length || out.unknown.length || badTo;
+            s2.innerHTML = `<p class="cd-note">To <b>${esc(form.elements.recipient.value || '—')}</b></p><div class="ad-offer__preview" aria-label="Letter preview">${marked.replace(/\n/g, '<br>')}</div>
+              ${blocked ? `<p class="field__hint field__hint--error" role="alert">${icon('info')}${badTo ? 'Add the family’s email address before sending. ' : ''}${!out.missing.length && !out.unknown.length ? '' : out.missing.length ? `Missing: ${out.missing.map(k => `{{${k}}}`).join(', ')}. Go back and fill ${out.missing.length === 1 ? 'it' : 'them'} in — nothing is made up.` : `Unknown variable: ${out.unknown.map(k => `{{${k}}}`).join(', ')}.`}</p>` : '<p class="cd-note">No email service is connected: sending records the offer as a <b>demo send — the family won’t receive it</b>. The stage then moves to Offer sent.</p>'}
+              <button class="btn btn--tertiary btn--sm" type="button" data-oback>${icon('arrow-left', 'icon--sm')}Back to edit</button>`;
+            s1.hidden = true;
+            s2.hidden = false;
+            desc.innerHTML = `${esc(e.child)} · step 2 of 3: preview`;
+            s2.querySelector('[data-oback]').addEventListener('click', () => { toEdit(); form.querySelector('[type="submit"]').textContent = 'Preview'; form.elements.template.focus(); });
+            return { keepOpen: true, submitLabel: blocked ? 'Back to edit' : 'Send offer' };
+          }
+          desc.innerHTML = `${esc(e.child)} · step 3 of 3: sending`;
+          const r = await store.sendOffer(me(), e.id, { template, values, recipient: form.elements.recipient.value, clientId, fail: failSend.on });
+          failSend.on = false;
+          if (!r.ok) {
+            clientId = newCid();
+            if (r.errors) { toEdit(); return { ok: false, errors: r.errors }; }
+            desc.innerHTML = `${esc(e.child)} · step 2 of 3: preview`;
+            return { ok: false, message: r.reason === 'send-failed' ? `The offer couldn’t be sent. Nothing changed — ${e.child} is still in ${store.ENQUIRY_STAGES[e.stage]}. Try again.` : failText(r) };
+          }
+          toast('Offer recorded as sent', `Demo — not delivered (no email service).${r.moved ? ' Stage: Offer sent.' : ''}`, 'mail', { duration: 7000 });
+          onDone();
+          return { ok: true };
+        }
+      });
+      d.form.querySelector('[data-odraft]').addEventListener('click', async ev => {
+        const b = ev.currentTarget;
+        b.disabled = true;
+        const r = await store.saveOfferDraft(me(), e.id, { template: d.form.elements.template.value, values: { start_date: d.form.elements.ostart.value.trim(), fees: d.form.elements.ofees.value.trim() } });
+        b.disabled = false;
+        toast(r.ok ? 'Draft saved' : 'Not saved', r.ok ? 'Not sent — the stage hasn’t changed.' : failText(r), r.ok ? 'pencil' : 'alert-circle');
+        if (r.ok) onDone();
+      });
+    }
+
 
     function enquiryForm(e = null) {
       const owners = store.admissionsOwners();
@@ -172,7 +241,7 @@
       }
       d.form.addEventListener('input', ev => { if (['phone', 'email', 'child'].includes(ev.target.name)) { confirmSibling = false; const b = d.form.querySelector('[data-dup]'); b.hidden = true; b.innerHTML = ''; d.form.querySelector('[type="submit"]').textContent = e ? 'Save changes' : 'Add enquiry'; } });
     }
-    return { move, enquiryForm, lostDialog, enrolDialog, busy };
+    return { move, enquiryForm, lostDialog, enrolDialog, offerDialog, busy };
   }
 
   /* ================================================================= Pipeline */
@@ -253,7 +322,7 @@
         <ul class="ad-list" data-drop="${s}">${list.map(e => `<li>${cardHtml(e, true)}</li>`).join('') || `<li class="ad-col__empty">${s === 'enrolled' ? 'Enrolled after the enrolment form is saved' : 'Drop a card here'}</li>`}</ul></section>`; }).join('')}</div>`;
     }
     function listView(rows) {
-      const val = { name: e => e.child.toLowerCase(), stage: e => STAGES.indexOf(e.stage), start: e => e.preferredStart || '9', created: e => e.createdAt, followup: e => e.followUp || '9' };
+      const val = { name: e => e.child.toLowerCase(), stage: e => STAGES.indexOf(e.stage), start: e => e.preferredStart || '9', created: e => e.createdAt, followup: e => store.nextFollowUp(e) || '9' };
       const sorted = rows.slice().sort((a, b) => { const x = val[sort.key](a); const y = val[sort.key](b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir; });
       const th = (k, l) => `<th scope="col" aria-sort="${sort.key === k ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}"><button class="ad-sort" type="button" data-sort="${k}">${l}${sort.key === k ? icon(sort.dir > 0 ? 'arrow-right' : 'arrow-left', `icon--sm ad-sort__ic${sort.dir > 0 ? ' is-up' : ' is-down'}`) : ''}</button></th>`;
       return `<div class="ad-sortbar"><label class="field__label" for="ad-sortsel">Sort by</label><select class="input input--sm" id="ad-sortsel" data-sortsel>${[['created', 'Newest'], ['name', 'Child name'], ['stage', 'Stage'], ['start', 'Preferred start'], ['followup', 'Next follow-up']].map(([k, l]) => `<option value="${k}"${sort.key === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -349,82 +418,345 @@
 
   function applicant(main, user, id) {
     const act = actions(user, () => draw());
+    const me = () => store.currentUser();
     const back = `<a class="btn btn--secondary" href="${routes.page('admissions')}">${icon('arrow-left', 'icon--sm')}Back to pipeline</a>`;
-    const TYPE_ICON = { created: 'user-plus', owner: 'user', stage: 'arrow-right', lost: 'x', followup: 'calendar-check', edit: 'pencil', 'enrol-started': 'file', enrolled: 'check-circle' };
+    const TYPE_ICON = { created: 'user-plus', owner: 'user', stage: 'arrow-right', lost: 'x', followup: 'calendar-check', edit: 'pencil', 'enrol-started': 'file', enrolled: 'check-circle', note: 'note', call: 'phone', email: 'mail', task: 'list', document: 'upload', offer: 'file', sibling: 'users' };
+    const TRACK = ['enquiry', 'tour', 'applied', 'offer', 'enrolled'];
+    const owners = store.admissionsOwners();
+    const canEnrol = store.canManageChildren(user);
+    let mtab = ['timeline', 'details', 'documents', 'tasks'].includes(params.get('tab')) ? params.get('tab') : 'timeline';
+    let tlFilter = '';
+    const failSend = { on: params.get('sendfail') === '1' };
+    const find = () => store.getAdmissionEnquiries().find(x => x.id === id);
+    const cid = () => `cl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+    const ageLabel = e => { const at = e.preferredStart || store.today(); const a = store.ageAt(e.dob, at); return a ? `${a.years}y ${a.months}m${e.preferredStart ? ' at start' : ''}` : e.dob ? 'Age unknown' : 'No date of birth'; };
+    const owner = id_ => owners.find(o => o.id === id_) || null;
+    const av = name => `<span class="ad-av s7-av" aria-hidden="true">${esc(initials(name))}</span>`;
+
+    function tracker(e) {
+      const reached = e.stage === 'lost' ? (e.history.slice().reverse().find(h => h.type === 'lost')?.from || 'enquiry') : e.stage;
+      const ri = TRACK.indexOf(reached);
+      const pills = TRACK.map((s, i) => { const st = e.stage === s ? 'current' : e.stage !== 'lost' && i < ri ? 'done' : e.stage === 'lost' && i <= ri ? 'done' : 'future'; return `<li class="s7-pill is-${st}"${st === 'current' ? ' aria-current="step"' : ''}>${st === 'done' ? icon('check', 'icon--sm') : `<span class="s7-pill__n">${i + 1}</span>`}<span>${store.ENQUIRY_STAGES[s]}</span><span class="sr-only">${st === 'current' ? ' (current stage)' : st === 'done' ? ' (completed)' : ' (not reached)'}</span></li>`; }).join('');
+      return `<nav class="s7-track" aria-label="Admissions stage"><ol>${pills}<li class="s7-pill s7-pill--lost is-${e.stage === 'lost' ? 'current' : 'future'}"${e.stage === 'lost' ? ' aria-current="step"' : ''}>${icon('x', 'icon--sm')}<span>Lost</span><span class="sr-only">${e.stage === 'lost' ? ' (current stage)' : ' (not reached)'}</span></li></ol></nav>`;
+    }
+    const tlTitle = x => ({
+      created: 'Enquiry created', owner: x.detail, followup: x.detail, edit: x.detail, note: 'Note', call: `Call · ${store.CALL_OUTCOMES[x.outcome] || ''}`, email: `Email · ${x.subject || ''}`, task: x.detail, document: x.detail, sibling: x.detail,
+      stage: `Stage changed: ${store.ENQUIRY_STAGES[x.from] || x.from || '—'} → ${store.ENQUIRY_STAGES[x.to]}`, lost: `Marked Lost (${store.ENQUIRY_STAGES[x.from] || ''} → Lost)`, enrolled: `Converted to enrolled (${store.ENQUIRY_STAGES[x.from] || ''} → Enrolled)`, 'enrol-started': 'Enrolment started', offer: x.action === 'sent' ? 'Offer sent' : x.action === 'failed' ? 'Offer send failed' : 'Offer drafted'
+    }[x.type] || x.detail || x.type);
+    const tlBody = x => {
+      if (x.type === 'note') return `<p class="pt-text">${esc(x.detail)}</p>`;
+      if (x.type === 'call') return x.detail ? `<p class="pt-text">${esc(x.detail)}</p>` : '';
+      if (x.type === 'email') return `<p class="s7-meta">To ${esc(x.to)} · <b>${esc(x.delivery)}</b></p><p class="pt-text s7-clip">${esc(x.detail)}</p>`;
+      if (['stage', 'lost', 'enrolled', 'offer', 'enrol-started'].includes(x.type) && x.detail) return `<p class="s7-meta">${esc(x.detail)}</p>`;
+      if (x.type === 'created' && x.detail && x.detail !== 'Enquiry created') return `<p class="s7-meta">${esc(x.detail.replace(/^Enquiry created · ?/, ''))}</p>`;
+      return '';
+    };
+    const TL_GROUPS = [['', 'All'], ['comms', 'Calls, emails & notes'], ['stage', 'Stage changes'], ['other', 'Tasks & documents']];
+    const inGroup = x => !tlFilter || (tlFilter === 'comms' ? ['note', 'call', 'email'].includes(x.type) : tlFilter === 'stage' ? ['stage', 'lost', 'enrolled', 'created', 'offer', 'enrol-started'].includes(x.type) : ['task', 'document', 'followup', 'sibling', 'owner', 'edit'].includes(x.type));
+
     function draw() {
-      const e = store.getAdmissionEnquiries().find(x => x.id === id);
+      const e = find();
       if (!e) { main.innerHTML = `<div class="kids">${state('user', 'Applicant not found', 'The enquiry may have been removed, or the link is incomplete.', back)}</div>`; return; }
       document.title = `${e.child} · Admissions · Nexora`;
-      const age = store.ageAt(e.dob, e.preferredStart);
+      const o = owner(e.ownerId);
+      const tasks = (e.tasks || []).slice().sort((a, b) => (a.status === b.status ? `${a.due}${a.time}`.localeCompare(`${b.due}${b.time}`) : a.status === 'open' ? -1 : 1));
+      const overdue = tasks.filter(t => store.taskOverdue(t)).length;
+      const sibs = store.enquirySiblings(e);
       const dup = store.enquiryDuplicates(e, e.id);
-      const canEnrol = store.canManageChildren(user) && !['enrolled'].includes(e.stage);
-      const ev = e.history.slice().reverse();
+      const docsN = Object.keys(e.documents || {}).length;
+      const offerOk = store.canOffer(e);
+      const enrolOk = canEnrol && !['enrolled', 'lost'].includes(e.stage);
       const focusId = document.activeElement?.id;
-      main.innerHTML = `<div class="kids ad-app">
-        <nav class="kids-crumbs" aria-label="Breadcrumb"><a href="${routes.page('admissions')}">Admissions</a> / <span aria-current="page">${esc(e.child)}</span></nav>
-        <header class="kids-head"><div class="kids-head__text"><h1 class="kids-head__title" id="page-title" tabindex="-1">${esc(e.child)}</h1>
-          <div class="an-tags ad-app__tags">${chip(STAGE_TONE[e.stage], store.ENQUIRY_STAGES[e.stage])}${daysChip(e)}<span class="cp-muted">Ref ${esc(e.id)}${e.demo ? ' · demo sample' : ''}</span></div></div>
-          <div class="an-head__actions">
-            ${e.stage !== 'enrolled' ? `<div class="menu-wrap"><button class="btn btn--secondary" type="button" aria-haspopup="menu" aria-expanded="false" data-amenu>${icon('arrow-right', 'icon--sm')}Move to…</button><div class="menu" role="menu" hidden>${STAGES.filter(s => s !== e.stage && s !== 'enrolled').map(s => `<button type="button" role="menuitem" data-move="${s}"${s === 'lost' ? ' class="is-danger"' : ''}>${s === 'lost' ? 'Mark lost…' : `Move to ${store.ENQUIRY_STAGES[s]}`}</button>`).join('')}</div></div>` : ''}
-            <button class="btn btn--secondary" type="button" data-edit>${icon('pencil', 'icon--sm')}Edit details</button>
-            ${canEnrol ? `<button class="btn btn--primary kids-yellow" type="button" data-enrol>${icon('user-plus', 'icon--sm')}Continue to enrolment</button>` : ''}
-          </div></header>
+      const ev = e.history.slice().sort((a, b) => b.at.localeCompare(a.at));
+      const shown = ev.filter(inGroup);
+      main.innerHTML = `<div class="kids s7" data-mtab="${mtab}">
+        <nav class="kids-crumbs" aria-label="Breadcrumb"><a href="${routes.page('admissions')}">Admissions</a> / <a href="${routes.page('admissions', { view: 'list' })}">Enquiries</a> / <span aria-current="page">${esc(e.child)}</span></nav>
+        <header class="s7-head">
+          <div class="s7-head__main">
+            <h1 class="kids-head__title" id="page-title" tabindex="-1">${esc(e.child)}</h1>
+            <p class="s7-head__facts">${esc(ageLabel(e))} · ${esc(e.programme)} · Starts ${esc(fmt(e.preferredStart, { day: 'numeric', month: 'long', year: 'numeric' }))}</p>
+            <div class="an-tags s7-head__tags">${chip(STAGE_TONE[e.stage], store.ENQUIRY_STAGES[e.stage])}${daysChip(e)}<span class="s7-owner">${o ? `${av(o.name)}<span>Owner: <b>${esc(o.name)}</b></span>` : '<span class="cp-muted">No owner assigned</span>'}</span><span class="cp-muted">Ref ${esc(e.id)}${e.demo ? ' · demo sample' : ''}</span></div>
+          </div>
+          <div class="s7-head__actions">
+            ${e.stage !== 'enrolled' ? `<button class="btn btn--primary kids-yellow" type="button" data-movestage>${icon('arrow-right', 'icon--sm')}Move stage</button>` : ''}
+            ${offerOk ? `<button class="btn btn--secondary" type="button" data-offer>${icon('mail', 'icon--sm')}${e.stage === 'offer' ? 'Resend offer' : 'Send offer'}</button>` : ''}
+            ${enrolOk ? `<button class="btn btn--secondary" type="button" data-enrol>${icon('user-plus', 'icon--sm')}Convert to enrolled</button>` : ''}
+            <div class="menu-wrap"><button class="btn btn--icon-ghost" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" data-more>${icon('more-v')}</button>
+              <div class="menu" role="menu" hidden><button type="button" role="menuitem" data-editfam>${icon('pencil', 'icon--sm')}Edit applicant</button><button type="button" role="menuitem" data-reassign>${icon('user', 'icon--sm')}Reassign owner</button><button type="button" role="menuitem" data-copyref>${icon('copy', 'icon--sm')}Copy reference</button>${!['lost', 'enrolled'].includes(e.stage) ? `<hr><button type="button" role="menuitem" class="is-danger" data-lost>${icon('x', 'icon--sm')}Mark lost…</button>` : ''}</div></div>
+          </div>
+        </header>
+        ${tracker(e)}
+        ${!enrolOk && canEnrol === false && !['enrolled', 'lost'].includes(e.stage) ? '<p class="cd-note">Only school leaders can convert an applicant to enrolled.</p>' : ''}
         ${dup.enquiries.length || dup.families.length ? `<p class="ls-banner ls-banner--warn">${icon('alert-triangle', 'icon--sm')}<span>Same phone or email as ${[...dup.enquiries.map(x => `<a href="${applicantUrl(x.id)}">${esc(x.child)}</a> (${esc(store.ENQUIRY_STAGES[x.stage])})`), ...dup.families.map(x => `the <a href="${routes.page('family', { id: x.id })}">${esc(x.name)}</a>`)].join(', ')}.</span></p>` : ''}
-        ${e.stage === 'enrolled' && e.childId ? `<p class="ls-banner ls-banner--ok">${icon('check-circle', 'icon--sm')}<span>Enrolled. <a href="${routes.record(e.childId)}">Open ${esc(e.child)}’s record</a>${e.familyId ? ` · <a href="${routes.page('family', { id: e.familyId })}">family</a>` : ''}.</span></p>` : ''}
-        ${e.stage === 'lost' && e.lost ? `<p class="ls-banner">${icon('info', 'icon--sm')}<span>Marked lost ${esc(when(e.lost.at))} by ${esc(e.lost.by)} — ${esc(store.LOST_REASONS[e.lost.reason] || 'Other')}${e.lost.detail ? `: ${esc(e.lost.detail)}` : ''}. Move it to another stage to reopen it.</span></p>` : ''}
-        <div class="ad-app__grid">
-          <section class="panel ad-box" aria-labelledby="ad-det-h"><h2 class="cd-h2" id="ad-det-h">Applicant</h2>
-            <dl class="token-sheet ad-dl">
-              <div><dt>Child</dt><dd>${esc(e.child)}</dd></div>
-              <div><dt>Date of birth</dt><dd>${e.dob ? esc(fmt(e.dob)) : '<span class="cp-muted">Not recorded</span>'}</dd></div>
-              <div><dt>Age at start</dt><dd>${age ? `${age.years}y ${age.months}m` : '<span class="cp-muted">Needs a date of birth</span>'}</dd></div>
-              <div><dt>Programme</dt><dd>${esc(e.programme)}</dd></div>
-              <div><dt>Preferred start</dt><dd>${esc(fmt(e.preferredStart))}</dd></div>
-              <div><dt>Parent / guardian</dt><dd>${esc(e.parent)}</dd></div>
-              <div><dt>Phone</dt><dd><a href="tel:${esc(String(e.phone).replace(/[^\d+]/g, ''))}">${esc(e.phone)}</a></dd></div>
-              <div><dt>Email</dt><dd>${e.email ? `<a href="mailto:${esc(e.email)}">${esc(e.email)}</a>` : '<span class="cp-muted">—</span>'}</dd></div>
-              <div><dt>Source</dt><dd>${esc(store.ENQUIRY_SOURCES[e.source] || 'Other')}</dd></div>
-              <div><dt>Owner</dt><dd>${esc(ownerName(e.ownerId) || 'Unassigned')}</dd></div>
-              ${e.tourAt ? `<div><dt>Tour</dt><dd>${esc(when(e.tourAt))}${new Date(e.tourAt) < new Date() ? ' (past)' : ''}</dd></div>` : ''}
-              <div><dt>Created</dt><dd>${esc(when(e.createdAt))} by ${esc(e.createdBy)}</dd></div>
-            </dl>
-            ${e.notes ? `<p class="pt-text ad-notes">${esc(e.notes)}</p>` : ''}
-          </section>
-          <section class="panel ad-box" aria-labelledby="ad-fu-h"><h2 class="cd-h2" id="ad-fu-h">Next follow-up</h2>
-            <p>${followText(e)}</p>
-            <form class="ad-fuform" data-fuform novalidate><label class="field__label" for="ad-fu">Follow-up date</label><div class="pt-link__row"><input class="input" type="date" id="ad-fu" value="${esc(e.followUp || '')}"><button class="btn btn--secondary btn--sm" type="submit">Save</button>${e.followUp ? '<button class="btn btn--tertiary btn--sm" type="button" data-fuclear>Clear</button>' : ''}</div><p class="field__hint field__hint--error" data-fuerr hidden></p></form>
-            <p class="cd-note">No automatic email or SMS reminders are sent — overdue follow-ups are highlighted here and on the pipeline.</p>
-          </section>
-          <section class="panel ad-box ad-box--wide" aria-labelledby="ad-tl-h"><h2 class="cd-h2" id="ad-tl-h">Timeline</h2>
-            <ol class="ad-tl">${ev.map(x => `<li class="ad-tl__item ad-tl__item--${esc(x.type)}"><span class="ad-tl__ic" aria-hidden="true">${icon(TYPE_ICON[x.type] || 'info', 'icon--sm')}</span><div><p>${esc(x.type === 'stage' ? `Stage changed: ${store.ENQUIRY_STAGES[x.from] || x.from} → ${store.ENQUIRY_STAGES[x.to]}` : x.type === 'lost' ? `Marked Lost (${store.ENQUIRY_STAGES[x.from] || ''} → Lost)` : x.type === 'enrolled' ? `Stage changed: ${store.ENQUIRY_STAGES[x.from] || ''} → Enrolled` : x.detail)}</p>${(x.type === 'stage' || x.type === 'lost' || x.type === 'enrolled') && x.detail ? `<small>${esc(x.detail)}</small>` : ''}<small>${esc(when(x.at))} · ${esc(x.by)}</small></div></li>`).join('')}</ol>
-          </section>
+        ${e.stage === 'enrolled' && e.childId ? `<p class="ls-banner ls-banner--ok">${icon('check-circle', 'icon--sm')}<span>Converted to enrolled. <a href="${routes.record(e.childId)}">Open ${esc(e.child)}’s record</a>${e.familyId ? ` · <a href="${routes.page('family', { id: e.familyId })}">Family</a>` : ''}. The applicant history below is kept.</span></p>` : ''}
+        ${e.stage === 'lost' && e.lost ? `<p class="ls-banner">${icon('info', 'icon--sm')}<span>Lost ${esc(when(e.lost.at))} · ${esc(store.LOST_REASONS[e.lost.reason] || 'Other')}${e.lost.detail ? `: ${esc(e.lost.detail)}` : ''} · ${esc(e.lost.by)}. Use Move stage to reopen.</span></p>` : ''}
+        <div class="tabs s7-tabs" role="tablist" aria-label="Applicant sections">${[['timeline', 'Timeline'], ['details', 'Details'], ['documents', 'Documents'], ['tasks', 'Tasks']].map(([k, l]) => `<button class="tab" type="button" role="tab" id="s7-tab-${k}" aria-selected="${mtab === k}" tabindex="${mtab === k ? 0 : -1}" data-mtab="${k}">${l}${k === 'tasks' && overdue ? `<span class="tab__count s7-od">${overdue}</span>` : k === 'documents' ? `<span class="tab__count">${docsN}/4</span>` : ''}</button>`).join('')}</div>
+        <div class="s7-grid">
+          <div class="s7-col s7-col--main" data-group="timeline">
+            <section class="panel s7-card s7-composer" aria-labelledby="s7-comp-h"><h2 class="cd-h2" id="s7-comp-h">Log a note / call / email</h2>
+              <form class="s7-note" data-noteform novalidate><label class="sr-only" for="s7-note">Note</label><textarea class="input" id="s7-note" rows="3" maxlength="2000" placeholder="Write a note about this family…" aria-describedby="s7-note-err"></textarea><p class="field__hint field__hint--error" id="s7-note-err" data-noteerr hidden></p>
+                <div class="s7-composer__acts"><button class="btn btn--primary kids-yellow btn--sm" type="submit">${icon('note', 'icon--sm')}Save note</button><button class="btn btn--secondary btn--sm" type="button" data-call>${icon('phone', 'icon--sm')}Log call</button><button class="btn btn--secondary btn--sm" type="button" data-email>${icon('mail', 'icon--sm')}Log email</button></div>
+                <p class="cd-note">Notes are internal to school staff — families don’t have a portal yet.</p></form>
+            </section>
+            <section class="panel s7-card" aria-labelledby="s7-tl-h"><div class="s7-card__head"><h2 class="cd-h2" id="s7-tl-h">Timeline</h2><label class="sr-only" for="s7-tlf">Show</label><select class="input input--sm" id="s7-tlf" data-tlf>${TL_GROUPS.map(([k, l]) => `<option value="${k}"${tlFilter === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
+              ${!ev.length ? state('note', 'No activity yet', 'Record your first call, email, or note to start this applicant’s history.') : !shown.length ? '<p class="cp-muted">Nothing of this kind yet.</p>' : `<ol class="ad-tl s7-tl">${shown.map(x => `<li class="ad-tl__item ad-tl__item--${esc(x.type)}"><span class="ad-tl__ic" aria-hidden="true">${icon(TYPE_ICON[x.type] || 'info', 'icon--sm')}</span><div><p>${esc(tlTitle(x))}</p>${tlBody(x)}<small>${esc(when(x.at))} · ${esc(x.by)}</small></div></li>`).join('')}</ol>`}
+            </section>
+          </div>
+          <div class="s7-col s7-col--side">
+            <section class="panel s7-card" data-group="details" aria-labelledby="s7-fam-h"><div class="s7-card__head"><h2 class="cd-h2" id="s7-fam-h">Family details</h2><button class="btn btn--tertiary btn--sm" type="button" data-editfam>${icon('pencil', 'icon--sm')}Edit</button></div>
+              <dl class="token-sheet ad-dl"><div><dt>Parent / guardian</dt><dd>${esc(e.parent)}</dd></div><div><dt>Phone</dt><dd><a href="tel:${esc(String(e.phone).replace(/[^\d+]/g, ''))}">${esc(e.phone)}</a></dd></div><div><dt>Email</dt><dd>${e.email ? `<a href="mailto:${esc(e.email)}">${esc(e.email)}</a>` : '<span class="cp-muted">Not given</span>'}</dd></div>
+                <div><dt>Prefers</dt><dd>${e.contactMethod ? esc(store.CONTACT_METHODS[e.contactMethod]) : '<span class="cp-muted">Not given</span>'}</dd></div><div><dt>Language</dt><dd>${e.language ? esc(e.language) : '<span class="cp-muted">Not given</span>'}</dd></div><div><dt>Address</dt><dd>${e.address ? esc(e.address) : '<span class="cp-muted">Not given</span>'}</dd></div><div><dt>Owner</dt><dd>${o ? esc(o.name) : '<span class="cp-muted">Unassigned</span>'}</dd></div><div><dt>Source</dt><dd>${esc(store.ENQUIRY_SOURCES[e.source] || 'Other')}</dd></div></dl>
+            </section>
+            <section class="panel s7-card" data-group="details" aria-labelledby="s7-child-h"><div class="s7-card__head"><h2 class="cd-h2" id="s7-child-h">Child details</h2><button class="btn btn--tertiary btn--sm" type="button" data-editchild>${icon('pencil', 'icon--sm')}Edit</button></div>
+              <dl class="token-sheet ad-dl"><div><dt>Name</dt><dd>${e.childId ? `<a href="${routes.record(e.childId)}">${esc(e.child)}</a>` : esc(e.child)}</dd></div><div><dt>Date of birth</dt><dd>${e.dob ? esc(fmt(e.dob)) : '<span class="cp-muted">Not given</span>'}</dd></div>
+                <div><dt>Age</dt><dd>${(() => { const now = store.ageAt(e.dob, store.today()); const at = store.ageAt(e.dob, e.preferredStart); return now ? `${now.years}y ${now.months}m today${at ? ` · ${at.years}y ${at.months}m at start` : ''}` : '<span class="cp-muted">Needs a date of birth</span>'; })()}</dd></div>
+                <div><dt>Programme</dt><dd>${esc(e.programme)}</dd></div><div><dt>Preferred start</dt><dd>${esc(fmt(e.preferredStart))}</dd></div><div><dt>Previous school</dt><dd>${e.previousSchool ? esc(e.previousSchool) : '<span class="cp-muted">Not given</span>'}</dd></div>${e.tourAt ? `<div><dt>Tour</dt><dd>${esc(when(e.tourAt))}${new Date(e.tourAt) < new Date() ? ' (past)' : ''}</dd></div>` : ''}</dl>
+              ${e.childNotes || e.notes ? `<p class="pt-text ad-notes">${esc([e.notes, e.childNotes].filter(Boolean).join('\n\n'))}</p>` : ''}
+            </section>
+            <section class="panel s7-card" data-group="documents" aria-labelledby="s7-doc-h"><div class="s7-card__head"><h2 class="cd-h2" id="s7-doc-h">Documents</h2><span class="cp-muted">${docsN} of 4 uploaded</span></div>
+              <ul class="s7-docs">${Object.entries(store.APPLICANT_DOCS).map(([k, l]) => { const d = e.documents?.[k]; return `<li class="s7-doc${d ? ' is-up' : ''}" data-doc="${k}"><div class="s7-doc__main"><b>${esc(l)}</b>${d ? `<small>${esc(d.name)} · ${Math.max(1, Math.round(d.size / 1024))} KB · ${esc(fmt(d.at))}</small>` : `<small>${k === 'photo' ? 'JPEG or PNG' : 'PDF, JPEG or PNG'} · up to 1 MB</small>`}<span class="s7-doc__prog" data-prog="${k}" hidden><progress max="100" value="0" aria-label="Uploading ${esc(l)}"></progress></span><p class="field__hint field__hint--error" data-docerr="${k}" hidden></p></div>
+                ${d ? chip('success', 'Uploaded', 'check') : chip('warning', 'Missing', 'alert-triangle')}
+                <div class="s7-doc__acts"><input class="sr-only" type="file" id="s7-f-${k}" accept="${store.APPLICANT_DOC_TYPES[k].join(',')}" data-file="${k}"><label class="btn btn--${d ? 'tertiary' : 'secondary'} btn--sm" for="s7-f-${k}">${icon('upload', 'icon--sm')}${d ? 'Replace' : 'Upload'}<span class="sr-only"> ${esc(l)}</span></label>${d ? `<button class="btn btn--tertiary btn--sm" type="button" data-view="${esc(d.fileId)}">${icon('eye', 'icon--sm')}View<span class="sr-only"> ${esc(l)}</span></button><button class="btn btn--icon-ghost btn--sm" type="button" aria-label="Remove ${esc(l)}" data-rmdoc="${k}">${icon('trash', 'icon--sm')}</button>` : ''}</div></li>`; }).join('')}</ul>
+              <p class="cd-note">Stored on this device for the prototype — not secure production storage. Copied to the child’s record on enrolment.</p>
+            </section>
+            <section class="panel s7-card" data-group="details" aria-labelledby="s7-sib-h"><div class="s7-card__head"><h2 class="cd-h2" id="s7-sib-h">Siblings</h2><button class="btn btn--tertiary btn--sm" type="button" data-linksib>${icon('plus', 'icon--sm')}Link existing child</button></div>
+              ${sibs.length ? `<ul class="s7-sibs">${sibs.map(s => { const a = store.ageAt(s.dob, store.today()); return `<li>${av(s.name)}<div><a href="${routes.record(s.id)}">${esc(s.name)}</a><small>${esc(s.cls)}${a ? ` · ${a.years}y ${a.months}m` : ''}${s.viaFamily ? ' · same family' : ''}</small></div>${chip(s.status === 'active' ? 'success' : 'neutral', store.CHILD_STATUSES[s.status] || s.status)}${!s.viaFamily ? `<button class="btn btn--icon-ghost btn--sm" type="button" aria-label="Remove link to ${esc(s.name)}" data-unsib="${esc(s.id)}">${icon('x', 'icon--sm')}</button>` : ''}</li>`; }).join('')}</ul>` : `<div class="s7-empty"><p class="kids-empty__title">No siblings linked yet</p><p class="cp-muted">Link a brother or sister already at the school. Nothing is matched by name automatically.</p><button class="btn btn--secondary btn--sm" type="button" data-linksib>Link existing child</button></div>`}
+            </section>
+            <section class="panel s7-card" data-group="tasks" aria-labelledby="s7-task-h"><div class="s7-card__head"><h2 class="cd-h2" id="s7-task-h">Follow-up tasks</h2><button class="btn btn--tertiary btn--sm" type="button" data-addtask>${icon('plus', 'icon--sm')}Add follow-up</button></div>
+              ${tasks.length ? `<ul class="s7-tasks">${tasks.map(t => { const od = store.taskOverdue(t); return `<li class="s7-task${t.status === 'done' ? ' is-done' : ''}${od ? ' is-over' : ''}"><div class="s7-task__main"><p>${esc(t.title)}</p><small>${t.status === 'done' ? `Completed ${esc(when(t.doneAt))} by ${esc(t.doneBy)}` : `Due ${esc(fmt(t.due, { weekday: 'short', day: 'numeric', month: 'short' }))}${t.time ? ` ${esc(t.time)}` : ''}`} · ${esc(owner(t.assigneeId)?.name || 'Unassigned')}</small></div>
+                ${t.status === 'done' ? chip('success', 'Completed', 'check') : od ? chip('error', 'Overdue', 'alert-triangle') : chip('info', 'Open', 'clock')}
+                <div class="s7-task__acts">${t.status === 'open' ? `<button class="btn btn--secondary btn--sm" type="button" data-done="${esc(t.id)}">${icon('check', 'icon--sm')}Complete<span class="sr-only">: ${esc(t.title)}</span></button><button class="btn btn--icon-ghost btn--sm" type="button" aria-label="Edit ${esc(t.title)}" data-edittask="${esc(t.id)}">${icon('pencil', 'icon--sm')}</button>` : `<button class="btn btn--tertiary btn--sm" type="button" data-reopen="${esc(t.id)}">Reopen</button>`}</div></li>`; }).join('')}</ul>` : `<div class="s7-empty"><p class="kids-empty__title">No follow-ups yet</p><p class="cp-muted">Plan the next call or visit so nothing slips.</p><button class="btn btn--secondary btn--sm" type="button" data-addtask>Add follow-up</button></div>`}
+              ${e.followUp ? `<p class="cd-note">Pipeline follow-up date: ${esc(fmt(e.followUp))} <button class="btn btn--tertiary btn--sm" type="button" data-fuclear>Clear</button></p>` : ''}
+            </section>
+          </div>
         </div></div>`;
       if (focusId && main.querySelector(`#${CSS.escape(focusId)}`)) main.querySelector(`#${CSS.escape(focusId)}`).focus();
     }
+
+    /* ---------------------------------------------------------------- Dialogs */
+
+    function moveStageDialog(e) {
+      const opts = Object.keys(store.ENQUIRY_STAGES).filter(s => s !== e.stage);
+      const note = { offer: 'Opens Send offer — the stage changes only after the offer is sent.', enrolled: canEnrol ? 'Opens the enrolment form — the stage changes only when enrolment is saved.' : 'Only school leaders can enrol.', lost: 'Asks for a reason.', tour: 'Asks for the tour time.' };
+      kids.dialog({
+        label: 'Admissions', title: 'Move stage', desc: `${esc(e.child)} is in <b>${esc(store.ENQUIRY_STAGES[e.stage])}</b>. Choose where to move them.`,
+        body: `<fieldset class="an-fs"><legend class="sr-only">New stage</legend><div class="s7-stages">${opts.map(s => `<label class="an-mode${s === 'enrolled' && !canEnrol ? ' is-off' : ''}"><input type="radio" name="tostage" value="${s}"${s === 'enrolled' && !canEnrol ? ' disabled' : ''}><span><b>${store.ENQUIRY_STAGES[s]}</b>${note[s] ? `<small>${esc(note[s])}</small>` : ''}</span></label>`).join('')}</div><p class="field__hint field__hint--error" data-error-for="tostage" hidden></p></fieldset>`,
+        submit: 'Continue',
+        async onSubmit(form) {
+          const to = form.querySelector('[name="tostage"]:checked')?.value;
+          if (!to) return { ok: false, errors: { tostage: 'Choose a stage.' } };
+          if (['enquiry', 'applied'].includes(to)) return confirmPlain(e, to);
+          setTimeout(() => (to === 'offer' ? act.offerDialog(find()) : act.move(id, to)), 180);
+          return { ok: true };
+        }
+      });
+    }
+    function confirmPlain(e, to) {
+      setTimeout(() => kids.dialog({ label: 'Admissions', title: `Move to ${store.ENQUIRY_STAGES[to]}?`, desc: `${esc(e.child)}: ${esc(store.ENQUIRY_STAGES[e.stage])} → ${esc(store.ENQUIRY_STAGES[to])}. This is recorded in the timeline.`, body: '', submit: `Move to ${store.ENQUIRY_STAGES[to]}`,
+        async onSubmit() { act.move(id, to); return { ok: true }; } }), 180);
+      return { ok: true };
+    }
+    function callDialog(e) {
+      const clientId = cid();
+      kids.dialog({
+        label: 'Admissions', title: 'Log a call', desc: `${esc(e.parent)} · <a href="tel:${esc(String(e.phone).replace(/[^\d+]/g, ''))}">${esc(e.phone)}</a>`,
+        body: `<fieldset class="an-fs"><legend class="field__label">Outcome <span class="field__req" aria-hidden="true">*</span></legend><div class="ad-reasons">${Object.entries(store.CALL_OUTCOMES).map(([k, l]) => `<label class="an-pick"><input type="radio" name="coutcome" value="${k}"><span><b>${l}</b></span></label>`).join('')}</div><p class="field__hint field__hint--error" data-error-for="outcome" hidden></p></fieldset>
+          ${kids.field('kd-cnotes', 'Notes', '<textarea class="input" id="kd-cnotes" name="cnotes" rows="3" maxlength="2000"></textarea>')}
+          <div class="cls-form__row">${kids.field('kd-followUp', 'Next follow-up (optional)', `<input class="input" type="date" id="kd-followUp" name="followUp" min="${store.today()}">`)}${kids.field('kd-followUpTime', 'Time', '<input class="input" type="time" id="kd-followUpTime" name="followUpTime">')}</div>
+          ${kids.field('kd-assigneeId', 'Follow-up owner', `<select class="input" id="kd-assigneeId" name="assigneeId">${owners.map(x => `<option value="${esc(x.id)}"${x.id === (e.ownerId || user.id) ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`, { hint: 'A follow-up task is created when you set a date. They get a Nexora notification.' })}`,
+        submit: 'Save call',
+        async onSubmit(form) {
+          const r = await store.logEnquiryCall(me(), id, { outcome: form.querySelector('[name="coutcome"]:checked')?.value, notes: form.elements.cnotes.value, followUp: form.elements.followUp.value, followUpTime: form.elements.followUpTime.value, assigneeId: form.elements.assigneeId.value, clientId });
+          if (!r.ok) return r.errors ? { ok: false, errors: r.errors } : { ok: false, message: failText(r) };
+          toast('Call logged', r.task ? `Follow-up created for ${fmt(r.task.due)}.` : e.child, 'phone');
+          draw();
+          return { ok: true };
+        }
+      });
+    }
+    function emailDialog(e) {
+      const clientId = cid();
+      kids.dialog({
+        label: 'Admissions', title: 'Log an email', desc: 'No email service is connected, so this is <b>recorded as a draft — it isn’t sent</b>. Send it from your own email, then keep the record here.',
+        body: `${kids.field('kd-to', 'Recipient', `<input class="input" id="kd-to" name="to" type="email" required value="${esc(e.email || '')}">`, { required: true })}
+          ${kids.field('kd-subject', 'Subject', '<input class="input" id="kd-subject" name="subject" maxlength="200" required>', { required: true })}
+          ${kids.field('kd-body', 'Message', '<textarea class="input" id="kd-body" name="body" rows="6" maxlength="4000" required></textarea>', { required: true })}`,
+        submit: 'Record email (not sent)',
+        async onSubmit(form) {
+          const r = await store.logEnquiryEmail(me(), id, { to: form.elements.to.value, subject: form.elements.subject.value, body: form.elements.body.value, clientId });
+          if (!r.ok) return r.errors ? { ok: false, errors: r.errors } : { ok: false, message: failText(r) };
+          toast('Email recorded', 'Saved in the timeline — not sent (no email service).', 'mail');
+          draw();
+          return { ok: true };
+        }
+      });
+    }
+    function taskDialog(e, t = null) {
+      const clientId = cid();
+      kids.dialog({
+        label: 'Admissions', title: t ? 'Edit follow-up' : 'Add follow-up', desc: esc(e.child),
+        body: `${kids.field('kd-title', 'Task', `<input class="input" id="kd-title" name="title" maxlength="200" required value="${esc(t?.title || '')}" placeholder="e.g. Call back about the June start">`, { required: true })}
+          <div class="cls-form__row">${kids.field('kd-due', 'Due date', `<input class="input" type="date" id="kd-due" name="due" required value="${esc(t?.due || store.today())}">`, { required: true })}${kids.field('kd-time', 'Time (optional)', `<input class="input" type="time" id="kd-time" name="time" value="${esc(t?.time || '')}">`)}</div>
+          ${kids.field('kd-assigneeId', 'Assignee', `<select class="input" id="kd-assigneeId" name="assigneeId" required>${owners.map(x => `<option value="${esc(x.id)}"${x.id === (t?.assigneeId || e.ownerId || user.id) ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`, { required: true, hint: 'They get a Nexora notification.' })}`,
+        submit: t ? 'Save changes' : 'Save task',
+        async onSubmit(form) {
+          const input = { title: form.elements.title.value, due: form.elements.due.value, time: form.elements.time.value, assigneeId: form.elements.assigneeId.value };
+          const r = t ? await store.updateEnquiryTask(me(), id, t.id, input) : await store.addEnquiryTask(me(), id, { ...input, clientId });
+          if (!r.ok) return r.errors ? { ok: false, errors: r.errors } : { ok: false, message: failText(r) };
+          toast(t ? (r.unchanged ? 'No changes' : 'Follow-up updated') : 'Follow-up added', input.title, 'check-circle');
+          draw();
+          return { ok: true };
+        }
+      });
+    }
+    function detailsDialog(e, part) {
+      const fam = part === 'family';
+      kids.dialog({
+        label: 'Admissions', title: fam ? 'Edit family details' : 'Edit child details', desc: '',
+        body: fam ? `<div class="cls-form">${kids.field('kd-parent', 'Parent or guardian', `<input class="input" id="kd-parent" name="parent" maxlength="80" required value="${esc(e.parent)}">`, { required: true })}
+            <div class="cls-form__row">${kids.field('kd-phone', 'Phone', `<input class="input" id="kd-phone" name="phone" type="tel" inputmode="tel" maxlength="24" required value="${esc(e.phone)}">`, { required: true })}${kids.field('kd-email', 'Email', `<input class="input" id="kd-email" name="email" type="email" maxlength="120" value="${esc(e.email || '')}">`)}</div>
+            <div class="cls-form__row">${kids.field('kd-contactMethod', 'Preferred contact', `<select class="input" id="kd-contactMethod" name="contactMethod"><option value="">Not given</option>${Object.entries(store.CONTACT_METHODS).map(([k, l]) => `<option value="${k}"${e.contactMethod === k ? ' selected' : ''}>${l}</option>`).join('')}</select>`)}${kids.field('kd-language', 'Preferred language', `<input class="input" id="kd-language" name="language" maxlength="60" value="${esc(e.language || '')}">`)}</div>
+            ${kids.field('kd-address', 'Address', `<textarea class="input" id="kd-address" name="address" rows="2" maxlength="300">${esc(e.address || '')}</textarea>`)}
+            ${kids.field('kd-ownerId', 'Admissions owner', `<select class="input" id="kd-ownerId" name="ownerId"><option value="">Unassigned</option>${owners.map(x => `<option value="${esc(x.id)}"${e.ownerId === x.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`)}</div>`
+          : `<div class="cls-form">${kids.field('kd-child', 'Child’s full name', `<input class="input" id="kd-child" name="child" maxlength="80" required value="${esc(e.child)}">`, { required: true })}
+            <div class="cls-form__row">${kids.field('kd-dob', 'Date of birth', `<input class="input" id="kd-dob" name="dob" type="date" max="${store.today()}" value="${esc(e.dob || '')}">`)}${kids.field('kd-programme', 'Programme', `<select class="input" id="kd-programme" name="programme" required>${store.CLASS_LEVELS.map(l => `<option${e.programme === l ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`, { required: true })}</div>
+            <div class="cls-form__row">${kids.field('kd-preferredStart', 'Preferred start', `<input class="input" id="kd-preferredStart" name="preferredStart" type="date" required value="${esc(e.preferredStart || '')}">`, { required: true })}${kids.field('kd-previousSchool', 'Previous school', `<input class="input" id="kd-previousSchool" name="previousSchool" maxlength="120" value="${esc(e.previousSchool || '')}">`)}</div>
+            ${kids.field('kd-childNotes', 'Notes about the child', `<textarea class="input" id="kd-childNotes" name="childNotes" rows="3" maxlength="1000">${esc(e.childNotes || '')}</textarea>`)}</div>`,
+        submit: 'Save changes',
+        async onSubmit(form) {
+          const keys = fam ? ['parent', 'phone', 'email', 'contactMethod', 'language', 'address', 'ownerId'] : ['child', 'dob', 'programme', 'preferredStart', 'previousSchool', 'childNotes'];
+          const r = await store.updateEnquiry(me(), id, { ...Object.fromEntries(keys.map(k => [k, form.elements[k].value])), updatedAt: find()?.updatedAt });
+          if (r.reason === 'duplicate') return { ok: false, message: 'Another open enquiry already uses this phone or email for the same child.' };
+          if (!r.ok) return r.errors ? { ok: false, errors: r.errors } : { ok: false, message: failText(r) };
+          toast(r.unchanged ? 'No changes' : 'Saved', e.child, 'check-circle');
+          draw();
+          return { ok: true };
+        }
+      });
+    }
+    function reassignDialog(e) {
+      kids.dialog({ label: 'Admissions', title: 'Reassign owner', desc: esc(e.child),
+        body: kids.field('kd-ownerId', 'Admissions owner', `<select class="input" id="kd-ownerId" name="ownerId"><option value="">Unassigned</option>${owners.map(x => `<option value="${esc(x.id)}"${e.ownerId === x.id ? ' selected' : ''}>${esc(x.name)} · ${esc(x.role)}</option>`).join('')}</select>`, { hint: 'The new owner gets a Nexora notification.' }),
+        submit: 'Reassign',
+        async onSubmit(form) { const r = await store.updateEnquiry(me(), id, { ownerId: form.elements.ownerId.value, updatedAt: find()?.updatedAt }); if (!r.ok) return { ok: false, message: failText(r) }; toast(r.unchanged ? 'No changes' : 'Owner updated', ownerName(form.elements.ownerId.value) || 'Unassigned', 'user'); draw(); return { ok: true }; } });
+    }
+    function siblingDialog(e) {
+      let q = '';
+      let timer = null;
+      const d = kids.dialog({ label: 'Admissions', title: 'Link existing child', desc: 'Search children already on record. Linking connects this applicant to that child’s family — nothing is matched automatically.',
+        body: `<div class="an-search an-search--block">${icon('search', 'icon--sm')}<label class="sr-only" for="s7-sq">Search children</label><input class="input" id="s7-sq" type="search" placeholder="Child’s name (at least 2 letters)" autocomplete="off"></div><ul class="an-plist s7-sres" data-sres role="radiogroup" aria-label="Children"><li class="cp-muted an-plist__none">Type a name to search.</li></ul><p class="field__hint field__hint--error" data-error-for="child" hidden></p>`,
+        submit: 'Link child',
+        async onSubmit(form) {
+          const pick = form.querySelector('[name="sib"]:checked')?.value;
+          if (!pick) return { ok: false, errors: { child: 'Choose a child.' } };
+          const r = await store.linkSibling(me(), id, pick);
+          if (!r.ok) return r.errors ? { ok: false, errors: r.errors } : { ok: false, message: failText(r) };
+          toast('Sibling linked', store.childName(store.childById(pick)), 'users');
+          draw();
+          return { ok: true };
+        } });
+      const search = () => {
+        const ql = q.trim().toLowerCase();
+        const box = d.form.querySelector('[data-sres]');
+        if (ql.length < 2) { box.innerHTML = '<li class="cp-muted an-plist__none">Type a name to search.</li>'; return; }
+        const linked = new Set(store.enquirySiblings(find()).map(s => s.id));
+        const rows = store.getChildren().filter(c => store.childName(c).toLowerCase().includes(ql)).slice(0, 12);
+        box.innerHTML = rows.map(c => `<li><label class="an-prow"><input type="radio" name="sib" value="${esc(c.id)}"${linked.has(c.id) ? ' disabled' : ''}><span class="an-prow__txt"><b>${esc(store.childName(c))}</b><small>${esc(c.cls)} · ${esc(store.CHILD_STATUSES[c.status] || c.status)}${linked.has(c.id) ? ' · already linked' : ''}</small></span></label></li>`).join('') || '<li class="cp-muted an-plist__none">No children match.</li>';
+      };
+      d.form.querySelector('#s7-sq').addEventListener('input', ev => { q = ev.target.value; clearTimeout(timer); timer = setTimeout(search, 200); });
+      d.form.querySelector('#s7-sq').focus();
+    }
+    async function uploadDoc(k, file) {
+      const e = find();
+      const err = main.querySelector(`[data-docerr="${k}"]`);
+      const prog = main.querySelector(`[data-prog="${k}"]`);
+      const show = msg => { const el = main.querySelector(`[data-docerr="${k}"]`); if (el) { el.textContent = msg; el.hidden = !msg; } };
+      show('');
+      const types = store.APPLICANT_DOC_TYPES[k];
+      if (!types.includes(file.type)) { show(k === 'photo' ? 'Choose a JPEG or PNG photo.' : 'Choose a PDF, JPEG or PNG file.'); return; }
+      if (file.size > 1024 * 1024) { show('This file is over 1 MB. Choose a smaller file.'); return; }
+      prog.hidden = false;
+      const data = await new Promise(res => { const fr = new FileReader(); fr.onprogress = ev => { if (ev.lengthComputable) prog.querySelector('progress').value = Math.round((ev.loaded / ev.total) * 90); }; fr.onload = () => res(fr.result); fr.onerror = () => res(''); fr.readAsDataURL(file); });
+      const r = await store.uploadApplicantDocument(me(), id, k, { name: file.name, mime: file.type, size: file.size, data, clientId: cid() });
+      if (!r.ok) { prog.hidden = true; show(failText(r)); return; }
+      toast('Document uploaded', `${store.APPLICANT_DOCS[k]} · ${file.name}`, 'upload');
+      void err; void e;
+      draw();
+      main.querySelector(`label[for="s7-f-${k}"]`)?.focus();
+    }
+
+    /* ---------------------------------------------------------------- Events */
+
     main.addEventListener('click', async ev => {
       const t = ev.target;
-      const e = store.getAdmissionEnquiries().find(x => x.id === id);
+      const e = find();
       if (!e) return;
-      if (t.closest('[data-amenu]')) { const m = main.querySelector('[data-amenu] + .menu'); m.hidden = !m.hidden; t.closest('[data-amenu]').setAttribute('aria-expanded', String(!m.hidden)); if (!m.hidden) m.querySelector('button').focus(); return; }
-      const mv = t.closest('[data-move]');
-      if (mv) { main.querySelector('[data-amenu] + .menu').hidden = true; act.move(id, mv.dataset.move); return; }
-      if (t.closest('[data-edit]')) { act.enquiryForm(e); return; }
+      const moreMenu = main.querySelector('[data-more] + .menu');
+      if (t.closest('[data-more]')) { moreMenu.hidden = !moreMenu.hidden; t.closest('[data-more]').setAttribute('aria-expanded', String(!moreMenu.hidden)); if (!moreMenu.hidden) moreMenu.querySelector('button').focus(); return; }
+      if (moreMenu && !moreMenu.hidden && !t.closest('.menu-wrap')) moreMenu.hidden = true;
+      if (moreMenu && t.closest('.menu')) moreMenu.hidden = true;
+      const tb = t.closest('[data-mtab]');
+      if (tb && tb.tagName === 'BUTTON') { mtab = tb.dataset.mtab; const u = new URL(location.href); u.searchParams.set('tab', mtab); history.replaceState(null, '', u); draw(); main.querySelector(`#s7-tab-${mtab}`)?.focus(); return; }
+      if (t.closest('[data-movestage]')) { moveStageDialog(e); return; }
+      if (t.closest('[data-offer]')) { act.offerDialog(e, failSend); return; }
       if (t.closest('[data-enrol]')) { act.enrolDialog(e); return; }
-      if (t.closest('[data-fuclear]')) { const r = await store.setEnquiryFollowUp(store.currentUser(), id, ''); toast(r.ok ? 'Follow-up cleared' : 'Not saved', r.ok ? e.child : failText(r), r.ok ? 'check-circle' : 'alert-circle'); return; }
-      const menu = main.querySelector('[data-amenu] + .menu');
-      if (menu && !menu.hidden && !t.closest('.menu-wrap')) menu.hidden = true;
+      if (t.closest('[data-lost]')) { act.lostDialog(e); return; }
+      if (t.closest('[data-editfam]')) { detailsDialog(e, 'family'); return; }
+      if (t.closest('[data-editchild]')) { detailsDialog(e, 'child'); return; }
+      if (t.closest('[data-reassign]')) { reassignDialog(e); return; }
+      if (t.closest('[data-copyref]')) { try { await navigator.clipboard.writeText(e.id); toast('Reference copied', e.id, 'copy'); } catch { toast('Reference', e.id, 'copy'); } return; }
+      if (t.closest('[data-call]')) { callDialog(e); return; }
+      if (t.closest('[data-email]')) { emailDialog(e); return; }
+      if (t.closest('[data-addtask]')) { taskDialog(e); return; }
+      const et = t.closest('[data-edittask]');
+      if (et) { taskDialog(e, e.tasks.find(x => x.id === et.dataset.edittask)); return; }
+      const dn = t.closest('[data-done], [data-reopen]');
+      if (dn) { dn.disabled = true; const r = await store.updateEnquiryTask(me(), id, dn.dataset.done || dn.dataset.reopen, { status: dn.dataset.done ? 'done' : 'open' }); if (!r.ok) { dn.disabled = false; toast('Not saved', failText(r), 'alert-circle'); return; } toast(dn.dataset.done ? 'Follow-up completed' : 'Follow-up reopened', r.task.title, 'check-circle'); draw(); return; }
+      if (t.closest('[data-linksib]')) { siblingDialog(e); return; }
+      const us = t.closest('[data-unsib]');
+      if (us) { kids.dialog({ label: 'Admissions', title: 'Remove this sibling link?', desc: 'The child’s own record isn’t changed.', body: '', submit: 'Remove link', danger: true, async onSubmit() { const r = await store.unlinkSibling(me(), id, us.dataset.unsib); if (!r.ok) return { ok: false, message: failText(r) }; draw(); return { ok: true }; } }); return; }
+      const vw = t.closest('[data-view]');
+      if (vw) { const f = store.applicantFile(me(), vw.dataset.view); if (!f) { toast('File not available', 'It may have been removed, or it isn’t on this device.'); return; } const a = document.createElement('a'); a.href = f.data; a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); return; }
+      const rd = t.closest('[data-rmdoc]');
+      if (rd) { kids.dialog({ label: 'Admissions', title: `Remove ${store.APPLICANT_DOCS[rd.dataset.rmdoc]}?`, desc: 'The file is deleted from this device and the checklist item goes back to Missing.', body: '', submit: 'Remove file', danger: true, async onSubmit() { const r = await store.removeApplicantDocument(me(), id, rd.dataset.rmdoc); if (!r.ok) return { ok: false, message: failText(r) }; draw(); return { ok: true }; } }); return; }
+      if (t.closest('[data-fuclear]')) { const r = await store.setEnquiryFollowUp(me(), id, ''); if (r.ok) draw(); }
     });
-    main.addEventListener('keydown', ev => { const m = main.querySelector('[data-amenu] + .menu'); if (ev.key === 'Escape' && m && !m.hidden) { m.hidden = true; main.querySelector('[data-amenu]').focus(); } });
+    main.addEventListener('change', ev => {
+      const t = ev.target;
+      if (t.matches('[data-file]') && t.files[0]) { const file = t.files[0]; t.value = ''; uploadDoc(t.dataset.file, file); return; }
+      if (t.matches('[data-tlf]')) { tlFilter = t.value; draw(); main.querySelector('#s7-tlf')?.focus(); }
+    });
     main.addEventListener('submit', async ev => {
-      if (!ev.target.matches('[data-fuform]')) return;
+      if (!ev.target.matches('[data-noteform]')) return;
       ev.preventDefault();
-      const r = await store.setEnquiryFollowUp(store.currentUser(), id, main.querySelector('#ad-fu').value);
-      const err = main.querySelector('[data-fuerr]');
+      const ta = main.querySelector('#s7-note');
+      const err = main.querySelector('[data-noteerr]');
+      const btn = ev.target.querySelector('[type="submit"]');
+      if (!ta.value.trim()) { err.textContent = 'Write the note first.'; err.hidden = false; ta.setAttribute('aria-invalid', 'true'); ta.focus(); return; }
+      if (btn.disabled) return;
+      btn.disabled = true;
+      const r = await store.logEnquiryNote(me(), id, { text: ta.value, clientId: ta.dataset.cid || (ta.dataset.cid = cid()) });
+      btn.disabled = false;
       if (!r.ok) { err.textContent = failText(r); err.hidden = false; return; }
-      toast(r.unchanged ? 'No change' : 'Follow-up saved', r.enquiry.followUp ? fmt(r.enquiry.followUp) : 'Cleared', 'check-circle');
+      toast('Note saved', find().child, 'note');
+      draw();
+      main.querySelector('#s7-note')?.focus();
     });
-    store.subscribe(({ key }) => { if (!key || /^nexora-admission-enquiries/.test(key)) { if (!document.querySelector('dialog[open]')) draw(); } });
-    draw();
+    main.addEventListener('keydown', ev => {
+      const m = main.querySelector('[data-more] + .menu');
+      if (ev.key === 'Escape' && m && !m.hidden) { m.hidden = true; main.querySelector('[data-more]').focus(); return; }
+      const t = ev.target.closest('[role="tab"]');
+      if (!t) return;
+      const keys = ['timeline', 'details', 'documents', 'tasks'];
+      const i = keys.indexOf(t.dataset.mtab);
+      const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: 3 }[ev.key];
+      if (to === undefined) return;
+      ev.preventDefault();
+      mtab = keys[(to + 4) % 4]; draw(); main.querySelector(`#s7-tab-${mtab}`)?.focus();
+    });
+    store.subscribe(({ key }) => { if (!key || /^nexora-(admission-enquiries|children|families)/.test(key)) { if (!document.querySelector('dialog[open]') && !(document.activeElement && main.contains(document.activeElement) && /TEXTAREA|INPUT/.test(document.activeElement.tagName))) draw(); } });
+    main.innerHTML = `<div class="kids s7"><span class="skeleton" style="display:block;height:40px;width:min(420px,80%);border-radius:var(--radius-sm)"></span><span class="skeleton" style="display:block;height:52px;border-radius:var(--radius-lg)"></span><div class="s7-grid"><span class="skeleton" style="display:block;height:420px;border-radius:var(--radius-lg)"></span><span class="skeleton" style="display:block;height:420px;border-radius:var(--radius-lg)"></span></div></div>`;
+    setTimeout(draw, 200);
   }
 
   window.NexoraAdmissions = { render };

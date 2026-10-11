@@ -4473,7 +4473,7 @@
       if (stage !== 'enquiry') history.push({ id: `${id}-h2`, at: atToday(11, 0, -stageDays), by, byId: own[by], type: 'stage', from: 'enquiry', to: stage, detail: extra.lostReason ? `Reason: ${LOST_REASONS[extra.lostReason]}` : '' });
       return { id, child, dob: isoDay(dob), parent, phone, email, programme, preferredStart: daysFromToday(startIn), source: extra.source || 'website', notes: extra.notes || '', ownerId: own[by], stage, stageAt: stage === 'enquiry' ? createdAt : atToday(11, 0, -stageDays), tourAt: extra.tourAt || null, followUp: extra.followUp ?? '', lost: extra.lostReason ? { reason: extra.lostReason, detail: '', at: atToday(11, 0, -stageDays), by } : null, familyId: null, childId: null, createdAt, createdBy: by, createdById: own[by], updatedAt: createdAt, history, demo: true };
     };
-    return [
+    const list = [
       mk('ae1', 'Advika Nair', 30, 'Lakshmi Nair', '+91 98450 10101', 'lakshmi.nair@example.com', 'Nursery', 'enquiry', 1, 1, { followUp: daysFromToday(0), notes: 'Asked about the June start.' }),
       mk('ae2', 'Rehan Kapoor', 44, 'Sonal Kapoor', '+91 98450 20202', 'sonal.k@example.com', 'LKG', 'enquiry', 9, 9, { by: 'Mrs. Rao', followUp: daysFromToday(-1), notes: 'Wants a call back about transport.', source: 'referral' }),
       mk('ae3', 'Mira Thomas', 36, 'Anil Thomas', '+91 98450 30303', '', 'Montessori', 'tour', 6, 3, { followUp: daysFromToday(2), notes: 'School visit booked.', tourAt: `${daysFromToday(2)}T10:30`, source: 'walkin' }),
@@ -4486,6 +4486,11 @@
       mk('ae10', 'Anvi Gupta', 28, 'Pooja Gupta', '+91 98451 01010', '', 'Toddler', 'lost', 60, 40, { lostReason: 'no_response', source: 'social' }),
       mk('ae11', 'Arjun Pillai', 38, 'Meera Pillai', '+91 98451 11111', 'meera.p@example.com', 'Montessori', 'lost', 45, 35, { lostReason: 'other_school' })
     ];
+    const task = (e, title, due, time, by) => { const t = { id: `${e.id}-t${(e.tasks || []).length + 1}`, title, due, time, assigneeId: e.ownerId, status: 'open', createdAt: e.createdAt, createdBy: by, createdById: e.ownerId, doneAt: null, doneBy: null }; e.tasks = [...(e.tasks || []), t]; e.history.push({ id: `${t.id}-h`, at: e.createdAt, by, byId: e.ownerId, type: 'task', action: 'created', taskId: t.id, detail: `Follow-up created: ${title} — due ${dLabel(due)}${time ? ` ${time}` : ''}` }); };
+    task(list[2], 'Confirm tour time with Anil', daysFromToday(1), '11:00', 'Ms. Fernandes');
+    task(list[1], 'Send transport route details', daysFromToday(-2), '', 'Mrs. Rao');
+    list.forEach(e => e.history.sort((x, y) => x.at.localeCompare(y.at)));
+    return list;
   }
   // Older records (status-based) become pipeline records once; their history starts with what was known.
   function migrateEnquiry(e) {
@@ -4509,7 +4514,7 @@
   }
   const saveEnquiries = list => write(admissionsKey(school.id), list);
   const isOpenEnquiry = e => !['enrolled', 'lost'].includes(e.stage || STAGE_STATUS[e.status]);
-  const followUpDue = e => isOpenEnquiry(e) && Boolean(e.followUp) && e.followUp <= today();
+  const followUpDue = e => isOpenEnquiry(e) && Boolean(nextFollowUp(e)) && nextFollowUp(e) <= today();
   // Age at a date (default today), as { years, months }; null when the birth date is missing or after the date.
   function ageAt(dob, at) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dob || '') || !/^\d{4}-\d{2}-\d{2}$/.test(at || '')) return null;
@@ -4538,7 +4543,9 @@
       phone: clean(input.phone).replace(/\s+/g, ' ').slice(0, 24), email: clean(input.email).toLowerCase().slice(0, 120),
       dob: clean(input.dob), programme: clean(input.programme), preferredStart: clean(input.preferredStart),
       source: ENQUIRY_SOURCES[input.source] ? input.source : 'other', notes: String(input.notes || '').trim().slice(0, 1000),
-      ownerId: clean(input.ownerId), followUp: clean(input.followUp)
+      ownerId: clean(input.ownerId), followUp: clean(input.followUp),
+      contactMethod: CONTACT_METHODS[input.contactMethod] ? input.contactMethod : '', language: clean(input.language).slice(0, 60), address: String(input.address || '').trim().slice(0, 300),
+      previousSchool: clean(input.previousSchool).slice(0, 120), childNotes: String(input.childNotes || '').trim().slice(0, 1000)
     };
     if (!v.parent) errors.parent = 'Enter the parent or guardian’s name.';
     if (!v.child) errors.child = 'Enter the child’s name.';
@@ -4578,7 +4585,7 @@
     const e = { id: newId('ae'), ...v, ownerId, phoneNorm: normPhone(v.phone), emailNorm: normEmail(v.email), stage: 'enquiry', status: 'new', stageAt: now, tourAt: null, lost: null, familyId: dup.families[0]?.id || null, childId: null, createdAt: now, createdBy: user.name, createdById: user.id, updatedAt: now, clientId: clientId || newId('cl'),
       history: [histEvent(user, 'created', { to: 'enquiry', detail: `Enquiry created · source: ${ENQUIRY_SOURCES[v.source]}${dup.families[0] ? ` · linked to the ${dup.families[0].name}` : dup.enquiries[0] ? ` · sibling of ${dup.enquiries[0].child}` : ''}` })] };
     if (ownerId) e.history.push(histEvent(user, 'owner', { detail: `Owner assigned: ${users.find(u => u.id === ownerId)?.name || 'Admissions team'}` }));
-    if (v.followUp) e.history.push(histEvent(user, 'followup', { detail: `Follow-up set for ${v.followUp}` }));
+    if (v.followUp) e.history.push(histEvent(user, 'followup', { detail: `Follow-up set for ${dLabel(v.followUp)}` }));
     if (!saveEnquiries([e, ...list])) return settle({ ok: false, reason: 'storage' });
     if (ownerId) notifyUsers({ module: 'admissions', kind: 'enquiry', title: `New enquiry: ${e.child} — ${e.programme}`, body: `${e.parent} · ${ENQUIRY_SOURCES[e.source]} · ref ${e.id}`, recordType: 'enquiry', recordId: e.id, dedupeKey: `enquiry:${e.id}`, actorId: user.id }, { toUserIds: [ownerId] });
     logAudit(user, 'create:enquiry', '', `${e.child} (${e.programme})`);
@@ -4597,9 +4604,9 @@
     if (blocking) return settle({ ok: false, reason: 'duplicate', blocking: true, duplicates: { enquiries: [blocking], families: [] } });
     const events_ = [];
     if (v.ownerId !== e.ownerId) events_.push(histEvent(user, 'owner', { detail: `Owner changed: ${users.find(u => u.id === v.ownerId)?.name || 'Unassigned'}` }));
-    if (v.followUp !== (e.followUp || '')) events_.push(histEvent(user, 'followup', { detail: v.followUp ? `Follow-up set for ${v.followUp}` : 'Follow-up cleared' }));
+    if (v.followUp !== (e.followUp || '')) events_.push(histEvent(user, 'followup', { detail: v.followUp ? `Follow-up set for ${dLabel(v.followUp)}` : 'Follow-up cleared' }));
     if (v.preferredStart !== e.preferredStart) events_.push(histEvent(user, 'edit', { detail: `Preferred start changed: ${e.preferredStart || '—'} → ${v.preferredStart}` }));
-    const other = ['child', 'parent', 'phone', 'email', 'dob', 'programme', 'source', 'notes'].filter(k => (v[k] || '') !== (e[k] || ''));
+    const other = ['child', 'parent', 'phone', 'email', 'dob', 'programme', 'source', 'notes', 'contactMethod', 'language', 'address', 'previousSchool', 'childNotes'].filter(k => (v[k] || '') !== (e[k] || ''));
     if (other.length) events_.push(histEvent(user, 'edit', { detail: `Details updated: ${other.join(', ')}` }));
     if (!events_.length) return settle({ ok: true, enquiry: e, unchanged: true });
     Object.assign(e, v, { phoneNorm: normPhone(v.phone), emailNorm: normEmail(v.email), updatedAt: new Date().toISOString() });
@@ -4618,7 +4625,7 @@
     if (d === (e.followUp || '')) return settle({ ok: true, enquiry: e, unchanged: true });
     e.followUp = d;
     e.updatedAt = new Date().toISOString();
-    e.history = [...e.history, histEvent(user, 'followup', { detail: d ? `Follow-up set for ${d}` : 'Follow-up cleared' })];
+    e.history = [...e.history, histEvent(user, 'followup', { detail: d ? `Follow-up set for ${dLabel(d)}` : 'Follow-up cleared' })];
     return settle(saveEnquiries(list) ? { ok: true, enquiry: e } : { ok: false, reason: 'storage' });
   }
   // Moves between pipeline stages. Lost needs a reason; Enrolled only comes from S14 (completeEnquiryEnrolment).
@@ -4628,6 +4635,7 @@
     if (!can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
     if (!ENQUIRY_STAGES[to]) return settle({ ok: false, reason: 'invalid' });
     if (to === 'enrolled') return settle({ ok: false, reason: 'enrol-via-s14' });
+    if (to === 'offer') return settle({ ok: false, reason: 'offer-via-send' });
     if (movingEnquiry === id) return settle({ ok: false, reason: 'busy' });
     const list = getAdmissionEnquiries();
     const e = list.find(x => x.id === id);
@@ -4682,7 +4690,10 @@
     if (!e || e.stage === 'enrolled') return null;
     const parts = e.child.trim().split(/\s+/);
     const cls = activeClasses().find(c => c.level === e.programme) || activeClasses().find(c => c.name.startsWith(e.programme));
-    return { enquiryId: e.id, child: { firstName: parts.slice(0, -1).join(' ') || parts[0], lastName: parts.length > 1 ? parts[parts.length - 1] : '', dob: e.dob || '' }, guardian: { name: e.parent, phone: e.phone, email: e.email }, cls: cls?.name || '', startDate: e.preferredStart && e.preferredStart >= today() ? e.preferredStart : today(), familyId: e.familyId };
+    const fam = e.familyId ? listFamilies().find(f => f.id === e.familyId) : null;
+    const relationOf = gid => getChildren().map(c => c.guardianLinks?.find(l => l.guardianId === gid)).find(Boolean)?.relation || '';
+    const family = fam ? { id: fam.id, name: fam.name, householdIds: fam.householdIds.slice(), guardians: fam.guardians.map(g => ({ id: g.id, name: g.name, phone: g.phone || '', email: g.email || '', relation: relationOf(g.id), household: Math.max(1, fam.households.findIndex(h => h.guardianIds.includes(g.id)) + 1), primary: fam.primary?.id === g.id })) } : null;
+    return { enquiryId: e.id, child: { firstName: parts.slice(0, -1).join(' ') || parts[0], lastName: parts.length > 1 ? parts[parts.length - 1] : '', dob: e.dob || '' }, guardian: { name: e.parent, phone: e.phone, email: e.email }, cls: cls?.name || '', startDate: e.preferredStart && e.preferredStart >= today() ? e.preferredStart : today(), familyId: e.familyId, family, documents: Object.entries(e.documents || {}).map(([k, d]) => ({ label: APPLICANT_DOCS[k], name: d.name })) };
   }
   // Called by S14 after the child is saved: the only way an enquiry becomes Enrolled. Safe to call twice.
   function completeEnquiryEnrolment(user, id, childId) {
@@ -4695,8 +4706,16 @@
     const now = new Date().toISOString();
     const prev = e.stage;
     Object.assign(e, { stage: 'enrolled', status: 'enrolled', stageAt: now, updatedAt: now, childId, familyId: fam?.id || e.familyId, preferredStart: c.startDate || e.preferredStart });
-    e.history = [...e.history, histEvent(user, 'enrolled', { from: prev, to: 'enrolled', detail: `Enrolled — S14 enrolment completed (${c.cls}, starts ${c.startDate})` })];
-    if (!saveEnquiries(list)) return { ok: false, reason: 'storage' };
+    e.history = [...e.history, histEvent(user, 'enrolled', { from: prev, to: 'enrolled', detail: `Enrolled — S14 enrolment completed (${c.cls}, starts ${c.startDate})${fam ? ` · family: ${fam.name}` : ''}` })];
+    // Uploaded applicant documents are copied to the child's Documents once (unverified, like any new upload).
+    const writes = [{ key: admissionsKey(school.id), value: list }];
+    if (e.docsCopiedTo !== childId && Object.keys(e.documents || {}).length) {
+      const files = read(admissionFilesKey(school.id), []);
+      const now2 = new Date().toISOString();
+      const docs = Object.entries(e.documents).map(([k, d]) => { const f = files.find(x => x.id === d.fileId); return f ? { id: newId('doc'), childId, name: APPLICANT_DOCS[k], category: DOC_TO_CHILD[k], expiry: '', fileName: f.name, mime: f.mime, size: f.size, data: f.data, status: 'unverified', uploadedAt: now2, uploadedBy: `${user.name} (from admissions)` } : null; }).filter(Boolean);
+      if (docs.length) { writes.push({ key: docsKey(school.id), value: [...read(docsKey(school.id), []), ...docs] }); e.docsCopiedTo = childId; e.history.push(histEvent(user, 'document', { detail: `${docs.length} document${docs.length === 1 ? '' : 's'} copied to ${e.child}’s record` })); }
+    }
+    if (!commit(writes)) return { ok: false, reason: 'storage' };
     logAudit(user, 'enrol:enquiry', childId, `${e.child} from enquiry ${e.id}`);
     return { ok: true, enquiry: e };
   }
@@ -4728,6 +4747,253 @@
     const r = await createEnquiry(user, { child: data.child, parent: data.parent, phone: data.phone, email: data.email, programme: data.programme, preferredStart: data.preferredStart, followUp: data.followUp, ownerId: data.assignedTo || '', notes: data.notes, source: data.source || 'other' });
     if (r.reason === 'duplicate') return { ok: false, reason: 'invalid', message: `This family may already be in admissions (${[...r.duplicates.enquiries.map(x => x.child), ...r.duplicates.families.map(x => x.name)].join(', ')}). Add it from the Admissions page to review the match.` };
     return r;
+  }
+
+  /* S07 applicant activity — on the same enquiry record:
+       documents: { birth|immunisation|photo|report: { fileId, name, mime, size, at, by } }  (files in nexora-admission-files)
+       tasks: [{ id, title, due, time, assigneeId, status: open|done, createdAt, createdBy, doneAt, doneBy }]
+       siblingIds: [childId]  (explicitly linked existing children; children of the linked family are listed too)
+       offers: [{ id, status: draft|sent|failed, template, body, recipient, values, missing, delivery, at, by }]
+     Every action appends to `history`; an action repeated with the same clientId is recorded once.
+     There is no email service: emails and offers are recorded as "not sent" / "demo — not delivered". */
+  const admissionFilesKey = id => `nexora-admission-files:${id}`;
+  const APPLICANT_DOCS = { birth: 'Birth certificate', immunisation: 'Immunisation record', photo: 'Child photo', report: 'Previous school report' };
+  const APPLICANT_DOC_TYPES = { birth: ['application/pdf', 'image/jpeg', 'image/png'], immunisation: ['application/pdf', 'image/jpeg', 'image/png'], photo: ['image/jpeg', 'image/png'], report: ['application/pdf', 'image/jpeg', 'image/png'] };
+  const DOC_TO_CHILD = { birth: 'Birth certificate', immunisation: 'Immunisation record', photo: 'Other', report: 'Other' };
+  const CALL_OUTCOMES = { answered: 'Answered', no_answer: 'No answer', voicemail: 'Voicemail' };
+  const CONTACT_METHODS = { phone: 'Phone call', whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email' };
+  const OFFER_TEMPLATE = 'Dear Family,\n\nWe are pleased to offer {{child_name}} a place in our Montessori programme, with a proposed start date of {{start_date}}.\n\nThe applicable fees are {{fees}}.\n\nPlease contact the school if you have questions about the offer or the next steps.\n\nWarm regards,\nAdmissions Team';
+  const NOT_SENT = 'not sent — no email service is connected';
+  const dLabel = d => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+  const taskDueAt = t => new Date(`${t.due}T${t.time || '23:59'}:00`);
+  const taskOverdue = (t, now = Date.now()) => t.status === 'open' && Boolean(t.due) && taskDueAt(t).getTime() < now;
+  const openTasks = e => (e.tasks || []).filter(t => t.status === 'open');
+  // The pipeline's "next follow-up": the earlier of the follow-up date and the earliest open task.
+  const nextFollowUp = e => [e.followUp, ...openTasks(e).map(t => t.due)].filter(Boolean).sort()[0] || '';
+  const withEnquiry = (user, id) => { if (!can(user, 'admissions')) return { error: 'forbidden' }; const list = getAdmissionEnquiries(); const e = list.find(x => x.id === id); return e ? { list, e } : { error: 'missing' }; };
+  // Appends once per clientId, so a retried save doesn't duplicate the timeline.
+  const already = (e, clientId) => clientId && e.history.some(h => h.clientId === clientId);
+  const pushEvent = (e, user, type, extra, clientId) => { e.history = [...e.history, histEvent(user, type, { ...extra, clientId: clientId || undefined })]; e.updatedAt = new Date().toISOString(); };
+
+  function logEnquiryNote(user, id, { text, clientId } = {}) {
+    const r = withEnquiry(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    if (already(r.e, clientId)) return settle({ ok: true, enquiry: r.e, repeated: true });
+    const body = String(text || '').trim().slice(0, 2000);
+    if (!body) return settle({ ok: false, reason: 'invalid', errors: { text: 'Write the note.' } });
+    pushEvent(r.e, user, 'note', { detail: body }, clientId);
+    return settle(saveEnquiries(r.list) ? { ok: true, enquiry: r.e } : { ok: false, reason: 'storage' });
+  }
+  function addTaskTo(e, user, { title, due, time = '', assigneeId }) {
+    const t = { id: newId('at'), title: clean(title).slice(0, 200), due, time, assigneeId, status: 'open', createdAt: new Date().toISOString(), createdBy: user.name, createdById: user.id, doneAt: null, doneBy: null };
+    e.tasks = [...(e.tasks || []), t];
+    return t;
+  }
+  function taskErrors({ title, due, time, assigneeId }, { needTitle = true } = {}) {
+    const errors = {};
+    if (needTitle && !clean(title)) errors.title = 'Describe the follow-up.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(due || '') || Number.isNaN(new Date(`${due}T12:00:00`).getTime())) errors.due = 'Choose a due date.';
+    if (time && !/^\d{2}:\d{2}$/.test(time)) errors.time = 'Enter a valid time.';
+    if (!admissionsOwners().some(o => o.id === assigneeId)) errors.assigneeId = 'Choose someone on the admissions team.';
+    return errors;
+  }
+  const notifyTask = (user, e, t, verb = 'assigned you a follow-up') => { if (t.assigneeId && t.assigneeId !== user.id) notifyUsers({ module: 'admissions', kind: 'mention', title: `${user.name} ${verb}`, body: `${t.title} · ${e.child} · due ${dLabel(t.due)}${t.time ? ` ${t.time}` : ''}`, recordType: 'enquiry', recordId: e.id, mentions: [t.assigneeId], dedupeKey: `adm-task-assign:${t.id}:${t.assigneeId}:${t.due}`, actorId: user.id }, { toUserIds: [t.assigneeId] }); };
+  function logEnquiryCall(user, id, { outcome, notes = '', followUp = '', followUpTime = '', assigneeId = '', clientId } = {}) {
+    const r = withEnquiry(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    if (already(r.e, clientId)) return settle({ ok: true, enquiry: r.e, repeated: true });
+    const errors = {};
+    if (!CALL_OUTCOMES[outcome]) errors.outcome = 'Choose the call outcome.';
+    if (followUp) Object.assign(errors, Object.fromEntries(Object.entries(taskErrors({ title: 'x', due: followUp, time: followUpTime, assigneeId: assigneeId || r.e.ownerId || user.id })).map(([k, v]) => [k === 'due' ? 'followUp' : k === 'time' ? 'followUpTime' : k, v])));
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    pushEvent(r.e, user, 'call', { outcome, detail: String(notes).trim().slice(0, 2000) }, clientId);
+    let task = null;
+    if (followUp) {
+      task = addTaskTo(r.e, user, { title: `Follow up after call (${CALL_OUTCOMES[outcome].toLowerCase()})`, due: followUp, time: followUpTime, assigneeId: assigneeId || r.e.ownerId || user.id });
+      pushEvent(r.e, user, 'task', { action: 'created', taskId: task.id, detail: `Follow-up created: ${task.title} — due ${dLabel(task.due)}${task.time ? ` ${task.time}` : ''}, ${users.find(u => u.id === task.assigneeId)?.name || ''}` });
+    }
+    if (!saveEnquiries(r.list)) return settle({ ok: false, reason: 'storage' });
+    if (task) notifyTask(user, r.e, task);
+    return settle({ ok: true, enquiry: r.e, task });
+  }
+  function logEnquiryEmail(user, id, { to, subject, body, clientId } = {}) {
+    const r = withEnquiry(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    if (already(r.e, clientId)) return settle({ ok: true, enquiry: r.e, repeated: true });
+    const errors = {};
+    const rcpt = clean(to).toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(rcpt)) errors.to = 'Enter a valid email address.';
+    if (!clean(subject)) errors.subject = 'Add a subject.';
+    if (!String(body || '').trim()) errors.body = 'Write the message.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    pushEvent(r.e, user, 'email', { to: rcpt, subject: clean(subject).slice(0, 200), detail: String(body).trim().slice(0, 4000), delivery: NOT_SENT }, clientId);
+    return settle(saveEnquiries(r.list) ? { ok: true, enquiry: r.e, delivery: NOT_SENT } : { ok: false, reason: 'storage' });
+  }
+  function addEnquiryTask(user, id, input = {}) {
+    const r = withEnquiry(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    if (already(r.e, input.clientId)) return settle({ ok: true, enquiry: r.e, repeated: true });
+    const errors = taskErrors(input);
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const t = addTaskTo(r.e, user, input);
+    pushEvent(r.e, user, 'task', { action: 'created', taskId: t.id, detail: `Follow-up created: ${t.title} — due ${dLabel(t.due)}${t.time ? ` ${t.time}` : ''}, ${users.find(u => u.id === t.assigneeId)?.name || ''}` }, input.clientId);
+    if (!saveEnquiries(r.list)) return settle({ ok: false, reason: 'storage' });
+    notifyTask(user, r.e, t);
+    return settle({ ok: true, enquiry: r.e, task: t });
+  }
+  // Edit (title, due, time, assignee) or complete / reopen a follow-up. Changes are logged one by one.
+  function updateEnquiryTask(user, id, taskId, patch = {}) {
+    const r = withEnquiry(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    const t = (r.e.tasks || []).find(x => x.id === taskId);
+    if (!t) return settle({ ok: false, reason: 'missing' });
+    const logs = [];
+    if ('status' in patch) {
+      const done = patch.status === 'done';
+      if ((t.status === 'done') === done) return settle({ ok: true, enquiry: r.e, unchanged: true });
+      Object.assign(t, { status: done ? 'done' : 'open', doneAt: done ? new Date().toISOString() : null, doneBy: done ? user.name : null });
+      logs.push(done ? `Follow-up completed: ${t.title}` : `Follow-up reopened: ${t.title}`);
+    } else {
+      const next = { title: patch.title ?? t.title, due: patch.due ?? t.due, time: patch.time ?? t.time, assigneeId: patch.assigneeId ?? t.assigneeId };
+      const errors = taskErrors(next);
+      if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+      if (next.title !== t.title) logs.push(`Follow-up renamed: ${next.title}`);
+      if (next.due !== t.due || next.time !== t.time) logs.push(`Follow-up due date changed: ${dLabel(t.due)}${t.time ? ` ${t.time}` : ''} → ${dLabel(next.due)}${next.time ? ` ${next.time}` : ''}`);
+      if (next.assigneeId !== t.assigneeId) logs.push(`Follow-up reassigned to ${users.find(u => u.id === next.assigneeId)?.name || ''}`);
+      const reassigned = next.assigneeId !== t.assigneeId;
+      Object.assign(t, next);
+      if (!logs.length) return settle({ ok: true, enquiry: r.e, unchanged: true });
+      if (reassigned) setTimeout(() => notifyTask(user, r.e, t, 'reassigned a follow-up to you'), 0);
+    }
+    logs.forEach(detail => pushEvent(r.e, user, 'task', { action: 'updated', taskId: t.id, detail }));
+    return settle(saveEnquiries(r.list) ? { ok: true, enquiry: r.e, task: t } : { ok: false, reason: 'storage' });
+  }
+  // Ticker: one notification per overdue open task (per due date), to its assignee.
+  function processAdmissions() {
+    const list = read(admissionsKey(school.id), null);
+    if (!list) return 0;
+    let n = 0;
+    list.forEach(e => (e.tasks || []).forEach(t => { if (taskOverdue(t) && t.assigneeId) n += notifyUsers({ module: 'admissions', kind: 'enquiry', title: 'Follow-up overdue', body: `${t.title} · ${e.child} · was due ${dLabel(t.due)}${t.time ? ` ${t.time}` : ''}`, recordType: 'enquiry', recordId: e.id, dedupeKey: `adm-task-overdue:${t.id}:${t.due}:${t.time}` }, { toUserIds: [t.assigneeId] }); }));
+    return n;
+  }
+
+  // Documents: PDF / JPEG / PNG (the photo: JPEG / PNG), 1 MB or less, checked by file content. Device-local.
+  function uploadApplicantDocument(user, id, docKey, { name, mime, size, data, clientId } = {}) {
+    const r = withEnquiry(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    if (!APPLICANT_DOCS[docKey]) return settle({ ok: false, reason: 'invalid' });
+    if (already(r.e, clientId)) return settle({ ok: true, enquiry: r.e, repeated: true });
+    const types = APPLICANT_DOC_TYPES[docKey];
+    const sig = CHAT_FILE_SIGNATURES[mime];
+    const body = String(data || '').split(',')[1] || '';
+    if (!types.includes(mime) || !sig || !String(data).startsWith(`data:${mime};base64,`) || !body.startsWith(sig)) return settle({ ok: false, reason: 'invalid', errors: { file: docKey === 'photo' ? 'Choose a JPEG or PNG photo.' : 'Choose a PDF, JPEG or PNG file.' } });
+    if (!(Number(size) > 0) || Number(size) > DOC_MAX || body.length > DOC_MAX * 1.4) return settle({ ok: false, reason: 'invalid', errors: { file: 'Files must be 1 MB or less.' } });
+    const files = read(admissionFilesKey(school.id), []);
+    const prev = r.e.documents?.[docKey];
+    const f = { id: newId('af'), enquiryId: id, docKey, name: clean(name).slice(0, 120) || APPLICANT_DOCS[docKey], mime, size: Number(size), data, at: new Date().toISOString(), by: user.name };
+    const meta = { fileId: f.id, name: f.name, mime, size: f.size, at: f.at, by: user.name };
+    r.e.documents = { ...(r.e.documents || {}), [docKey]: meta };
+    pushEvent(r.e, user, 'document', { docKey, detail: `${prev ? 'Replaced' : 'Uploaded'} ${APPLICANT_DOCS[docKey]}: ${f.name}` }, clientId);
+    const ok = commit([{ key: admissionFilesKey(school.id), value: [...files.filter(x => x.id !== prev?.fileId), f] }, { key: admissionsKey(school.id), value: r.list }]);
+    if (!ok) return settle({ ok: false, reason: 'storage', errors: { file: 'There isn’t room on this device for this file. Nothing was saved.' } });
+    return settle({ ok: true, enquiry: r.e, document: meta });
+  }
+  function removeApplicantDocument(user, id, docKey) {
+    const r = withEnquiry(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    const prev = r.e.documents?.[docKey];
+    if (!prev) return settle({ ok: false, reason: 'missing' });
+    const docs = { ...r.e.documents };
+    delete docs[docKey];
+    r.e.documents = docs;
+    pushEvent(r.e, user, 'document', { docKey, detail: `Removed ${APPLICANT_DOCS[docKey]}: ${prev.name}` });
+    const ok = commit([{ key: admissionFilesKey(school.id), value: read(admissionFilesKey(school.id), []).filter(x => x.id !== prev.fileId) }, { key: admissionsKey(school.id), value: r.list }]);
+    return settle(ok ? { ok: true, enquiry: r.e } : { ok: false, reason: 'storage' });
+  }
+  const applicantFile = (user, fileId) => (can(user, 'admissions') ? read(admissionFilesKey(school.id), []).find(f => f.id === fileId) || null : null);
+
+  // Siblings: children of the linked family, plus existing children linked explicitly. Never matched by name.
+  function enquirySiblings(e) {
+    const fam = e.familyId ? listFamilies().find(f => f.id === e.familyId) : null;
+    const ids = [...new Set([...(fam?.children || []).map(c => c.id), ...(e.siblingIds || [])])].filter(cid => cid !== e.childId);
+    return ids.map(cid => childById(cid)).filter(Boolean).map(c => ({ id: c.id, name: childName(c), cls: c.cls, status: c.status, dob: c.dob, viaFamily: Boolean(fam?.children.some(k => k.id === c.id)) }));
+  }
+  function linkSibling(user, id, childId) {
+    const r = withEnquiry(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    const c = childById(childId);
+    if (!c) return settle({ ok: false, reason: 'missing' });
+    if (childId === r.e.childId || enquirySiblings(r.e).some(s => s.id === childId)) return settle({ ok: false, reason: 'invalid', errors: { child: `${childName(c)} is already linked.` } });
+    const fam = listFamilies().find(f => f.children.some(k => k.id === childId));
+    if (r.e.familyId && fam && fam.id !== r.e.familyId) return settle({ ok: false, reason: 'invalid', errors: { child: `${childName(c)} belongs to the ${fam.name}, not this applicant’s family. Check the family before linking.` } });
+    const joinsFamily = !r.e.familyId && fam;
+    r.e.siblingIds = [...(r.e.siblingIds || []), childId];
+    if (joinsFamily) r.e.familyId = fam.id;
+    pushEvent(r.e, user, 'sibling', { detail: `Sibling linked: ${childName(c)} (${c.cls})${joinsFamily ? ` · applicant linked to the ${fam.name}` : ''}` });
+    return settle(saveEnquiries(r.list) ? { ok: true, enquiry: r.e } : { ok: false, reason: 'storage' });
+  }
+  function unlinkSibling(user, id, childId) {
+    const r = withEnquiry(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    if (!(r.e.siblingIds || []).includes(childId)) return settle({ ok: false, reason: 'missing' });
+    r.e.siblingIds = r.e.siblingIds.filter(x => x !== childId);
+    pushEvent(r.e, user, 'sibling', { detail: `Sibling link removed: ${childName(childById(childId) || { firstName: 'child', lastName: '' })}` });
+    return settle(saveEnquiries(r.list) ? { ok: true, enquiry: r.e } : { ok: false, reason: 'storage' });
+  }
+
+  // Offer letters: only {{child_name}}, {{start_date}} and {{fees}}. Values come from the record and the fee table;
+  // anything missing stays visibly unresolved and blocks sending.
+  function offerValues(e, override = {}) {
+    const fee = FEE_BY_LEVEL[e.programme];
+    const start = override.start_date || (e.preferredStart ? new Date(`${e.preferredStart}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+    return { child_name: e.child || '', start_date: start, fees: override.fees || (fee ? `₹${fee.toLocaleString('en-IN')} per term (${TERM})` : '') };
+  }
+  function renderOffer(template, values) {
+    const missing = new Set();
+    const unknown = new Set();
+    const text = String(template || '').replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (m, k) => { if (!(k in values)) { unknown.add(k); return m; } if (!values[k]) { missing.add(k); return m; } return values[k]; });
+    return { text, missing: [...missing], unknown: [...unknown] };
+  }
+  const canOffer = e => ['enquiry', 'tour', 'applied', 'offer'].includes(e.stage);
+  function saveOfferDraft(user, id, { template, values = {}, clientId } = {}) {
+    const r = withEnquiry(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    if (already(r.e, clientId)) return settle({ ok: true, enquiry: r.e, repeated: true });
+    const v = offerValues(r.e, values);
+    const out = renderOffer(template, v);
+    r.e.offers = [...(r.e.offers || []), { id: newId('of'), status: 'draft', template: String(template).slice(0, 6000), body: out.text, recipient: r.e.email || '', values: v, missing: out.missing, delivery: 'draft', at: new Date().toISOString(), by: user.name }];
+    pushEvent(r.e, user, 'offer', { action: 'drafted', detail: 'Offer letter saved as a draft (not sent)' }, clientId);
+    return settle(saveEnquiries(r.list) ? { ok: true, enquiry: r.e } : { ok: false, reason: 'storage' });
+  }
+  // `fail` is a test hook for the failure path. With no email service the send is recorded as a labelled demo send.
+  function sendOffer(user, id, { template, values = {}, recipient, clientId, fail = false } = {}) {
+    const r = withEnquiry(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    if (already(r.e, clientId)) return settle({ ok: true, enquiry: r.e, repeated: true });
+    if (!canOffer(r.e)) return settle({ ok: false, reason: 'locked' });
+    const v = offerValues(r.e, values);
+    const out = renderOffer(template, v);
+    const errors = {};
+    const to = clean(recipient).toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)) errors.recipient = 'Enter the family’s email address.';
+    if (out.missing.length) errors.template = `Fill in: ${out.missing.map(k => `{{${k}}}`).join(', ')}.`;
+    if (out.unknown.length) errors.template = `Unknown variable: ${out.unknown.map(k => `{{${k}}}`).join(', ')}. Use {{child_name}}, {{start_date}} or {{fees}}.`;
+    if (!String(template || '').trim()) errors.template = 'The letter is empty.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const now = new Date().toISOString();
+    if (fail) {
+      r.e.offers = [...(r.e.offers || []), { id: newId('of'), status: 'failed', template: String(template).slice(0, 6000), body: out.text, recipient: to, values: v, missing: [], delivery: 'failed', at: now, by: user.name }];
+      pushEvent(r.e, user, 'offer', { action: 'failed', detail: `Offer send failed to ${to} — stage not changed` }, clientId);
+      saveEnquiries(r.list);
+      return settle({ ok: false, reason: 'send-failed' });
+    }
+    const prev = r.e.stage;
+    r.e.offers = [...(r.e.offers || []), { id: newId('of'), status: 'sent', template: String(template).slice(0, 6000), body: out.text, recipient: to, values: v, missing: [], delivery: 'demo — not delivered (no email service)', at: now, by: user.name }];
+    pushEvent(r.e, user, 'offer', { action: 'sent', to, detail: `Offer recorded as sent to ${to} — demo, not delivered (no email service)` }, clientId);
+    if (prev !== 'offer') { Object.assign(r.e, { stage: 'offer', status: STAGE_STATUS.offer, stageAt: now }); pushEvent(r.e, user, 'stage', { from: prev, to: 'offer', detail: 'After the offer was sent' }); }
+    if (!saveEnquiries(r.list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'offer:enquiry', '', `${r.e.child} → ${to}`);
+    return settle({ ok: true, enquiry: r.e, moved: prev !== 'offer' });
   }
 
   /* Fees: one term invoice per child, and the payments recorded against it. Amounts in rupees. */
@@ -6606,6 +6872,30 @@
     enquiryPrefill,
     completeEnquiryEnrolment,
     admissionsKpis,
+    APPLICANT_DOCS,
+    APPLICANT_DOC_TYPES,
+    CALL_OUTCOMES,
+    CONTACT_METHODS,
+    OFFER_TEMPLATE,
+    taskOverdue,
+    nextFollowUp,
+    logEnquiryNote,
+    logEnquiryCall,
+    logEnquiryEmail,
+    addEnquiryTask,
+    updateEnquiryTask,
+    processAdmissions,
+    uploadApplicantDocument,
+    removeApplicantDocument,
+    applicantFile,
+    enquirySiblings,
+    linkSibling,
+    unlinkSibling,
+    offerValues,
+    renderOffer,
+    canOffer,
+    saveOfferDraft,
+    sendOffer,
     isOpenEnquiry,
     followUpDue,
     addAdmissionEnquiry,

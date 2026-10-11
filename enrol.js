@@ -97,12 +97,24 @@
       return true;
     }
     const edit = Boolean(childId);
+    // An applicant converted already: never start a second enrolment from the same enquiry.
+    const enqDone = !draft && !edit && params.get('enquiry') ? store.getAdmissionEnquiries().find(x => x.id === params.get('enquiry')) : null;
+    if (enqDone?.stage === 'enrolled') {
+      main.innerHTML = `<article class="panel record"><div class="kids-empty"><h1 class="kids-empty__title">${esc(enqDone.child)} is already enrolled</h1><p>This applicant was converted on ${esc(day(enqDone.stageAt))}. A second enrolment would create a duplicate record.</p>${enqDone.childId ? `<a class="btn btn--primary" href="${routes.record(enqDone.childId)}">Open the child’s record</a>` : ''}<a class="btn btn--secondary" href="${routes.page('admissions', { applicant: enqDone.id })}">Back to the applicant</a></div></article>`;
+      return true;
+    }
     // An edit with a saved draft offers to resume it; a draft link resumes straight away.
     const editDraft = edit && !draft ? store.getDrafts().find(d => d.childId === childId) : null;
     // From the admissions pipeline (?enquiry=<id>): start prefilled and keep the link in the draft. The enquiry only
     // becomes Enrolled after the child is saved below.
     const pre = !draft && !edit && params.get('enquiry') ? store.enquiryPrefill(user, params.get('enquiry')) : null;
-    const fromPrefill = p => { const b = blank(); return { ...b, fromEnquiry: p.enquiryId, child: { ...b.child, ...p.child }, guardians: [{ ...b.guardians[0], name: p.guardian.name, phone: p.guardian.phone, email: p.guardian.email }], classSchedule: { ...b.classSchedule, cls: p.cls, startDate: p.startDate } }; };
+    // A verified family link (from a linked sibling) prefills that family's households and guardians as linked records,
+    // so enrolling doesn't create a second family.
+    const fromPrefill = p => {
+      const b = blank();
+      const fam = p.family && p.family.guardians.length ? { householdIds: p.family.householdIds, secondHousehold: p.family.householdIds.length > 1, guardians: p.family.guardians.map(g => ({ guardianId: g.id, linked: true, name: g.name, relation: g.relation, phone: g.phone, email: g.email, household: g.household, primary: g.primary, livesWith: false, responsibility: false })) } : null;
+      return { ...b, ...(fam || {}), fromEnquiry: p.enquiryId, child: { ...b.child, ...p.child }, guardians: fam ? fam.guardians : [{ ...b.guardians[0], name: p.guardian.name, phone: p.guardian.phone, email: p.guardian.email }], classSchedule: { ...b.classSchedule, cls: p.cls, startDate: p.startDate } };
+    };
     let state = draft ? draft.data : edit ? fromChild(childId) : pre ? fromPrefill(pre) : blank();
     const linkedEnquiry = !edit ? state.fromEnquiry || null : null;
     let step = draft ? Math.min(draft.step, STEPS.length - 1) : 0;
@@ -125,7 +137,7 @@
           <h1 class="kids-head__title" id="page-title" tabindex="-1">${edit ? `Edit ${esc(name())}` : 'Enrol child'}</h1>
           <p class="kids-head__sub" data-saved aria-live="polite">${draft ? `Draft saved ${esc(when(draft.updatedAt))}` : ''}</p>
         </header>
-        ${linkedEnquiry ? `<p class="ls-banner">${icon('info', 'icon--sm')}<span>Prefilled from admissions enquiry <a href="${routes.page('admissions', { applicant: linkedEnquiry })}">${esc(linkedEnquiry)}</a>. The enquiry is marked Enrolled only when you finish and save this enrolment. If this family already has a child here, link the existing family in step 2.</span></p>` : ''}
+        ${linkedEnquiry ? `<p class="ls-banner">${icon('info', 'icon--sm')}<span>Prefilled from admissions enquiry <a href="${routes.page('admissions', { applicant: linkedEnquiry })}">${esc(linkedEnquiry)}</a>. The enquiry is marked Enrolled only when you finish and save this enrolment. ${pre?.family ? `The existing ${esc(pre.family.name)} is linked in step 2.` : 'If this family already has a child here, link the existing family in step 2.'}${pre?.documents?.length ? ` Uploaded documents (${esc(pre.documents.map(x => x.label).join(', '))}) are copied to the child’s record when you finish.` : ''}</span></p>` : ''}
         <div class="wiz-resume" data-resume hidden></div>
         <div class="wiz-body">
           <nav class="wiz-steps" aria-label="Enrolment steps"><ol data-steps></ol></nav>

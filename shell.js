@@ -257,6 +257,7 @@
     setInterval(() => {
       store.processAnnouncements?.();
       store.processMeetings?.();
+      store.processAdmissions?.();
       const arrived = store.processMessaging();
       const user = store.currentUser();
       if (!store.canAccess(user, 'messages')) return;
