@@ -47,6 +47,7 @@
   else if (window.NexoraLessons?.render(key, main, user)) { /* Lesson Planning & Class Timetable */ }
   else if (window.NexoraResources?.render(key, main, user)) { /* S23 Rooms & Resources */ }
   else if (window.NexoraInbox?.render(key, main, user)) { /* Messages inbox (?family= stays with families.js) */ }
+  else if (window.NexoraAnnouncements?.render(key, main, user)) { /* Announcements & emergency broadcasts */ }
   else if (key === 'settings') renderSettings();
   else if (window.NexoraFamilies?.render(key, main, user)) { /* S15 families, S16 family detail */ }
   else if (window.NexoraEnrol?.render(key, main, user)) { /* S14 enrol, S09 waitlist, S18 rosters */ }

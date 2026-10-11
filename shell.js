@@ -255,6 +255,7 @@
   function startMessagingTicker() {
     if (!store.processMessaging) return;
     setInterval(() => {
+      store.processAnnouncements?.();
       const arrived = store.processMessaging();
       const user = store.currentUser();
       if (!store.canAccess(user, 'messages')) return;

@@ -298,11 +298,11 @@
     {
       id: 'announcements', name: 'Latest announcements', module: 'communication', group: 'list', size: 'half',
       render() {
-        const list = store.getAnnouncements().slice(0, 3);
+        const list = store.sentAnnouncements().slice(0, 3);
         const body = list.length ? `<ul class="dlist">${list.map(a => `<li class="dlist__item"><span class="avatar avatar--sm avatar--neutral" aria-hidden="true">${icon('megaphone', 'icon--sm')}</span>
-          <div class="dlist__main"><p class="dlist__title">${esc(a.title)}</p><p class="dlist__sub">${esc(a.audience)} · ${esc(a.createdBy)} · ${esc(dayLabel(a.createdAt))}</p></div></li>`).join('')}</ul>`
+          <div class="dlist__main"><p class="dlist__title">${esc(a.title)}</p><p class="dlist__sub">${esc(a.audience)} · ${esc(a.createdBy)} · ${esc(dayLabel(a.sentAt))}</p></div></li>`).join('')}</ul>`
           : empty('megaphone', 'No announcements yet', 'Announcements to families and staff will appear here.');
-        return `<div class="dcard">${cardHead('Latest announcements', '', pageUrl('communication'), 'All messages')}${body}</div>`;
+        return `<div class="dcard">${cardHead('Latest announcements', '', pageUrl('communication'), 'All announcements')}${body}</div>`;
       }
     }
   ];

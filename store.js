@@ -143,7 +143,7 @@
       features: ['Quick notes from a phone or tablet', 'Photos attached to each observation', 'Tags for areas of the classroom', 'Termly observation history per child', 'Selected observations shared with parents']
     },
     communication: {
-      name: 'Parent Communication', icon: 'message', requiredPlan: 'starter',
+      name: 'Announcements', icon: 'message', requiredPlan: 'starter',
       roles: ['Teacher', 'Director', 'Admin', 'Super Admin'],
       summary: 'Announcements and messages between school and families.',
       description: 'Keep families informed with announcements and direct messages in English and Tamil.',
@@ -4531,21 +4531,357 @@
     return settle(write(incidentsKey(school.id), list) ? { ok: true } : { ok: false, reason: 'storage' });
   }
 
-  /* Announcements (Parent Communication module) */
+  /* Announcements & emergency broadcasts (announcements.js at ?page=communication)
+     `nexora-announcements:<school>` holds every announcement:
+       { id, title, body, category, type: 'normal'|'emergency', emergencyType, status: 'draft'|'scheduled'|'sending'|'sent'|
+         'failed'|'cancelled', audienceSpec: { mode: 'all'|'classes'|'families'|'staff', classIds, familyIds, staffIds },
+         audience (label, kept for older readers), channels, requireAck, scheduledAt, sentAt, createdBy, createdById, createdAt,
+         updatedAt, attachments, recipients: [{ id: 'fam:<familyId>'|'staff:<userId>', kind, name, familyId, userId, children,
+         classes, delivery: { app }, readAt, readDemo, ackAt, ackDemo, reminders: [{ at, by, result }] }], reminders }
+     Older records (title/body/audience string) are read as sent announcements to that audience.
+     One recipient per family (so a family with children in two selected classes is counted once) or per staff member.
+     Delivery: only the in-app channel exists. Staff get a real Nexora notification; families have no app yet, so a family
+     with an active parent-app account is recorded "queued (demo — not delivered)" and others "skipped". Email and SMS
+     have no provider and can't be selected. Family reads/acknowledgements only come from the labelled demo simulation;
+     staff reads/acknowledgements are real. Scheduled sends happen in processAnnouncements() while Nexora is open. */
   const audiences = () => ['All families', 'All staff', ...activeClasses().map(c => c.name)];
   const announcementsKey = id => `nexora-announcements:${id}`;
-  const getAnnouncements = (schoolId = school.id) => seeded(announcementsKey(schoolId), () => [
-    { id: 'an1', title: 'Diwali celebration on Friday', body: 'Children may come in traditional clothes. Please send a small diya for the class display.', audience: 'All families', createdBy: 'Mrs. Rao', createdAt: atToday(16, 0, -1) },
-    { id: 'an2', title: 'Parent–teacher meetings next week', body: 'Slots open on Monday. Each meeting is 15 minutes.', audience: 'All families', createdBy: 'Ms. Fernandes', createdAt: atToday(11, 0, -3) }
-  ]);
-  function postAnnouncement(user, data) {
-    if (!can(user, 'communication')) return settle({ ok: false, reason: 'forbidden' });
-    const a = { id: newId('an'), title: String(data.title || '').trim().slice(0, 120), body: String(data.body || '').trim().slice(0, 1000), audience: data.audience, createdBy: user.name, createdAt: new Date().toISOString() };
-    if (!a.title || !a.body || !audiences().includes(a.audience)) return settle({ ok: false, reason: 'invalid' });
-    // Prototype: saved here only. Nothing is sent to families.
-    if (!write(announcementsKey(school.id), [a, ...getAnnouncements()])) return settle({ ok: false, reason: 'storage' });
-    events.announcement(user, a);
+  const ANN_CATEGORIES = { general: 'General', event: 'Event', reminder: 'Reminder', learning: 'Learning', closure: 'Closure', safety: 'Safety' };
+  const EMERGENCY_TYPES = { safety: 'Safety', evacuation: 'Evacuation', closure: 'Closure', medical: 'Medical', other: 'Other' };
+  const ANN_CHANNELS = { app: { label: 'In-app', available: true }, email: { label: 'Email', available: false, note: 'No email provider is configured' }, sms: { label: 'SMS', available: false, note: 'No SMS provider is configured' } };
+  const EMERGENCY_PHRASE = 'SEND EMERGENCY BROADCAST';
+  const canAnnounce = user => can(user, 'communication');
+  const canEmergency = user => can(user, 'communication') && MANAGE_PLAN_ROLES.includes(user.role);
+  const annPlural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+  // Everyone an audience can reach, as this user is allowed to address them. Families are deduplicated.
+  function announcementTargets(user) {
+    const lead = LEADERS.includes(user.role);
+    const scope = classScope(user);
+    const fams = listFamilies().map(f => ({ ...f, active: f.children.filter(c => c.status === 'active') })).filter(f => f.active.length && (lead || f.active.some(c => scope.includes(c.cls))));
+    return {
+      classes: activeClasses().filter(c => lead || scope.includes(c.name)).map(c => ({ id: c.id, name: c.name, families: fams.filter(f => f.active.some(k => k.cls === c.name)).length })),
+      families: fams.map(f => ({ id: f.id, name: f.name, children: f.active.map(c => c.name), classes: [...new Set(f.active.map(c => c.cls))] })),
+      staff: lead ? users.filter(u => u.schoolId === school.id && u.id !== user.id).map(u => ({ id: u.id, name: u.name, role: u.role })) : [],
+      canAll: lead
+    };
+  }
+  const familyRecipient = f => { const kids = f.children.filter(c => c.status === 'active'); return { id: `fam:${f.id}`, kind: 'family', name: f.name, familyId: f.id, children: kids.map(c => c.name), classes: [...new Set(kids.map(c => c.cls))], guardianIds: f.guardians.map(g => g.id) }; };
+  function resolveAudience(user, spec = {}) {
+    const t = announcementTargets(user);
+    const fams = listFamilies();
+    const mode = spec.mode;
+    let familyIds = [];
+    let staffIds = [];
+    if (mode === 'all' && t.canAll) familyIds = t.families.map(f => f.id);
+    else if (mode === 'classes') { const names = (spec.classIds || []).map(id => t.classes.find(c => c.id === id)?.name).filter(Boolean); familyIds = t.families.filter(f => f.classes.some(c => names.includes(c))).map(f => f.id); }
+    else if (mode === 'families') familyIds = (spec.familyIds || []).filter(id => t.families.some(f => f.id === id));
+    else if (mode === 'staff') staffIds = (spec.staffIds || []).filter(id => t.staff.some(s => s.id === id));
+    familyIds = [...new Set(familyIds)];
+    const recipients = [
+      ...familyIds.map(id => familyRecipient(fams.find(x => x.id === id))),
+      ...[...new Set(staffIds)].map(id => { const u = staffUser(id); return { id: `staff:${id}`, kind: 'staff', name: u.name, userId: id, role: u.role, children: [], classes: [] }; })
+    ];
+    const classNames = mode === 'classes' ? (spec.classIds || []).map(id => t.classes.find(c => c.id === id)?.name).filter(Boolean) : [];
+    const count = recipients.length;
+    const unit = mode === 'staff' ? annPlural(count, 'staff member', 'staff members') : annPlural(count, 'family', 'families');
+    const label = mode === 'all' ? `All families · ${unit}` : mode === 'classes' ? `${classNames.join(' + ') || 'No classes'} · ${unit}` : mode === 'families' ? `Selected families · ${unit}` : mode === 'staff' ? `Selected staff · ${unit}` : 'No audience';
+    return { recipients, label, count, classNames };
+  }
+  const appDelivery = (r, app) => (r.kind === 'staff' ? 'notified' : r.guardianIds.some(g => accountOf(app, g).status === 'active') ? 'queued (demo — not delivered)' : 'skipped: no parent-app account');
+
+  // Older records become sent announcements to the audience they named.
+  function normaliseAnnouncement(a) {
+    if (a.status) return a;
+    const fams = listFamilies().filter(f => f.children.some(c => c.status === 'active'));
+    const cls = activeClasses().find(c => c.name === a.audience);
+    let recipients;
+    let spec = { mode: 'all', classIds: [], familyIds: [], staffIds: [] };
+    if (a.audience === 'All staff') {
+      const staff = users.filter(u => u.schoolId === school.id);
+      spec = { ...spec, mode: 'staff', staffIds: staff.map(u => u.id) };
+      recipients = staff.map(u => ({ id: `staff:${u.id}`, kind: 'staff', name: u.name, userId: u.id, role: u.role, children: [], classes: [] }));
+    } else {
+      if (cls) spec = { ...spec, mode: 'classes', classIds: [cls.id] };
+      recipients = (cls ? fams.filter(f => f.children.some(c => c.status === 'active' && c.cls === cls.name)) : fams).map(familyRecipient);
+    }
+    const app = getParentApp();
+    recipients.forEach(r => Object.assign(r, { delivery: { app: appDelivery(r, app) }, readAt: null, ackAt: null, reminders: [] }));
+    return { ...a, category: 'general', type: 'normal', status: 'sent', audienceSpec: spec, audience: a.audience, channels: ['app'], requireAck: false, sentAt: a.createdAt, updatedAt: a.createdAt, attachments: [], recipients, reminders: [], legacy: true };
+  }
+  function getAnnouncements(schoolId = school.id) {
+    const list = seeded(announcementsKey(schoolId), () => [
+      { id: 'an1', title: 'Diwali celebration on Friday', body: 'Children may come in traditional clothes. Please send a small diya for the class display.', audience: 'All families', createdBy: 'Mrs. Rao', createdAt: atToday(16, 0, -1) },
+      { id: 'an2', title: 'Parent–teacher meetings next week', body: 'Slots open on Monday. Each meeting is 15 minutes.', audience: 'All families', createdBy: 'Ms. Fernandes', createdAt: atToday(11, 0, -3) }
+    ]);
+    if (list.some(a => !a.status)) {
+      const next = list.map(normaliseAnnouncement);
+      try { localStorage.setItem(announcementsKey(schoolId), JSON.stringify(next)); } catch { /* in memory */ }
+      return next;
+    }
+    return list;
+  }
+  const sentAnnouncements = () => getAnnouncements().filter(a => a.status === 'sent').sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
+  // For class pages: a sent announcement reaches a class if it went to all families or included that class.
+  const announcementReachesClass = (a, clsName) => a.status === 'sent' && (a.audienceSpec?.mode === 'all' || (a.audienceSpec?.mode === 'classes' && a.audienceSpec.classIds.some(id => classById(id)?.name === clsName)));
+  function announcementStats(a) {
+    const rs = a.recipients || [];
+    const total = new Set(rs.map(r => r.id)).size;
+    const read = new Set(rs.filter(r => r.readAt).map(r => r.id)).size;
+    const ack = new Set(rs.filter(r => r.ackAt).map(r => r.id)).size;
+    return { total, read, ack, pct: total ? Math.round((read / total) * 100) : 0, ackPct: total ? Math.round((ack / total) * 100) : 0 };
+  }
+  const canManageAnn = (user, a) => LEADERS.includes(user.role) || a.createdById === user.id;
+  const annList = () => getAnnouncements();
+  const saveAnnList = list => write(announcementsKey(school.id), list);
+
+  function annValues(user, input, { forSend = false, emergency = false } = {}) {
+    const errors = {};
+    const spec = input.audienceSpec || {};
+    const v = {
+      title: clean(input.title).slice(0, 120), body: String(input.body || '').replace(/\r\n/g, '\n').trim().slice(0, 4000),
+      category: ANN_CATEGORIES[input.category] ? input.category : 'general',
+      audienceSpec: { mode: clean(spec.mode), classIds: [...new Set(spec.classIds || [])], familyIds: [...new Set(spec.familyIds || [])], staffIds: [...new Set(spec.staffIds || [])] },
+      channels: [...new Set((input.channels || []).filter(c => ANN_CHANNELS[c]))], requireAck: Boolean(input.requireAck),
+      attachments: [...new Set(input.attachments || [])], emergencyType: emergency ? (EMERGENCY_TYPES[input.emergencyType] ? input.emergencyType : 'other') : null
+    };
+    const aud = resolveAudience(user, v.audienceSpec);
+    if (forSend) {
+      if (!aud.count) errors.audience = 'Choose who should receive this — no one is selected.';
+      if (!v.title) errors.title = 'Give the announcement a title.';
+      if (!v.body) errors.body = 'Write the message.';
+      if (!v.channels.length) errors.channels = 'Choose at least one delivery channel.';
+      else if (v.channels.some(c => !ANN_CHANNELS[c].available)) errors.channels = `${v.channels.filter(c => !ANN_CHANNELS[c].available).map(c => ANN_CHANNELS[c].label).join(', ')} isn’t configured, so it can’t be used.`;
+    }
+    const files = read(chatFilesKey(school.id), []);
+    if (v.attachments.some(id => !files.some(f => f.id === id))) errors.attachments = 'An attachment is missing. Remove it and attach it again.';
+    return { v, aud, errors };
+  }
+  function upsertAnnouncement(user, id, patch) {
+    const list = annList();
+    const now = new Date().toISOString();
+    let a = id ? list.find(x => x.id === id) : null;
+    if (id && !a) return { error: 'missing' };
+    if (a && !canManageAnn(user, a)) return { error: 'forbidden' };
+    if (a && ['sent', 'sending', 'cancelled'].includes(a.status)) return { error: 'locked', status: a.status };
+    if (a) Object.assign(a, patch, { updatedAt: now });
+    else { a = { id: newId('an'), type: 'normal', recipients: [], reminders: [], createdBy: user.name, createdById: user.id, createdAt: now, updatedAt: now, ...patch }; list.unshift(a); }
+    return { list, a };
+  }
+
+  function saveAnnouncementDraft(user, input, id = null) {
+    if (!canAnnounce(user)) return settle({ ok: false, reason: 'forbidden' });
+    const { v, aud, errors } = annValues(user, input);
+    if (errors.attachments) return settle({ ok: false, reason: 'invalid', errors });
+    const r = upsertAnnouncement(user, id, { ...v, audience: aud.label, status: 'draft', scheduledAt: null });
+    if (r.error) return settle({ ok: false, reason: r.error, status: r.status });
+    if (!saveAnnList(r.list)) return settle({ ok: false, reason: 'storage' });
+    return settle({ ok: true, announcement: r.a });
+  }
+  function scheduleAnnouncement(user, input, id = null) {
+    if (!canAnnounce(user)) return settle({ ok: false, reason: 'forbidden' });
+    const { v, aud, errors } = annValues(user, input, { forSend: true });
+    const at = new Date(input.scheduledAt || '');
+    if (Number.isNaN(at.getTime())) errors.scheduledAt = 'Choose a date and time.';
+    else if (at.getTime() <= Date.now() + 60000) errors.scheduledAt = 'Choose a time at least a minute from now.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const r = upsertAnnouncement(user, id, { ...v, audience: aud.label, status: 'scheduled', scheduledAt: at.toISOString() });
+    if (r.error) return settle({ ok: false, reason: r.error, status: r.status });
+    if (!saveAnnList(r.list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'schedule:announcement', r.a.id, r.a.title);
+    return settle({ ok: true, announcement: r.a });
+  }
+
+  // Delivers to the audience as it is now (re-resolved), recording each recipient's result.
+  function deliverAnnouncement(sender, a) {
+    const aud = resolveAudience(sender, a.audienceSpec);
+    if (!aud.count) return { error: 'no-recipients' };
+    const app = getParentApp();
+    const now = new Date().toISOString();
+    a.recipients = aud.recipients.map(r => ({ ...r, delivery: { app: appDelivery(r, app) }, readAt: null, ackAt: null, reminders: [] }));
+    Object.assign(a, { audience: aud.label, status: 'sent', sentAt: now, updatedAt: now });
+    return { staffIds: aud.recipients.filter(r => r.kind === 'staff').map(r => r.userId) };
+  }
+  function notifyAnnouncement(sender, a, staffIds) {
+    const classUsers = a.audienceSpec.mode === 'classes' ? educators.filter(e => e.userId && e.userId !== sender.id && a.audienceSpec.classIds.some(id => classById(id)?.staffIds.includes(e.id))).map(e => e.userId) : [];
+    const ids = [...new Set([...staffIds, ...classUsers])].filter(id => id !== sender.id);
+    if (ids.length) notifyUsers({ module: 'communication', kind: a.type === 'emergency' ? 'broadcast' : 'announcement', title: `${a.type === 'emergency' ? 'Emergency' : 'Announcement'}: ${a.title}`, body: `${a.audience} · from ${sender.name}`, recordType: 'announcement', recordId: a.id, severity: a.type === 'emergency' ? 'critical' : 'normal', dedupeKey: `announcement:${a.id}`, actorId: sender.id }, { toUserIds: ids });
+  }
+  function sendAnnouncement(user, input, id = null) {
+    if (!canAnnounce(user)) return settle({ ok: false, reason: 'forbidden' });
+    if (id) { const ex = annList().find(x => x.id === id); if (ex?.status === 'sent') return settle({ ok: true, announcement: ex, repeated: true }); }
+    const { v, aud, errors } = annValues(user, input, { forSend: true });
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const r = upsertAnnouncement(user, id, { ...v, audience: aud.label, status: 'sending', scheduledAt: null });
+    if (r.error) return settle({ ok: false, reason: r.error, status: r.status });
+    const d = deliverAnnouncement(user, r.a);
+    if (d.error) { Object.assign(r.a, { status: 'failed', failReason: 'No recipients' }); saveAnnList(r.list); return settle({ ok: false, reason: 'invalid', errors: { audience: 'No one is in this audience any more.' } }); }
+    if (!saveAnnList(r.list)) return settle({ ok: false, reason: 'storage' });
+    notifyAnnouncement(user, r.a, d.staffIds);
+    logAudit(user, 'send:announcement', r.a.id, `${r.a.title} → ${r.a.audience}`);
+    return settle({ ok: true, announcement: r.a });
+  }
+  function sendScheduledNow(user, id) {
+    const list = annList();
+    const a = list.find(x => x.id === id);
+    if (!a) return settle({ ok: false, reason: 'missing' });
+    if (!canManageAnn(user, a)) return settle({ ok: false, reason: 'forbidden' });
+    if (a.status === 'sent') return settle({ ok: true, announcement: a, repeated: true });
+    if (a.status !== 'scheduled') return settle({ ok: false, reason: 'locked', status: a.status });
+    const d = deliverAnnouncement(user, a);
+    if (d.error) { Object.assign(a, { status: 'failed', failReason: 'No recipients' }); saveAnnList(list); return settle({ ok: false, reason: 'no-recipients' }); }
+    if (!saveAnnList(list)) return settle({ ok: false, reason: 'storage' });
+    notifyAnnouncement(user, a, d.staffIds);
+    logAudit(user, 'send:announcement', a.id, `${a.title} (sent before its scheduled time)`);
     return settle({ ok: true, announcement: a });
+  }
+  function cancelAnnouncement(user, id) {
+    const list = annList();
+    const a = list.find(x => x.id === id);
+    if (!a) return settle({ ok: false, reason: 'missing' });
+    if (!canManageAnn(user, a)) return settle({ ok: false, reason: 'forbidden' });
+    if (a.status !== 'scheduled') return settle({ ok: false, reason: 'locked', status: a.status });
+    Object.assign(a, { status: 'cancelled', cancelledAt: new Date().toISOString(), cancelledBy: user.name });
+    if (!saveAnnList(list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'cancel:announcement', a.id, a.title);
+    return settle({ ok: true });
+  }
+  function deleteAnnouncementDraft(user, id) {
+    const list = annList();
+    const a = list.find(x => x.id === id);
+    if (!a) return settle({ ok: false, reason: 'missing' });
+    if (!canManageAnn(user, a)) return settle({ ok: false, reason: 'forbidden' });
+    if (a.status !== 'draft') return settle({ ok: false, reason: 'locked', status: a.status });
+    return settle(saveAnnList(list.filter(x => x.id !== id)) ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+  function duplicateAnnouncement(user, id) {
+    const a = annList().find(x => x.id === id);
+    if (!a) return settle({ ok: false, reason: 'missing' });
+    if (!canAnnounce(user)) return settle({ ok: false, reason: 'forbidden' });
+    return saveAnnouncementDraft(user, { title: `${a.title} (copy)`, body: a.body, category: a.category, audienceSpec: a.audienceSpec, channels: a.channels, requireAck: a.requireAck, attachments: [] });
+  }
+  // Runs on every page (shell ticker): sends scheduled announcements that are due, on behalf of their author.
+  function processAnnouncements() {
+    const list = annList();
+    const due = list.filter(a => a.status === 'scheduled' && new Date(a.scheduledAt).getTime() <= Date.now());
+    if (!due.length) return [];
+    const done = [];
+    due.forEach(a => {
+      const author = staffUser(a.createdById);
+      if (!author || !canAnnounce(author)) { Object.assign(a, { status: 'failed', failReason: 'The author can no longer send announcements' }); return; }
+      const d = deliverAnnouncement(author, a);
+      if (d.error) { Object.assign(a, { status: 'failed', failReason: 'No recipients' }); return; }
+      done.push([author, a, d.staffIds]);
+    });
+    if (!saveAnnList(list)) return [];
+    done.forEach(([u, a, ids]) => notifyAnnouncement(u, a, ids));
+    return done.map(x => x[1]);
+  }
+
+  function markAnnouncementRead(user, id) {
+    const list = annList();
+    const a = list.find(x => x.id === id);
+    const r = a?.recipients?.find(x => x.id === `staff:${user.id}`);
+    if (!r || r.readAt) return false;
+    r.readAt = new Date().toISOString();
+    return saveAnnList(list);
+  }
+  // Acknowledging is separate from reading (an acknowledgement also counts as a read).
+  function acknowledgeAnnouncement(user, id) {
+    const list = annList();
+    const a = list.find(x => x.id === id);
+    const r = a?.recipients?.find(x => x.id === `staff:${user.id}`);
+    if (!r) return settle({ ok: false, reason: 'forbidden' });
+    if (!a.requireAck) return settle({ ok: false, reason: 'invalid' });
+    const now = new Date().toISOString();
+    if (!r.readAt) r.readAt = now;
+    if (!r.ackAt) r.ackAt = now;
+    return settle(saveAnnList(list) ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+  // DEMO ONLY: families can't open announcements yet, so leaders can simulate family reads / acknowledgements.
+  function simulateAnnouncementActivity(user, id, kind = 'read', share = 0.5) {
+    if (!LEADERS.includes(user.role) || !messagingDemo()) return settle({ ok: false, reason: 'forbidden' });
+    const list = annList();
+    const a = list.find(x => x.id === id);
+    if (!a || a.status !== 'sent') return settle({ ok: false, reason: 'missing' });
+    if (kind === 'ack' && !a.requireAck) return settle({ ok: false, reason: 'invalid' });
+    const now = new Date().toISOString();
+    const pool = a.recipients.filter(r => r.kind === 'family' && (kind === 'read' ? !r.readAt : r.readAt && !r.ackAt));
+    const picked = pool.slice(0, Math.max(1, Math.round(pool.length * share)));
+    if (!pool.length) return settle({ ok: false, reason: 'none' });
+    picked.forEach(r => { if (kind === 'read') Object.assign(r, { readAt: now, readDemo: true }); else Object.assign(r, { ackAt: now, ackDemo: true }); });
+    return settle(saveAnnList(list) ? { ok: true, changed: picked.length } : { ok: false, reason: 'storage' });
+  }
+  let reminding = false;
+  function remindUnread(user, id) {
+    if (reminding) return settle({ ok: false, reason: 'busy' });
+    const list = annList();
+    const a = list.find(x => x.id === id);
+    if (!a) return settle({ ok: false, reason: 'missing' });
+    if (!canManageAnn(user, a)) return settle({ ok: false, reason: 'forbidden' });
+    if (a.status !== 'sent') return settle({ ok: false, reason: 'locked' });
+    const unread = a.recipients.filter(r => !r.readAt);
+    if (!unread.length) return settle({ ok: false, reason: 'none' });
+    reminding = true;
+    const app = getParentApp();
+    const now = new Date().toISOString();
+    const since = Date.now() - 10 * 60000;
+    let queued = 0;
+    let skipped = 0;
+    const staffIds = [];
+    unread.forEach(r => {
+      const recent = (r.reminders || []).some(x => new Date(x.at).getTime() >= since && !/^skipped/.test(x.result));
+      const result = recent ? 'skipped: reminded in the last 10 minutes' : appDelivery(r, app);
+      r.reminders = [...(r.reminders || []), { at: now, by: user.name, result }];
+      if (/^skipped/.test(result)) skipped += 1; else { queued += 1; if (r.kind === 'staff') staffIds.push(r.userId); }
+    });
+    a.reminders = [...(a.reminders || []), { at: now, by: user.name, targeted: unread.length, queued, skipped }];
+    const ok = saveAnnList(list);
+    reminding = false;
+    if (!ok) return settle({ ok: false, reason: 'storage' });
+    if (staffIds.length) notifyUsers({ module: 'communication', kind: 'announcement', title: `Reminder: ${a.title}`, body: `From ${user.name}`, recordType: 'announcement', recordId: a.id, dedupeKey: `ann-remind:${a.id}:${now}`, actorId: user.id }, { toUserIds: staffIds });
+    logAudit(user, 'remind:announcement', a.id, `${unread.length} unread · ${queued} reminded · ${skipped} skipped`);
+    return settle({ ok: true, targeted: unread.length, queued, skipped });
+  }
+
+  // Emergency: leaders only, always immediate; the typed phrase is checked here too. Staff also get the S32 banner.
+  let emergencySending = false;
+  function sendEmergency(user, input, typed) {
+    if (!canEmergency(user)) return settle({ ok: false, reason: 'forbidden' });
+    if (typed !== EMERGENCY_PHRASE) return settle({ ok: false, reason: 'invalid', errors: { confirm: `Type ${EMERGENCY_PHRASE} exactly to send.` } });
+    if (emergencySending) return settle({ ok: false, reason: 'busy' });
+    const { v, aud, errors } = annValues(user, { ...input, requireAck: true }, { forSend: true, emergency: true });
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const list = annList();
+    // A repeated submit (same sender, title and message within 30 s) returns the first broadcast instead of a second one.
+    const dup = list.find(x => x.type === 'emergency' && x.createdById === user.id && x.title === v.title && x.body === v.body && Date.now() - new Date(x.createdAt).getTime() < 30000);
+    if (dup) return settle({ ok: true, announcement: dup, repeated: true });
+    emergencySending = true;
+    const now = new Date().toISOString();
+    const a = { id: newId('an'), ...v, type: 'emergency', category: 'safety', audience: aud.label, status: 'sending', scheduledAt: null, recipients: [], reminders: [], createdBy: user.name, createdById: user.id, createdAt: now, updatedAt: now };
+    list.unshift(a);
+    const d = deliverAnnouncement(user, a);
+    const b = { id: newId('bc'), message: `${v.title}: ${v.body}`.slice(0, 280), createdAt: now, createdBy: user.id, createdByName: user.name, active: true, ackBy: [user.id], announcementId: a.id };
+    const ok = !d.error && commit([{ key: announcementsKey(school.id), value: list }, { key: broadcastsKey(school.id), value: [b, ...getBroadcasts()] }]);
+    emergencySending = false;
+    if (!ok) return settle({ ok: false, reason: d.error ? 'invalid' : 'storage', errors: d.error ? { audience: 'No one is in this audience.' } : undefined });
+    events.broadcast(user, b);
+    notifyAnnouncement(user, a, d.staffIds);
+    logAudit(user, 'send:emergency', a.id, `${EMERGENCY_TYPES[v.emergencyType]}: ${v.title} → ${a.audience}`);
+    return settle({ ok: true, announcement: a });
+  }
+
+  // The dashboard quick-action form: posts straight to one audience name.
+  function postAnnouncement(user, data) {
+    if (!canAnnounce(user)) return settle({ ok: false, reason: 'forbidden' });
+    const name = data.audience;
+    if (!clean(data.title) || !clean(data.body) || !audiences().includes(name)) return settle({ ok: false, reason: 'invalid' });
+    const cls = activeClasses().find(c => c.name === name);
+    const lead = LEADERS.includes(user.role);
+    const spec = name === 'All families' ? (lead ? { mode: 'all' } : { mode: 'classes', classIds: activeClasses().filter(c => classScope(user).includes(c.name)).map(c => c.id) })
+      : name === 'All staff' ? { mode: 'staff', staffIds: users.filter(u => u.schoolId === school.id && u.id !== user.id).map(u => u.id) }
+      : { mode: 'classes', classIds: [cls.id] };
+    return sendAnnouncement(user, { title: data.title, body: data.body, category: 'general', audienceSpec: spec, channels: ['app'], requireAck: false });
   }
 
   /* S32 Emergency broadcasts: shown to every role until each user acknowledges it. */
@@ -5122,6 +5458,31 @@
     resolveIncident,
     get AUDIENCES() { return audiences(); },
     getAnnouncements,
+    ANN_CATEGORIES,
+    EMERGENCY_TYPES,
+    ANN_CHANNELS,
+    EMERGENCY_PHRASE,
+    canAnnounce,
+    canEmergency,
+    announcementTargets,
+    resolveAudience,
+    sentAnnouncements,
+    announcementReachesClass,
+    announcementStats,
+    canManageAnn,
+    saveAnnouncementDraft,
+    scheduleAnnouncement,
+    sendAnnouncement,
+    sendScheduledNow,
+    cancelAnnouncement,
+    deleteAnnouncementDraft,
+    duplicateAnnouncement,
+    processAnnouncements,
+    markAnnouncementRead,
+    acknowledgeAnnouncement,
+    simulateAnnouncementActivity,
+    remindUnread,
+    sendEmergency,
     postAnnouncement,
     getBroadcasts,
     activeBroadcasts,

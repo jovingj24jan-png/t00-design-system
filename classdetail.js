@@ -220,8 +220,8 @@
       const events = [];
       const date = store.today();
       store.eventsBetween(user, date, date, { cls: d.card.name }).forEach(o => events.push({ time: o.allDay ? '' : o.start.slice(11, 16), title: o.title, kind: `${store.EVENT_TYPES[o.type]}${o.location ? ` · ${o.location}` : ''}`, href: routes.page('calendar', { view: 'day', date, event: o.id }) }));
-      store.getAnnouncements().filter(a => a.createdAt.slice(0, 10) === date && ['All families', 'All staff', d.card.name].includes(a.audience))
-        .forEach(a => events.push({ time: timeOf(a.createdAt), title: a.title, kind: `Announcement · ${a.audience}` }));
+      store.sentAnnouncements().filter(a => { const s = new Date(a.sentAt); return `${s.getFullYear()}-${String(s.getMonth() + 1).padStart(2, '0')}-${String(s.getDate()).padStart(2, '0')}` === date && store.announcementReachesClass(a, d.card.name); })
+        .forEach(a => events.push({ time: timeOf(a.sentAt), title: a.title, kind: `Announcement · ${a.audience}`, href: routes.page('communication', { focus: a.id }) }));
       d.children.filter(k => k.status === 'starting' && k.startDate === date).forEach(k => events.push({ time: '', title: `${store.childName(k)} starts today`, kind: 'New child' }));
       store.substitutesOn(date).filter(s => s.classId === d.card.id).forEach(s => events.push({ time: s.start, title: `${store.educators.find(e => e.id === s.substituteId)?.name} covers ${store.educators.find(e => e.id === s.replacingId)?.name}`, kind: `Cover until ${s.end}` }));
       events.sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
