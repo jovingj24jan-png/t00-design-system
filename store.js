@@ -202,6 +202,7 @@
     roster: { name: 'Class rosters', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Who is in each class, with capacity and schedules.' },
     compose: { name: 'Message families', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Write to selected families. Prototype: messages are saved, not delivered.' },
     classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Manage classrooms, capacity and today’s staffing.' },
+    resources: { name: 'Rooms & Resources', icon: 'door', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Rooms and bookings, Montessori materials and repairs, the library and classroom stock.' },
     lessons: { name: 'Lesson Planning', icon: 'book', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Weekly plans, monthly themes, class timetable and the activity library, with review and approval.' },
     calendar: { name: 'Calendar & Events', icon: 'calendar-check', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'School events, trips, meetings, closures and parent conferences, with RSVP and consent.' },
     diary: { name: 'Daily Diary', icon: 'book', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Meals, naps, toileting, mood, activities, notes and photos for each child, shared with families.' },
@@ -3518,6 +3519,346 @@
     });
   }
 
+  /* ---------------------------------------------------------------- S23 Rooms & Resources (resources.js; class detail Room tab)
+     Rooms `nexora-rooms:<school>` { id, schoolId, name, type, capacity, classId|null, notes, status } — seeded from the
+       class rooms plus two shared spaces (demo capacities).
+     Bookings `nexora-room-bookings:<school>` { id, roomId, date, start, end, title, classId|null, group, staffId,
+       participants, notes, status: 'booked'|'cancelled', createdBy/At, updatedBy/At }. Two bookings clash when their times
+       overlap (10:00–11:00 and 11:00–12:00 don't). The clash check reads every saved booking at save time.
+     Materials `nexora-materials:<school>` { id, name, area (LEARNING_AREAS), classId|null, roomId|null, condition:
+       'good'|'repair'|'missing', lastChecked, notes } · Repairs `nexora-repairs:<school>` { id, materialId, status:
+       'open'|'progress'|'resolved', reportedAt, reportedBy, notes, history } — one open repair per material.
+     Books `nexora-books:<school>` { id, title, author, ref, copies, cover (data URL ≤ 300 KB) } · Loans `nexora-loans:<school>`
+       { id, bookId, copy, borrowerType: 'child'|'staff', borrowerId, loanDate, dueDate, status: 'active'|'returned',
+       issuedBy, returnedAt, returnedBy } — availability is derived from active loans; copies are numbered.
+     Inventory `nexora-inventory:<school>` { id, name, category, unit, qty, reorder, supplier, location, notes, alert } ·
+       Movements `nexora-stock-movements:<school>` { id, itemId, before, change, after, direction, reason, notes, at, by }.
+       Quantity only changes through adjustStock (or the opening quantity). Low/out alerts notify leaders once per
+       episode (an episode ends when stock goes back above the reorder level).
+     All writes check permissions here; production needs the same checks (and transactions) on a server. */
+
+  const roomsKey = id => `nexora-rooms:${id}`;
+  const bookingsKey = id => `nexora-room-bookings:${id}`;
+  const materialsKey = id => `nexora-materials:${id}`;
+  const repairsKey = id => `nexora-repairs:${id}`;
+  const booksKey = id => `nexora-books:${id}`;
+  const loansKey = id => `nexora-loans:${id}`;
+  const inventoryKey = id => `nexora-inventory:${id}`;
+  const movementsKey = id => `nexora-stock-movements:${id}`;
+  const ROOM_TYPES = { classroom: 'Classroom', hall: 'Hall', outdoor: 'Outdoor', library: 'Library', other: 'Other' };
+  const CONDITIONS = { good: 'Good', repair: 'Needs repair', missing: 'Missing pieces' };
+  const REPAIR_STATUS = { open: 'Open', progress: 'In progress', resolved: 'Resolved' };
+  const STOCK_REASONS = { received: 'New stock received', used: 'Used in classroom', damaged: 'Damaged', expired: 'Expired', count: 'Stock count correction', other: 'Other' };
+  const STOCK_UNITS = ['pieces', 'packs', 'bottles', 'boxes', 'litres', 'rolls', 'sheets'];
+  const LOAN_MAX_DAYS = 28;
+  const canManageResources = user => LEADERS.includes(user.role);
+  const canUseResources = user => canAccess(user, 'resources');
+
+  function getRooms() {
+    return seeded(roomsKey(school.id), () => {
+      const rooms = getClassRegistry().filter(c => c.status === 'active' && c.room).map((c, i) => ({ id: `room-${i + 1}`, schoolId: school.id, name: c.room, type: 'classroom', capacity: Math.max(Number(c.capacity) || 0, 12) + 4, classId: c.id, notes: '', status: 'active', demo: true }));
+      return [...rooms,
+        { id: 'room-hall', schoolId: school.id, name: 'Activity hall', type: 'hall', capacity: 60, classId: null, notes: 'Music, movement and assemblies.', status: 'active', demo: true },
+        { id: 'room-garden', schoolId: school.id, name: 'Garden', type: 'outdoor', capacity: 40, classId: null, notes: 'Outdoor work and gardening.', status: 'active', demo: true }];
+    });
+  }
+  const roomById = id => getRooms().find(r => r.id === id) || null;
+  const getBookings = () => seeded(bookingsKey(school.id), () => {
+    const d = daysFromToday(1);
+    const montA = getClassRegistry().find(c => c.name === 'Montessori A');
+    const nur = getClassRegistry().find(c => c.name === 'Nursery');
+    return [
+      { id: newId('bk'), roomId: 'room-hall', date: d, start: '10:00', end: '11:00', title: 'Music and movement', classId: montA?.id || null, group: '', staffId: 'ed-lakshmi', participants: 14, notes: '', status: 'booked', createdBy: 'Mrs. Rao', createdAt: atToday(9, 0, -2), demo: true },
+      { id: newId('bk'), roomId: 'room-garden', date: d, start: '11:00', end: '11:45', title: 'Planting seeds', classId: nur?.id || null, group: '', staffId: 'ed-priya', participants: 11, notes: '', status: 'booked', createdBy: 'Mrs. Rao', createdAt: atToday(9, 0, -2), demo: true }
+    ];
+  });
+  // School hours from Settings bound bookings; without settings, 07:00–18:00.
+  const roomHours = () => { const h = getSettings(school.id).hours; return { open: isTime(h.open) ? h.open : '07:00', close: isTime(h.close) ? h.close : '18:00' }; };
+  const bookingGroup = b => (b.classId ? classById(b.classId)?.name : '') || b.group || 'Staff';
+  function bookingsOn(roomId, date) {
+    return getBookings().filter(b => b.status === 'booked' && b.roomId === roomId && b.date === date).sort((a, b) => a.start.localeCompare(b.start));
+  }
+  function saveRoom(user, input, roomId = null) {
+    if (!canManageResources(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getRooms();
+    const errors = {};
+    const v = { name: clean(input.name).slice(0, 60), type: clean(input.type), capacity: Number(input.capacity), classId: clean(input.classId) || null, notes: clean(input.notes).slice(0, 300) };
+    if (!v.name) errors.name = 'Name the room.';
+    else if (list.some(r => r.id !== roomId && r.status === 'active' && r.name.toLowerCase() === v.name.toLowerCase())) errors.name = 'A room with this name already exists.';
+    if (!ROOM_TYPES[v.type]) errors.type = 'Choose a room type.';
+    if (!Number.isInteger(v.capacity) || v.capacity < 1 || v.capacity > 500) errors.capacity = 'Enter a capacity from 1 to 500.';
+    if (v.classId && getClassRegistry().find(c => c.id === v.classId)?.status !== 'active') errors.classId = 'Choose an active class.';
+    if (v.classId && list.some(r => r.id !== roomId && r.status === 'active' && r.classId === v.classId)) errors.classId = 'That class already has a room.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    let r = roomId ? list.find(x => x.id === roomId) : null;
+    if (roomId && !r) return settle({ ok: false, reason: 'missing' });
+    if (r) Object.assign(r, v, { updatedBy: user.name, updatedAt: new Date().toISOString() });
+    else { r = { id: newId('room'), schoolId: school.id, ...v, status: 'active', createdBy: user.name, createdAt: new Date().toISOString() }; list.push(r); }
+    if (!write(roomsKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, roomId ? 'edit:room' : 'add:room', r.id, r.name);
+    return settle({ ok: true, room: r });
+  }
+
+  // Book a room. Re-reads every saved booking for that room and date, so hidden or filtered bookings still clash.
+  function saveBooking(user, input, bookingId = null) {
+    if (!canUseResources(user)) return settle({ ok: false, reason: 'forbidden' });
+    const room = roomById(clean(input.roomId));
+    const errors = {};
+    const v = { roomId: room?.id || '', title: clean(input.title).slice(0, 80), date: clean(input.date), start: clean(input.start), end: clean(input.end), classId: clean(input.classId) || null, group: clean(input.group).slice(0, 60), staffId: clean(input.staffId), participants: input.participants === '' || input.participants == null ? null : Number(input.participants), notes: clean(input.notes).slice(0, 300) };
+    if (!room || room.status !== 'active') errors.roomId = 'Choose a room.';
+    if (!v.title) errors.title = 'Say what the booking is for.';
+    if (!isDate(v.date)) errors.date = 'Choose a date.';
+    else if (v.date < today() && !bookingId) errors.date = 'Bookings can’t be made in the past.';
+    else if (!schoolDay(v.date).open) errors.date = `The school is closed that day (${schoolDay(v.date).name}).`;
+    if (!isTime(v.start)) errors.start = 'Choose a start time.';
+    if (!isTime(v.end)) errors.end = 'Choose an end time.';
+    else if (!errors.start && toMinutes(v.end) <= toMinutes(v.start)) errors.end = 'The end time must be after the start time.';
+    const h = roomHours();
+    if (!errors.start && !errors.end && (toMinutes(v.start) < toMinutes(h.open) || toMinutes(v.end) > toMinutes(h.close))) errors.start = `Rooms can be booked between ${h.open} and ${h.close}.`;
+    if (v.classId && getClassRegistry().find(c => c.id === v.classId)?.status !== 'active') errors.classId = 'Choose an active class.';
+    if (!v.classId && !v.group) errors.classId = 'Choose a class or name the group.';
+    if (!educators.some(e => e.id === v.staffId)) errors.staffId = 'Choose who is responsible.';
+    if (v.participants != null && (!Number.isInteger(v.participants) || v.participants < 1)) errors.participants = 'Enter a whole number of people.';
+    else if (room && v.participants != null && v.participants > room.capacity) errors.participants = `${room.name} holds up to ${room.capacity} people.`;
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const list = getBookings();
+    const before = bookingId ? list.find(b => b.id === bookingId && b.status === 'booked') : null;
+    if (bookingId && !before) return settle({ ok: false, reason: 'missing' });
+    const clash = list.find(b => b.id !== bookingId && b.status === 'booked' && b.roomId === v.roomId && b.date === v.date && toMinutes(b.start) < toMinutes(v.end) && toMinutes(v.start) < toMinutes(b.end));
+    if (clash) return settle({ ok: false, reason: 'clash', clash: { start: clash.start, end: clash.end, group: bookingGroup(clash), title: clash.title } });
+    const now = new Date().toISOString();
+    let b = before;
+    if (b) Object.assign(b, v, { updatedBy: user.name, updatedAt: now });
+    else { b = { id: newId('bk'), ...v, status: 'booked', createdBy: user.name, createdById: user.id, createdAt: now }; list.push(b); }
+    if (!write(bookingsKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, bookingId ? 'edit:booking' : 'add:booking', b.roomId, `${room.name} ${v.date} ${v.start}–${v.end}`);
+    return settle({ ok: true, booking: b });
+  }
+  function cancelBooking(user, bookingId) {
+    const list = getBookings();
+    const b = list.find(x => x.id === bookingId && x.status === 'booked');
+    if (!b) return settle({ ok: false, reason: 'missing' });
+    if (!(canManageResources(user) || b.createdById === user.id)) return settle({ ok: false, reason: 'forbidden' });
+    Object.assign(b, { status: 'cancelled', cancelledBy: user.name, cancelledAt: new Date().toISOString() });
+    if (!write(bookingsKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'cancel:booking', b.roomId, `${b.date} ${b.start}–${b.end}`);
+    return settle({ ok: true });
+  }
+
+  const MATERIAL_SEED = [
+    ['Pouring jugs set', 'Practical life', 'Montessori A', 'good'], ['Dressing frames (6)', 'Practical life', 'Nursery', 'good'], ['Polishing tray', 'Practical life', 'LKG A', 'repair'],
+    ['Pink tower', 'Sensorial', 'Montessori A', 'good'], ['Knobbed cylinders block 1', 'Sensorial', 'Nursery', 'missing'], ['Colour box 2', 'Sensorial', 'LKG A', 'good'],
+    ['Sandpaper letters', 'Language', 'Montessori A', 'good'], ['Movable alphabet', 'Language', 'UKG A', 'good'], ['Metal insets', 'Language', 'UKG B', 'good'],
+    ['Number rods', 'Mathematics', 'Montessori A', 'good'], ['Golden bead material', 'Mathematics', 'UKG A', 'good'], ['Spindle box', 'Mathematics', 'UKG B', 'repair'],
+    ['Continents puzzle map', 'Culture', 'Montessori A', 'good'], ['Land and water forms', 'Culture', 'UKG B', 'good'], ['Botany cabinet', 'Culture', 'LKG A', 'good']
+  ];
+  const getMaterials = () => seeded(materialsKey(school.id), () => MATERIAL_SEED.map(([name, area, cls, condition], i) => ({ id: `mat-${i + 1}`, schoolId: school.id, name, area, classId: getClassRegistry().find(c => c.name === cls)?.id || null, roomId: null, condition, lastChecked: daysFromToday(-((i * 5) % 40) - 3), notes: condition === 'missing' ? 'Smallest cylinder missing.' : '', demo: true })));
+  // Demo repairs come from the demo material list itself, not from whatever condition materials have now.
+  const getRepairs = () => seeded(repairsKey(school.id), () => MATERIAL_SEED.map((x, i) => (x[3] === 'repair' ? `mat-${i + 1}` : null)).filter(Boolean).map(id => ({ id: newId('rp'), materialId: id, status: 'open', reportedAt: atToday(9, 0, -5), reportedBy: 'Mrs. Rao', notes: '', history: [{ at: atToday(9, 0, -5), by: 'Mrs. Rao', action: 'reported' }], demo: true })));
+  const canEditMaterial = (user, m) => canManageResources(user) || (user.role === 'Teacher' && m?.classId && classScope(user).includes(classById(m.classId)?.name));
+  // Add/edit a material. Moving to "Needs repair" opens (or reuses) one repair ticket and notifies leaders, in one save.
+  function saveMaterial(user, input, materialId = null) {
+    if (!canUseResources(user)) return settle({ ok: false, reason: 'forbidden' });
+    getRepairs();
+    const list = getMaterials();
+    const before = materialId ? list.find(m => m.id === materialId) : null;
+    if (materialId && !before) return settle({ ok: false, reason: 'missing' });
+    const errors = {};
+    const v = { name: clean(input.name).slice(0, 80), area: clean(input.area), classId: clean(input.classId) || null, roomId: clean(input.roomId) || null, condition: clean(input.condition), lastChecked: clean(input.lastChecked), notes: clean(input.notes).slice(0, 500) };
+    if (!(before ? canEditMaterial(user, before) : canManageResources(user) || (v.classId && canEditMaterial(user, v)))) return settle({ ok: false, reason: 'forbidden' });
+    if (!v.name) errors.name = 'Name the material.';
+    if (!LEARNING_AREAS.includes(v.area)) errors.area = 'Choose a curriculum area.';
+    if (!v.classId && !v.roomId) errors.classId = 'Choose the class or room it belongs to.';
+    if (v.classId && !classById(v.classId)) errors.classId = 'Choose a class from the list.';
+    if (v.roomId && !roomById(v.roomId)) errors.roomId = 'Choose a room from the list.';
+    if (!CONDITIONS[v.condition]) errors.condition = 'Choose a condition.';
+    if (!isDate(v.lastChecked)) errors.lastChecked = 'Enter when it was last checked.';
+    else if (v.lastChecked > today()) errors.lastChecked = 'The check date can’t be in the future.';
+    if (v.condition === 'missing' && !v.notes) errors.notes = 'Note which pieces are missing.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const now = new Date().toISOString();
+    const prevCondition = before?.condition || null;
+    let m = before;
+    if (m) Object.assign(m, v, { updatedBy: user.name, updatedAt: now });
+    else { m = { id: newId('mat'), schoolId: school.id, ...v, createdBy: user.name, createdAt: now }; list.push(m); }
+    const writes = [{ key: materialsKey(school.id), value: list }];
+    let repair = null;
+    let newTicket = false;
+    if (v.condition === 'repair' && prevCondition !== 'repair') {
+      const repairs = getRepairs();
+      repair = repairs.find(r => r.materialId === m.id && r.status !== 'resolved');
+      if (repair) repair.history = [...repair.history, { at: now, by: user.name, action: 'reported again', detail: v.notes }];
+      else { repair = { id: newId('rp'), materialId: m.id, status: 'open', reportedAt: now, reportedBy: user.name, reportedById: user.id, notes: v.notes, history: [{ at: now, by: user.name, action: 'reported', detail: v.notes }] }; repairs.push(repair); newTicket = true; }
+      writes.push({ key: repairsKey(school.id), value: repairs });
+    }
+    if (!commit(writes)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, materialId ? 'edit:material' : 'add:material', m.id, `${m.name}: ${CONDITIONS[m.condition]}`);
+    let notified = null;
+    if (repair) {
+      const where = m.classId ? classById(m.classId)?.name : roomById(m.roomId)?.name;
+      notified = notifyUsers({ module: 'resources', kind: 'repair', title: `Repair needed: ${m.name}`, body: `${where || 'Unassigned'} · reported by ${user.name}${v.notes ? ` — ${v.notes}` : ''}`, recordType: 'repair', recordId: repair.id, dedupeKey: `repair:${repair.id}`, actorId: user.id }, { toRoles: STAFF_RATIO_ROLES, exclude: [user.id] });
+    }
+    return settle({ ok: true, material: m, repair, newTicket, notified });
+  }
+  function setRepairStatus(user, repairId, status, note = '') {
+    if (!canManageResources(user)) return settle({ ok: false, reason: 'forbidden' });
+    if (!REPAIR_STATUS[status]) return settle({ ok: false, reason: 'invalid' });
+    const repairs = getRepairs();
+    const r = repairs.find(x => x.id === repairId);
+    if (!r) return settle({ ok: false, reason: 'missing' });
+    const now = new Date().toISOString();
+    Object.assign(r, { status, notes: clean(note) || r.notes, history: [...r.history, { at: now, by: user.name, action: REPAIR_STATUS[status].toLowerCase(), detail: clean(note) }] });
+    if (status === 'resolved') Object.assign(r, { resolvedAt: now, resolvedBy: user.name });
+    if (!write(repairsKey(school.id), repairs)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'repair:status', r.materialId, REPAIR_STATUS[status]);
+    return settle({ ok: true, repair: r });
+  }
+
+  const BOOK_SEED = [['The Very Hungry Caterpillar', 'Eric Carle', 'LIB-001', 3], ['Where the Wild Things Are', 'Maurice Sendak', 'LIB-002', 2], ['Brown Bear, Brown Bear, What Do You See?', 'Bill Martin Jr.', 'LIB-003', 2], ['Goodnight Moon', 'Margaret Wise Brown', 'LIB-004', 1], ['The Snowy Day', 'Ezra Jack Keats', 'LIB-005', 2], ['Montessori: A Modern Approach (staff)', 'Paula Polk Lillard', 'LIB-006', 1]];
+  const getBooks = () => seeded(booksKey(school.id), () => BOOK_SEED.map(([title, author, ref, copies], i) => ({ id: `book-${i + 1}`, schoolId: school.id, title, author, ref, copies, cover: null, demo: true })));
+  const getLoans = () => read(loansKey(school.id), []);
+  function bookStatus(bookId, loans = getLoans()) {
+    const b = getBooks().find(x => x.id === bookId);
+    if (!b) return null;
+    const active = loans.filter(l => l.bookId === bookId && l.status === 'active');
+    const overdue = active.filter(l => l.dueDate < today());
+    return { book: b, active, available: Math.max(0, b.copies - active.length), overdue };
+  }
+  const borrowerName = l => (l.borrowerType === 'staff' ? educators.find(e => e.id === l.borrowerId)?.name : (() => { const c = childById(l.borrowerId); return c ? childName(c) : ''; })()) || 'Unknown';
+  // Who a user may lend to: staff, and children in their classes (leaders: every active child).
+  function borrowersFor(user) {
+    const kids = getChildren().filter(c => c.status === 'active' && (LEADERS.includes(user.role) || classScope(user).includes(c.cls)));
+    return { children: kids.map(c => ({ id: c.id, name: childName(c), cls: c.cls })), staff: educators.map(e => ({ id: e.id, name: e.name })) };
+  }
+  function saveBook(user, input, bookId = null) {
+    if (!canManageResources(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getBooks();
+    const errors = {};
+    const v = { title: clean(input.title).slice(0, 160), author: clean(input.author).slice(0, 120), ref: clean(input.ref).slice(0, 40), copies: Number(input.copies) };
+    if (input.cover !== undefined) {
+      if (input.cover && !/^data:image\/(png|jpeg|webp);base64,/.test(input.cover)) errors.cover = 'Use a PNG, JPEG or WebP image.';
+      else if (input.cover && input.cover.length > 400000) errors.cover = 'Use a cover image under 300 KB.';
+      else v.cover = input.cover || null;
+    }
+    if (!v.title) errors.title = 'Enter the title.';
+    if (!Number.isInteger(v.copies) || v.copies < 1 || v.copies > 100) errors.copies = 'Enter 1 to 100 copies.';
+    if (v.ref && list.some(b => b.id !== bookId && b.ref.toLowerCase() === v.ref.toLowerCase())) errors.ref = 'Another book uses this reference.';
+    if (bookId && !errors.copies) { const st = bookStatus(bookId); if (st && v.copies < st.active.length) errors.copies = `${st.active.length} copies are on loan; you can’t have fewer copies than that.`; }
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    let b = bookId ? list.find(x => x.id === bookId) : null;
+    if (bookId && !b) return settle({ ok: false, reason: 'missing' });
+    if (b) Object.assign(b, v, { updatedBy: user.name, updatedAt: new Date().toISOString() });
+    else { b = { id: newId('book'), schoolId: school.id, cover: null, ...v, createdBy: user.name, createdAt: new Date().toISOString() }; list.push(b); }
+    if (!write(booksKey(school.id), list)) return settle({ ok: false, reason: 'storage', errors: v.cover ? { cover: 'There isn’t room on this device for this cover.' } : undefined });
+    return settle({ ok: true, book: b });
+  }
+  // Lend one copy. Re-reads loans at save time; the lowest free copy number is used, so one copy is never lent twice.
+  function lendBook(user, { bookId, borrowerType, borrowerId, loanDate, dueDate, notes = '' }) {
+    if (!canUseResources(user)) return settle({ ok: false, reason: 'forbidden' });
+    const loans = getLoans();
+    const st = bookStatus(bookId, loans);
+    if (!st) return settle({ ok: false, reason: 'missing' });
+    const errors = {};
+    const allowed = borrowersFor(user);
+    if (!['child', 'staff'].includes(borrowerType)) errors.borrowerType = 'Choose child or staff.';
+    else if (!(borrowerType === 'child' ? allowed.children : allowed.staff).some(x => x.id === borrowerId)) errors.borrowerId = 'Choose a borrower from the list.';
+    if (!isDate(loanDate) || loanDate > today()) errors.loanDate = 'The loan date must be today or earlier.';
+    if (!isDate(dueDate)) errors.dueDate = 'Choose a due date.';
+    else if (!errors.loanDate && dueDate < loanDate) errors.dueDate = 'The due date can’t be before the loan date.';
+    else if (!errors.loanDate && dDiff(dueDate, loanDate) > LOAN_MAX_DAYS) errors.dueDate = `Loans can be up to ${LOAN_MAX_DAYS} days.`;
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    if (st.available < 1) return settle({ ok: false, reason: 'unavailable' });
+    if (st.active.some(l => l.borrowerType === borrowerType && l.borrowerId === borrowerId)) return settle({ ok: false, reason: 'invalid', errors: { borrowerId: 'This borrower already has a copy of this book.' } });
+    const used = new Set(st.active.map(l => l.copy));
+    let copy = 1;
+    while (used.has(copy)) copy += 1;
+    const loan = { id: newId('loan'), bookId, copy, borrowerType, borrowerId, loanDate, dueDate, notes: clean(notes).slice(0, 300), status: 'active', issuedBy: user.name, issuedById: user.id, issuedAt: new Date().toISOString(), returnedAt: null, returnedBy: null };
+    if (!write(loansKey(school.id), [...loans, loan])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'lend:book', bookId, `${st.book.title} copy ${copy} → ${borrowerName(loan)}`);
+    return settle({ ok: true, loan, available: st.available - 1 });
+  }
+  function returnBook(user, loanId) {
+    if (!canUseResources(user)) return settle({ ok: false, reason: 'forbidden' });
+    const loans = getLoans();
+    const l = loans.find(x => x.id === loanId);
+    if (!l) return settle({ ok: false, reason: 'missing' });
+    if (l.status !== 'active') return settle({ ok: false, reason: 'returned' });
+    Object.assign(l, { status: 'returned', returnedAt: new Date().toISOString(), returnedBy: user.name, returnedById: user.id });
+    if (!write(loansKey(school.id), loans)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'return:book', l.bookId, `copy ${l.copy} from ${borrowerName(l)}`);
+    return settle({ ok: true, loan: l });
+  }
+
+  const INVENTORY_SEED = [['Paper towels', 'Cleaning', 'rolls', 18, 6], ['Hand soap', 'Cleaning', 'bottles', 4, 4], ['Washable paint', 'Art', 'bottles', 9, 5], ['Drawing paper A4', 'Art', 'packs', 0, 3], ['Glue sticks', 'Art', 'pieces', 22, 10], ['Tissue boxes', 'Hygiene', 'boxes', 12, 6], ['Snack plates (compostable)', 'Kitchen', 'packs', 3, 4]];
+  const getInventory = () => seeded(inventoryKey(school.id), () => INVENTORY_SEED.map(([name, category, unit, qty, reorder], i) => ({ id: `inv-${i + 1}`, schoolId: school.id, name, category, unit, qty, reorder, supplier: '', location: 'Store room', notes: '', alert: null, updatedAt: atToday(9, 0, -3), demo: true })));
+  const getMovements = () => read(movementsKey(school.id), []);
+  const stockStatus = it => (it.qty <= 0 ? 'out' : it.qty <= it.reorder ? 'low' : 'ok');
+  // Low/out alerts from the saved quantity: one notification per episode (and one more if it then runs out).
+  function stockAlert(user, it) {
+    const status = stockStatus(it);
+    if (status === 'ok') { it.alert = null; return null; }
+    const prev = it.alert;
+    if (prev && (prev.status === status || (prev.status === 'out' && status === 'low'))) { it.alert = { ...prev, status }; return null; }
+    const episode = prev ? prev.episode : (it.alertEpisode || 0) + 1;
+    it.alertEpisode = episode;
+    it.alert = { status, since: new Date().toISOString(), episode };
+    return { module: 'resources', kind: status === 'out' ? 'stock-out' : 'stock-low', title: status === 'out' ? `Out of stock: ${it.name}` : `Low stock: ${it.name}`, body: `${it.qty} ${it.unit} left · reorder level ${it.reorder}${status === 'out' ? ' · none left' : ''}`, recordType: 'stock', recordId: it.id, severity: status === 'out' ? 'critical' : 'normal', dedupeKey: `stock-${status}:${it.id}:${episode}`, actorId: user.id };
+  }
+  function saveInventoryItem(user, input, itemId = null) {
+    if (!canManageResources(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getInventory();
+    const errors = {};
+    const v = { name: clean(input.name).slice(0, 80), category: clean(input.category).slice(0, 40), unit: clean(input.unit), reorder: Number(input.reorder), supplier: clean(input.supplier).slice(0, 80), location: clean(input.location).slice(0, 60), notes: clean(input.notes).slice(0, 300) };
+    if (!v.name) errors.name = 'Name the item.';
+    else if (list.some(x => x.id !== itemId && x.name.toLowerCase() === v.name.toLowerCase() && x.unit === v.unit)) errors.name = 'This item is already in the inventory.';
+    if (!v.category) errors.category = 'Enter a category.';
+    if (!STOCK_UNITS.includes(v.unit)) errors.unit = 'Choose a unit.';
+    if (!Number.isInteger(v.reorder) || v.reorder < 0) errors.reorder = 'Enter a whole number of 0 or more.';
+    let opening = 0;
+    if (!itemId) { opening = Number(input.qty); if (!Number.isInteger(opening) || opening < 0) errors.qty = 'Enter a whole number of 0 or more.'; }
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const now = new Date().toISOString();
+    let it = itemId ? list.find(x => x.id === itemId) : null;
+    if (itemId && !it) return settle({ ok: false, reason: 'missing' });
+    const writes = [];
+    // Editing never changes the quantity; a new reorder level can still start or end an alert.
+    if (it) Object.assign(it, v, { updatedAt: now, updatedBy: user.name });
+    else {
+      it = { id: newId('inv'), schoolId: school.id, ...v, qty: opening, alert: null, createdBy: user.name, createdAt: now, updatedAt: now };
+      list.push(it);
+      writes.push({ key: movementsKey(school.id), value: [...getMovements(), { id: newId('mv'), itemId: it.id, before: 0, change: opening, after: opening, direction: 'add', reason: 'opening', notes: 'Opening quantity', at: now, by: user.name, byId: user.id }] });
+    }
+    const alert = stockAlert(user, it);
+    writes.unshift({ key: inventoryKey(school.id), value: list });
+    if (!commit(writes)) return settle({ ok: false, reason: 'storage' });
+    if (alert) notifyUsers(alert, { toRoles: STAFF_RATIO_ROLES });
+    return settle({ ok: true, item: it, alert: Boolean(alert) });
+  }
+  function adjustStock(user, itemId, { direction, amount, reason, notes = '' }) {
+    if (!canUseResources(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getInventory();
+    const it = list.find(x => x.id === itemId);
+    if (!it) return settle({ ok: false, reason: 'missing' });
+    const n = Number(amount);
+    const errors = {};
+    if (!['add', 'remove'].includes(direction)) errors.direction = 'Choose add or remove.';
+    if (!Number.isInteger(n) || n < 1) errors.amount = 'Enter a whole number of 1 or more.';
+    if (!STOCK_REASONS[reason]) errors.reason = 'Choose a reason.';
+    if (reason === 'other' && !clean(notes)) errors.notes = 'Explain the reason.';
+    if (!errors.amount && direction === 'remove' && n > it.qty) errors.amount = `Only ${it.qty} ${it.unit} in stock.`;
+    if (Object.keys(errors).length) return settle({ ok: false, reason: errors.amount?.startsWith('Only') ? 'insufficient' : 'invalid', errors });
+    const before = it.qty;
+    it.qty = direction === 'add' ? before + n : before - n;
+    it.updatedAt = new Date().toISOString();
+    it.updatedBy = user.name;
+    const alert = stockAlert(user, it);
+    const mv = { id: newId('mv'), itemId, before, change: n, after: it.qty, direction, reason, notes: clean(notes).slice(0, 300), at: it.updatedAt, by: user.name, byId: user.id };
+    if (!commit([{ key: inventoryKey(school.id), value: list }, { key: movementsKey(school.id), value: [...getMovements(), mv] }])) return settle({ ok: false, reason: 'storage' });
+    if (alert) notifyUsers(alert, { toRoles: STAFF_RATIO_ROLES });
+    logAudit(user, 'adjust:stock', itemId, `${it.name}: ${before} → ${it.qty} (${STOCK_REASONS[reason]})`);
+    return settle({ ok: true, item: it, movement: mv, status: stockStatus(it), alert: Boolean(alert) });
+  }
+
   /* S17 class operations. Enrolled = active + starting-soon children (the same count S14 uses for
      capacity); present today = present + late marks in today's S19 register. */
   const canManageClasses = user => MANAGE_PLAN_ROLES.includes(user.role);
@@ -4091,6 +4432,8 @@
       case 'class': return classByName(n.recordId) ? go('attendance', { cls: n.recordId, view: n.kind === 'ratio' ? 'ratio' : '' }) : missing;
       case 'child': { const c = childById(n.recordId); return c && canAccess(user, 'children') && classScope(user).includes(c.cls) ? { href: routes.record(c.id) } : missing; }
       case 'broadcast': return { href: routes.dashboard };
+      case 'repair': return getRepairs().some(r => r.id === n.recordId) ? go('resources', { tab: 'materials', repairs: '1' }) : missing;
+      case 'stock': return getInventory().some(i => i.id === n.recordId) ? go('resources', { tab: 'inventory', focus: n.recordId }) : missing;
       case 'plan': { const p = getPlans().find(x => x.id === n.recordId); const c = p && classById(p.classId); return c ? go('lessons', { cls: c.name, week: p.weekStart }) : missing; }
       default:
         if (n.kind === 'upgrade-request') return { href: routes.plans({ plan: n.requiredPlan, module: n.page }) };
@@ -4395,6 +4738,40 @@
     saveTheme,
     deleteTheme,
     todayPlan,
+    ROOM_TYPES,
+    CONDITIONS,
+    REPAIR_STATUS,
+    STOCK_REASONS,
+    STOCK_UNITS,
+    LOAN_MAX_DAYS,
+    canManageResources,
+    canEditMaterial,
+    getRooms,
+    roomById,
+    roomHours,
+    getBookings,
+    bookingsOn,
+    bookingGroup,
+    saveRoom,
+    saveBooking,
+    cancelBooking,
+    getMaterials,
+    getRepairs,
+    saveMaterial,
+    setRepairStatus,
+    getBooks,
+    getLoans,
+    bookStatus,
+    borrowerName,
+    borrowersFor,
+    saveBook,
+    lendBook,
+    returnBook,
+    getInventory,
+    getMovements,
+    stockStatus,
+    saveInventoryItem,
+    adjustStock,
     users,
     getStaffAttendance,
     setStaffAttendance,

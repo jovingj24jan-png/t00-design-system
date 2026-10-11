@@ -2,7 +2,7 @@
    Reads: the S17 class card (capacity, today's ratio), children + alerts + pickup (S12/S13), today's S19 register and
    staff attendance, shifts and cover, the diary, announcements and the class routine — all through NexoraStore.
    Writes go through store.transferChild / assignSubstitute / cancelSubstitute, which re-check every rule.
-   Not built in this prototype: S23 rooms & resources and a school calendar — those panels say so instead of guessing.
+   Room & resources come from S23 (store rooms, bookings, materials).
    Test hook: ?fail=1 makes the first load fail so the error state can be checked. */
 (() => {
   'use strict';
@@ -262,17 +262,26 @@
 
     /* ---------------------------------------------------------------- Room & resources */
 
+    // S23: the class's room record, today's bookings and its materials (store rooms/materials).
     function roomHtml(d) {
       const c = d.card;
-      return `<section class="panel cd-sec" aria-labelledby="cd-room"><header class="cd-sec__head"><h2 class="cd-h2" id="cd-room">Room</h2></header>
+      const room = store.getRooms().find(r => r.status === 'active' && r.classId === c.id) || null;
+      const bookings = room ? store.bookingsOn(room.id, store.today()) : [];
+      const mats = store.getMaterials().filter(m => m.classId === c.id);
+      const tone = { good: 'success', repair: 'error', missing: 'warning' };
+      const link = (tab, label) => store.canAccess(user, 'resources') ? `<a class="btn btn--tertiary btn--sm" href="${routes.page('resources', { tab })}">${label}${icon('arrow-right', 'icon--sm')}</a>` : '';
+      return `<section class="panel cd-sec" aria-labelledby="cd-room"><header class="cd-sec__head"><h2 class="cd-h2" id="cd-room">Room</h2>${link('rooms', 'Rooms & bookings')}</header>
           <dl class="token-sheet">
-            <div><dt>Room</dt><dd>${c.room ? esc(c.room) : '<span class="settings-missing">Not set</span>'}</dd></div>
+            <div><dt>Room</dt><dd>${room ? esc(room.name) : c.room ? `${esc(c.room)} <span class="settings-missing">· not set up in Rooms</span>` : '<span class="settings-missing">Not set</span>'}</dd></div>
+            <div><dt>Room capacity</dt><dd>${room ? `${room.capacity} people` : '<span class="settings-missing">Not recorded</span>'}</dd></div>
             <div><dt>Class capacity (children)</dt><dd>${Number.isInteger(c.capacity) ? `${c.capacity} places · ${c.enrolled} enrolled` : '<span class="settings-missing">Not set</span>'}</dd></div>
-            <div><dt>Room capacity</dt><dd><span class="settings-missing">Not tracked separately</span></dd></div>
           </dl>
-          <p class="cd-note">Class capacity is how many children can enrol. It isn’t the room’s physical or safety limit.</p></section>
-        <section class="panel cd-sec" aria-labelledby="cd-res"><header class="cd-sec__head"><h2 class="cd-h2" id="cd-res">Materials &amp; resources</h2></header>
-          ${state('layers', 'Resources aren’t set up yet', 'Classroom materials will be listed here once the resources module (S23) is added. Nothing is shown until then, so no quantity here is a guess.')}</section>`;
+          <p class="cd-note">Room capacity is the room’s safe limit; class capacity is how many children can enrol.</p>
+          ${room ? `<h3 class="cd-qv-h">Today’s bookings</h3>${bookings.length ? `<ul class="cd-events">${bookings.map(b => `<li><span class="cd-events__time">${esc(b.start)}</span><span><b>${esc(b.title)}</b><small>until ${esc(b.end)} · ${esc(store.bookingGroup(b))}</small></span></li>`).join('')}</ul>` : '<p class="cd-note">No bookings today.</p>'}` : ''}
+        </section>
+        <section class="panel cd-sec" aria-labelledby="cd-res"><header class="cd-sec__head"><h2 class="cd-h2" id="cd-res">Materials</h2>${link('materials', 'All materials')}</header>
+          ${mats.length ? `<ul class="cd-staff-list">${mats.map(m => `<li class="cd-staff"><span class="ls-area-dot ls-area--${({ 'Practical life': 'pl', Sensorial: 'se', Language: 'la', Mathematics: 'ma', Culture: 'cu' })[m.area] || 'na'}" aria-hidden="true"></span><div class="cd-staff__main"><p class="cd-staff__name">${esc(m.name)}</p><p class="cd-staff__role">${esc(m.area)}${m.notes ? ` · ${esc(m.notes)}` : ''}</p></div><span class="badge badge--plain rs-chip rs-chip--${tone[m.condition]}">${esc(store.CONDITIONS[m.condition])}</span></li>`).join('')}</ul>` : state('layers', 'No materials recorded', 'Materials assigned to this class in Rooms & Resources appear here.')}
+        </section>`;
     }
 
     const PANELS = { roster: rosterHtml, staff: staffHtml, today: todayHtml, schedule: scheduleHtml, room: roomHtml };
@@ -590,7 +599,7 @@
 
     let queued = false;
     store.subscribe(({ key }) => {
-      if (!loaded || (key && !/^nexora-(class-registry|children|register|staff-attendance|substitutes|staff-shifts|class-routines|diary|announcements|guardians|settings|events|event-)/.test(key))) return;
+      if (!loaded || (key && !/^nexora-(class-registry|children|register|staff-attendance|substitutes|staff-shifts|class-routines|diary|announcements|guardians|settings|events|event-|rooms|room-bookings|materials)/.test(key))) return;
       if (queued) return;
       queued = true;
       requestAnimationFrame(() => {
