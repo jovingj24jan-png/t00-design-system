@@ -101,7 +101,7 @@
   // App pages, in sidebar order: every catalogue module, then Notifications and Plans.
   // Every page is listed; the guard decides what each role and plan can open.
   // `plans` and `setup` are their own pages; the rest open in app.html.
-  const APP_PAGES = ['dashboard', 'children', 'families', 'roster', 'waitlist', ...store.moduleKeys, 'classes', 'diary', 'calendar', 'lessons', 'resources', 'messages', 'notifications', 'settings', 'plans', 'setup'];
+  const APP_PAGES = ['dashboard', 'children', 'families', 'roster', 'waitlist', ...store.moduleKeys, 'classes', 'diary', 'calendar', 'lessons', 'resources', 'messages', 'forms', 'notifications', 'settings', 'plans', 'setup'];
   const OWN_PAGES = { dashboard: { name: 'Dashboard', href: () => dash }, plans: { name: 'Plans &amp; upgrade', href: () => routes.plans() }, setup: { name: 'School setup', href: () => routes.setup } };
 
   function schoolGroupHtml(user) {

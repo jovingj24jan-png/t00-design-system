@@ -197,6 +197,7 @@
     waitlist: { name: 'Waitlist', icon: 'clock', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Children waiting for a seat in a full class.' },
     families: { name: 'Families', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Families as a unit: households, guardians, children and parent-app access.' },
     statement: { name: 'Family statement', icon: 'wallet', roles: ['Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Invoices and payments for one family, with a running balance.' },
+    forms: { name: 'Forms & Permissions', icon: 'list', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Surveys, permission slips and acknowledgements, with signatures, reminders and results.' },
     messages: { name: 'Messages', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Conversations with families, colleagues and class groups. (?family= shows one family’s message log.)' },
     family: { name: 'Family', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'One family: households, guardians, children, parent app and balance.' },
     roster: { name: 'Class rosters', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Who is in each class, with capacity and schedules.' },
@@ -4884,6 +4885,502 @@
     return sendAnnouncement(user, { title: data.title, body: data.body, category: 'general', audienceSpec: spec, channels: ['app'], requireAck: false });
   }
 
+  /* Forms, permissions & acknowledgements (forms.js at ?page=forms)
+     `nexora-forms:<school>` { id, title, description, intro, type: survey|permission|acknowledgement, questions: [Question],
+       status: draft|open|closed, version, audienceSpec: { mode: all|classes|families, classIds, familyIds }, respondent: any|primary,
+       requireSignature, dueAt, recipients: [{ id: 'fam:<familyId>', familyId, name, children, classes, guardianIds, delivery,
+       reminders, removed }], reminders, createdBy, createdById, createdAt, updatedAt, publishedAt, closedAt, reopenedAt, demo }
+     Question { id, type, label, help, required, options: [{ id, label }], scale: { low, high }, accept: ['image'|'pdf'], maxKB,
+       statement, logic: { join: 'all'|'any', rules: [{ q, op, value }] } } — a rule may only use an earlier question, so
+       there can be no self-reference or cycle.
+     Questions are frozen when a form is published (version 1); duplicate a published form to change it.
+     `nexora-form-responses:<school>` { id, formId, version, familyId, guardianId, guardianName, children, answers: { qid: value },
+       signatures: { qid: { fileId, name, at } }, submittedAt, demo } — one per family. Answers to questions hidden by
+       conditional logic are dropped on submit: only what the family was shown is kept.
+     `nexora-form-files:<school>` uploads and signature images (device-local, ≤ 1 MB), readable only by people who can see
+       the form's results. Families have no app: responses are entered in the labelled demo parent view, publishing and
+       reminders are recorded as queued (demo) or skipped, never as delivered. */
+  const formsKey = id => `nexora-forms:${id}`;
+  const formResponsesKey = id => `nexora-form-responses:${id}`;
+  const formFilesKey = id => `nexora-form-files:${id}`;
+  const FORM_TYPES = { survey: 'Survey', permission: 'Permission', acknowledgement: 'Acknowledgement' };
+  const FORM_STATUSES = { draft: 'Draft', open: 'Open', closed: 'Closed' };
+  const FORM_QTYPES = { short: 'Short text', long: 'Long text', single: 'Single choice', multi: 'Multiple choice', rating: 'Rating 1–5', date: 'Date', yesno: 'Yes/No', file: 'File upload', signature: 'Electronic signature' };
+  const FORM_OPS = { eq: 'is', neq: 'is not', includes: 'includes', excludes: 'doesn’t include', gte: 'is at least', lte: 'is at most', answered: 'is answered', empty: 'is not answered' };
+  const FORM_OPS_FOR = { yesno: ['eq', 'neq'], single: ['eq', 'neq'], multi: ['includes', 'excludes'], rating: ['eq', 'gte', 'lte'], short: ['answered', 'empty'], long: ['answered', 'empty'], date: ['answered', 'empty'], file: ['answered', 'empty'], signature: ['answered', 'empty'] };
+  const FORM_FILE_TYPES = { image: ['image/jpeg', 'image/png', 'image/webp'], pdf: ['application/pdf'] };
+  const SIGN_STATEMENT = { permission: 'I give permission for my child to take part, as described above.', acknowledgement: 'I confirm I have read and understood this information.', survey: 'I confirm these answers are correct.' };
+  const canManageForms = user => can(user, 'forms');
+  const canManageForm = (user, f) => LEADERS.includes(user.role) || f.createdById === user.id;
+  const formChoice = t => t === 'single' || t === 'multi';
+
+  function newFormQuestion(type, formType = 'survey') {
+    const q = { id: newId('q'), type, label: '', help: '', required: false, logic: { join: 'all', rules: [] } };
+    if (formChoice(type)) q.options = [{ id: newId('o'), label: 'Option 1' }, { id: newId('o'), label: 'Option 2' }];
+    if (type === 'rating') q.scale = { low: 'Poor', high: 'Excellent' };
+    if (type === 'file') Object.assign(q, { accept: ['image', 'pdf'], maxKB: 1024 });
+    if (type === 'signature') Object.assign(q, { label: 'Guardian signature', required: true, statement: SIGN_STATEMENT[formType] || SIGN_STATEMENT.survey });
+    return q;
+  }
+  const formAnswered = (q, v) => (q.type === 'multi' || q.type === 'file' ? Array.isArray(v) && v.length > 0 : q.type === 'signature' ? Boolean(v && v.fileId) : q.type === 'rating' ? Number(v) >= 1 : String(v ?? '').trim() !== '');
+  function formRuleTrue(r, src, v) {
+    const has = formAnswered(src, v);
+    switch (r.op) {
+      case 'answered': return has;
+      case 'empty': return !has;
+      case 'eq': return has && (src.type === 'rating' ? Number(v) === Number(r.value) : v === r.value);
+      case 'neq': return has && (src.type === 'rating' ? Number(v) !== Number(r.value) : v !== r.value);
+      case 'includes': return has && v.includes(r.value);
+      case 'excludes': return has && !v.includes(r.value);
+      case 'gte': return has && Number(v) >= Number(r.value);
+      case 'lte': return has && Number(v) <= Number(r.value);
+      default: return false;
+    }
+  }
+  // Evaluated in order: a rule whose source question is itself hidden is false.
+  function visibleFormQuestions(questions, answers = {}) {
+    const shown = new Set();
+    questions.forEach((q, i) => {
+      const rules = (q.logic?.rules || []).filter(r => r.q);
+      if (!rules.length) { shown.add(q.id); return; }
+      const res = rules.map(r => { const src = questions.slice(0, i).find(x => x.id === r.q); return Boolean(src && shown.has(src.id) && formRuleTrue(r, src, answers[src.id])); });
+      if (q.logic.join === 'any' ? res.some(Boolean) : res.every(Boolean)) shown.add(q.id);
+    });
+    return shown;
+  }
+  // Problems that stop a form being published, per question.
+  function formIssues(f) {
+    const issues = [];
+    const errors = {};
+    if (!clean(f.title)) errors.title = 'Give the form a title.';
+    if (!f.questions.length) errors.questions = 'Add at least one question.';
+    f.questions.forEach((q, i) => {
+      const add = msg => issues.push({ qid: q.id, n: i + 1, msg });
+      if (!clean(q.label)) add('Write the question.');
+      if (formChoice(q.type)) {
+        const labels = q.options.map(o => clean(o.label).toLowerCase());
+        if (labels.filter(Boolean).length < 2) add('Give at least two options.');
+        else if (labels.some(l => !l)) add('An option is empty.');
+        else if (new Set(labels).size !== labels.length) add('Two options have the same text.');
+      }
+      (q.logic?.rules || []).forEach(r => {
+        const src = f.questions.slice(0, i).find(x => x.id === r.q);
+        if (!r.q) add('A “Show if” rule has no question chosen.');
+        else if (!src) add('A “Show if” rule uses a question that isn’t above this one.');
+        else if (!FORM_OPS_FOR[src.type].includes(r.op)) add('A “Show if” rule has an invalid comparison.');
+        else if (!['answered', 'empty'].includes(r.op) && (r.value === '' || r.value == null || (formChoice(src.type) && !src.options.some(o => o.id === r.value)))) add('A “Show if” rule has no answer chosen.');
+      });
+    });
+    if (issues.length) errors.questions = errors.questions || `${issues.length} question ${issues.length === 1 ? 'needs' : 'need'} attention.`;
+    return { errors, issues };
+  }
+  function formValues(input) {
+    const type = FORM_TYPES[input.type] ? input.type : 'survey';
+    const questions = (Array.isArray(input.questions) ? input.questions : []).slice(0, 60).filter(q => FORM_QTYPES[q?.type]).map(q => {
+      const out = { id: clean(q.id) || newId('q'), type: q.type, label: String(q.label || '').slice(0, 300), help: String(q.help || '').slice(0, 500), required: Boolean(q.required) };
+      if (formChoice(q.type)) out.options = (q.options || []).slice(0, 20).map(o => ({ id: clean(o.id) || newId('o'), label: String(o.label || '').slice(0, 120) }));
+      if (q.type === 'rating') out.scale = { low: String(q.scale?.low || '').slice(0, 40), high: String(q.scale?.high || '').slice(0, 40) };
+      if (q.type === 'file') { out.accept = ['image', 'pdf'].filter(k => (q.accept || []).includes(k)); if (!out.accept.length) out.accept = ['image', 'pdf']; out.maxKB = Math.min(1024, Math.max(100, Number(q.maxKB) || 1024)); }
+      if (q.type === 'signature') out.statement = String(q.statement || '').slice(0, 600);
+      const rules = (q.logic?.rules || []).slice(0, 5).map(r => ({ q: clean(r.q), op: FORM_OPS[r.op] ? r.op : 'eq', value: r.value == null ? '' : String(r.value) }));
+      out.logic = { join: q.logic?.join === 'any' ? 'any' : 'all', rules };
+      return out;
+    });
+    return { title: String(input.title || '').trim().slice(0, 120), description: String(input.description || '').slice(0, 2000), intro: String(input.intro || '').slice(0, 1000), type, questions };
+  }
+
+  // Families this user may address. Teachers: only families with a child in their classes.
+  function formTargets(user) {
+    const lead = LEADERS.includes(user.role);
+    const scope = classScope(user);
+    const fams = listFamilies().map(f => ({ ...f, active: f.children.filter(c => c.status === 'active') })).filter(f => f.active.length && (lead || f.active.some(c => scope.includes(c.cls))));
+    return {
+      classes: activeClasses().filter(c => lead || scope.includes(c.name)).map(c => ({ id: c.id, name: c.name, families: fams.filter(f => f.active.some(k => k.cls === c.name)).length })),
+      families: fams.map(f => ({ id: f.id, name: f.name, children: f.active.map(c => c.name), classes: [...new Set(f.active.map(c => c.cls))], guardians: f.guardians.length, primary: f.primary?.name || '' })),
+      canAll: lead
+    };
+  }
+  function resolveFormAudience(user, spec = {}, respondent = 'any') {
+    const t = formTargets(user);
+    const fams = listFamilies();
+    let ids = [];
+    let classNames = [];
+    if (spec.mode === 'all' && t.canAll) ids = t.families.map(f => f.id);
+    else if (spec.mode === 'classes') { classNames = (spec.classIds || []).map(id => t.classes.find(c => c.id === id)?.name).filter(Boolean); ids = t.families.filter(f => f.classes.some(c => classNames.includes(c))).map(f => f.id); }
+    else if (spec.mode === 'families') ids = (spec.familyIds || []).filter(id => t.families.some(f => f.id === id));
+    ids = [...new Set(ids)];
+    const noGuardian = [];
+    const recipients = [];
+    ids.forEach(id => {
+      const f = fams.find(x => x.id === id);
+      const kids = f.children.filter(c => c.status === 'active' && (spec.mode !== 'classes' || classNames.includes(c.cls)));
+      const guardianIds = respondent === 'primary' ? (f.primary ? [f.primary.id] : []) : f.guardians.map(g => g.id);
+      if (!guardianIds.length) { noGuardian.push(f.name); return; }
+      recipients.push({ id: `fam:${f.id}`, familyId: f.id, name: f.name, children: kids.map(c => c.name), classes: [...new Set(kids.map(c => c.cls))], guardianIds });
+    });
+    const n = recipients.length;
+    const unit = `${n} ${n === 1 ? 'family' : 'families'}`;
+    const label = spec.mode === 'all' ? `All families · ${unit}` : spec.mode === 'classes' ? `${classNames.join(' + ') || 'No classes'} · ${unit}` : spec.mode === 'families' ? `Selected families · ${unit}` : 'No audience';
+    let why = '';
+    if (!n) why = spec.mode === 'classes' && !classNames.length ? 'Choose at least one class.' : spec.mode === 'families' && !ids.length ? 'Choose at least one family.' : spec.mode === 'all' && !t.canAll ? 'Only leaders can send to all families.' : noGuardian.length ? 'None of these families has a guardian on record who can respond.' : 'No enrolled families are in this selection.';
+    return { recipients, count: n, label, classNames, noGuardian, why };
+  }
+
+  function seedForms() {
+    const fams = listFamilies().filter(f => f.children.some(c => c.status === 'active') && f.guardians.length);
+    const cls = activeClasses();
+    const inCls = names => fams.filter(f => f.children.some(c => c.status === 'active' && names.includes(c.cls)));
+    const rec = (f, names) => { const kids = f.children.filter(c => c.status === 'active' && (!names || names.includes(c.cls))); return { id: `fam:${f.id}`, familyId: f.id, name: f.name, children: kids.map(c => c.name), classes: [...new Set(kids.map(c => c.cls))], guardianIds: f.guardians.map(g => g.id), delivery: 'queued (demo — not delivered)', reminders: [], removed: false }; };
+    const by = { createdBy: 'Mrs. Rao', createdById: (users.find(u => u.schoolId === school.id && u.role === 'Director') || users[0]).id, demo: true };
+    const twoCls = cls.slice(0, 2).map(c => c.name);
+    const walkQ = [
+      { id: 'qw1', type: 'yesno', label: 'Will your child join the nature walk?', help: '', required: true, logic: { join: 'all', rules: [] } },
+      { id: 'qw2', type: 'yesno', label: 'Does your child have any allergies we should know about for the day?', help: 'Pollen, insect stings, foods.', required: true, logic: { join: 'all', rules: [{ q: 'qw1', op: 'eq', value: 'yes' }] } },
+      { id: 'qw3', type: 'long', label: 'Please describe the allergy and what we should do.', help: '', required: true, logic: { join: 'all', rules: [{ q: 'qw2', op: 'eq', value: 'yes' }] } },
+      { id: 'qw4', type: 'signature', label: 'Guardian signature', help: '', required: true, statement: SIGN_STATEMENT.permission, logic: { join: 'all', rules: [{ q: 'qw1', op: 'eq', value: 'yes' }] } }
+    ];
+    const fbQ = [
+      { id: 'qf1', type: 'rating', label: 'How settled is your child at school this term?', help: '', required: true, scale: { low: 'Not settled', high: 'Very settled' }, logic: { join: 'all', rules: [] } },
+      { id: 'qf2', type: 'single', label: 'How do you prefer to hear from us?', help: '', required: true, options: [{ id: 'of1', label: 'Parent app' }, { id: 'of2', label: 'Email' }, { id: 'of3', label: 'Phone call' }], logic: { join: 'all', rules: [] } },
+      { id: 'qf3', type: 'multi', label: 'Which workshops would you attend?', help: 'Choose any.', required: false, options: [{ id: 'om1', label: 'Montessori at home' }, { id: 'om2', label: 'Early reading' }, { id: 'om3', label: 'Healthy lunches' }], logic: { join: 'all', rules: [] } },
+      { id: 'qf4', type: 'long', label: 'Anything else you’d like to tell us?', help: '', required: false, logic: { join: 'all', rules: [] } }
+    ];
+    const walkRecs = inCls(twoCls).map(f => rec(f, twoCls));
+    const fbRecs = fams.map(f => rec(f));
+    const forms = [
+      { id: 'fm-walk', title: 'Nature walk to Cubbon Park', description: 'We’ll walk to the park with the children on Friday morning, returning before lunch. Teachers and two volunteer parents will accompany them.', intro: 'Please reply for each family by the due date.', type: 'permission', questions: walkQ, status: 'open', version: 1, audience: `${twoCls.join(' + ')} · ${walkRecs.length} families`, audienceSpec: { mode: 'classes', classIds: cls.slice(0, 2).map(c => c.id), familyIds: [] }, respondent: 'any', requireSignature: true, dueAt: atToday(17, 0, 5), recipients: walkRecs, reminders: [], createdAt: atToday(9, 0, -2), updatedAt: atToday(9, 30, -2), publishedAt: atToday(9, 30, -2), closedAt: null, ...by },
+      { id: 'fm-feedback', title: 'Term 1 parent feedback', description: 'Ten quiet minutes to tell us how the term went.', intro: '', type: 'survey', questions: fbQ, status: 'closed', version: 1, audience: `All families · ${fbRecs.length} families`, audienceSpec: { mode: 'all', classIds: [], familyIds: [] }, respondent: 'any', requireSignature: false, dueAt: atToday(17, 0, -3), recipients: fbRecs, reminders: [], createdAt: atToday(9, 0, -20), updatedAt: atToday(17, 0, -3), publishedAt: atToday(10, 0, -20), closedAt: atToday(17, 5, -3), ...by },
+      { id: 'fm-policy', title: 'Updated sick-child policy', description: 'Children with a fever must stay home for 24 hours after it passes.', intro: '', type: 'acknowledgement', questions: [{ id: 'qp1', type: 'signature', label: 'Guardian signature', help: '', required: true, statement: SIGN_STATEMENT.acknowledgement, logic: { join: 'all', rules: [] } }], status: 'draft', version: 0, audienceSpec: { mode: 'all', classIds: [], familyIds: [] }, respondent: 'any', requireSignature: true, dueAt: null, recipients: [], reminders: [], createdAt: atToday(15, 0, -1), updatedAt: atToday(15, 0, -1), publishedAt: null, closedAt: null, ...by }
+    ];
+    const sig = name => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="360" height="120"><path d="M20 80 C 60 20, 90 110, 130 60 S 200 30, 230 75 S 300 90, 340 50" fill="none" stroke="#1d2b25" stroke-width="3" stroke-linecap="round"/><text x="20" y="112" font-family="sans-serif" font-size="12" fill="#66736b">${name.replace(/[<&>]/g, '')} (demo)</text></svg>`)}`;
+    const files = [];
+    const responses = [];
+    walkRecs.slice(0, Math.ceil(walkRecs.length * 0.4)).forEach((r, i) => {
+      const f = fams.find(x => x.id === r.familyId);
+      const g = f.primary || f.guardians[0];
+      const at = atToday(10 + (i % 6), 5 * i % 60, -1);
+      const joins = i % 5 !== 3;
+      const allergy = joins && i % 4 === 1;
+      const answers = { qw1: joins ? 'yes' : 'no' };
+      const signatures = {};
+      if (joins) {
+        answers.qw2 = allergy ? 'yes' : 'no';
+        if (allergy) answers.qw3 = 'Mild pollen allergy — antihistamine is in the class bag.';
+        const fid = `ff-seed-${i}`;
+        files.push({ id: fid, formId: 'fm-walk', qid: 'qw4', kind: 'signature', name: 'signature.svg', mime: 'image/svg+xml', size: 600, data: sig(g.name), at, responseId: `fr-seed-w${i}`, demo: true });
+        answers.qw4 = { fileId: fid };
+        signatures.qw4 = { fileId: fid, name: g.name, at };
+      }
+      responses.push({ id: `fr-seed-w${i}`, formId: 'fm-walk', version: 1, familyId: f.id, guardianId: g.id, guardianName: g.name, children: r.children, answers, signatures, submittedAt: at, demo: true });
+    });
+    const comments = ['Lovely first term — thank you!', '', 'More photos in the diary would be great.', '', 'Could pickup be a little later on Fridays?'];
+    fbRecs.slice(0, Math.ceil(fbRecs.length * 0.62)).forEach((r, i) => {
+      const f = fams.find(x => x.id === r.familyId);
+      const g = f.primary || f.guardians[0];
+      const answers = { qf1: [5, 4, 4, 3, 5, 4, 2][i % 7], qf2: ['of1', 'of1', 'of2', 'of3', 'of1'][i % 5], qf3: [['om1'], ['om1', 'om2'], [], ['om3'], ['om2', 'om3']][i % 5] };
+      if (comments[i % 5]) answers.qf4 = comments[i % 5];
+      if (!answers.qf3.length) delete answers.qf3;
+      responses.push({ id: `fr-seed-f${i}`, formId: 'fm-feedback', version: 1, familyId: f.id, guardianId: g.id, guardianName: g.name, children: r.children, answers, signatures: {}, submittedAt: atToday(9 + (i % 8), (7 * i) % 60, -18 + (i % 14)), demo: true });
+    });
+    return { forms, responses, files };
+  }
+  function getForms() {
+    const saved = read(formsKey(school.id), null);
+    if (saved) return saved;
+    const s = seedForms();
+    try {
+      localStorage.setItem(formsKey(school.id), JSON.stringify(s.forms));
+      localStorage.setItem(formResponsesKey(school.id), JSON.stringify(s.responses));
+      localStorage.setItem(formFilesKey(school.id), JSON.stringify(s.files));
+    } catch { /* storage blocked: in memory */ }
+    return s.forms;
+  }
+  const getFormResponses = () => { getForms(); return read(formResponsesKey(school.id), []); };
+  const getFormFiles = () => read(formFilesKey(school.id), []);
+  const saveForms = list => write(formsKey(school.id), list);
+  // Overdue: still open but past its due date, so no new responses are accepted.
+  const formOverdue = f => f.status === 'open' && f.dueAt && new Date(f.dueAt).getTime() < Date.now();
+  const formAccepting = f => f.status === 'open' && !formOverdue(f);
+
+  // What this user may see of a form: leaders and the creator see everything; other class staff see the families in
+  // their classes only (read-only).
+  function formAccess(user, f) {
+    if (!f || !canAccess(user, 'forms')) return null;
+    const manage = canManageForm(user, f);
+    if (manage) return { manage, all: true };
+    if (f.status === 'draft') return null;
+    const scope = classScope(user);
+    return (f.recipients || []).some(r => r.classes.some(c => scope.includes(c))) ? { manage: false, all: false, scope } : null;
+  }
+  const listForms = user => getForms().filter(f => formAccess(user, f));
+  function formView(user, id) {
+    const f = getForms().find(x => x.id === id);
+    const acc = formAccess(user, f);
+    if (!acc) return { error: f ? 'forbidden' : 'missing' };
+    const inScope = r => acc.all || r.classes.some(c => acc.scope.includes(c));
+    const recipients = (f.recipients || []).filter(inScope);
+    const ids = new Set(recipients.map(r => r.familyId));
+    const responses = getFormResponses().filter(r => r.formId === f.id && ids.has(r.familyId));
+    return { form: f, manage: acc.manage, scoped: !acc.all, recipients, responses, stats: formStats(f, recipients, responses) };
+  }
+  function formStats(f, recipients = f.recipients || [], responses = null) {
+    const rs = responses || getFormResponses().filter(r => r.formId === f.id);
+    const live = recipients.filter(r => !r.removed);
+    const liveIds = new Set(live.map(r => r.familyId));
+    const done = new Set(rs.filter(r => liveIds.has(r.familyId)).map(r => r.familyId));
+    const eligible = live.length;
+    const received = done.size;
+    const hasSig = f.questions.some(q => q.type === 'signature');
+    const signed = new Set(rs.filter(r => liveIds.has(r.familyId) && Object.keys(r.signatures || {}).length).map(r => r.familyId)).size;
+    return { eligible, received, pending: eligible - received, pct: eligible ? Math.round((received / eligible) * 100) : 0, hasSig, signed, sigPct: eligible ? Math.round((signed / eligible) * 100) : 0 };
+  }
+
+  function saveFormDraft(user, input, id = null) {
+    if (!canManageForms(user)) return settle({ ok: false, reason: 'forbidden' });
+    const v = formValues(input);
+    const list = getForms();
+    const now = new Date().toISOString();
+    let f = id ? list.find(x => x.id === id) : null;
+    if (id && !f) return settle({ ok: false, reason: 'missing' });
+    if (f && !canManageForm(user, f)) return settle({ ok: false, reason: 'forbidden' });
+    if (f && f.status !== 'draft') return settle({ ok: false, reason: 'locked' });
+    if (f) Object.assign(f, v, { updatedAt: now });
+    else { f = { id: newId('fm'), ...v, status: 'draft', version: 0, audienceSpec: { mode: LEADERS.includes(user.role) ? 'all' : 'classes', classIds: [], familyIds: [] }, respondent: 'any', requireSignature: v.type !== 'survey', dueAt: null, recipients: [], reminders: [], createdBy: user.name, createdById: user.id, createdAt: now, updatedAt: now, publishedAt: null, closedAt: null }; list.unshift(f); }
+    if (!saveForms(list)) return settle({ ok: false, reason: 'storage' });
+    return settle({ ok: true, form: f });
+  }
+  function deleteForm(user, id) {
+    const list = getForms();
+    const f = list.find(x => x.id === id);
+    if (!f) return settle({ ok: false, reason: 'missing' });
+    if (!canManageForm(user, f)) return settle({ ok: false, reason: 'forbidden' });
+    if (f.status !== 'draft') return settle({ ok: false, reason: 'locked' });
+    if (!saveForms(list.filter(x => x.id !== id))) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'delete:form', id, f.title);
+    return settle({ ok: true });
+  }
+  function duplicateForm(user, id) {
+    const f = getForms().find(x => x.id === id);
+    if (!f || !formAccess(user, f)) return settle({ ok: false, reason: 'missing' });
+    const map = {};
+    const questions = f.questions.map(q => { map[q.id] = newId('q'); return q; }).map(q => ({ ...JSON.parse(JSON.stringify(q)), id: map[q.id], logic: { join: q.logic?.join || 'all', rules: (q.logic?.rules || []).map(r => ({ ...r, q: map[r.q] || '' })) } }));
+    return saveFormDraft(user, { title: `${f.title} (copy)`.slice(0, 120), description: f.description, intro: f.intro, type: f.type, questions });
+  }
+
+  function publishForm(user, id, opts = {}) {
+    const list = getForms();
+    const f = list.find(x => x.id === id);
+    if (!f) return settle({ ok: false, reason: 'missing' });
+    if (!canManageForm(user, f)) return settle({ ok: false, reason: 'forbidden' });
+    if (f.status !== 'draft') return settle({ ok: false, reason: 'locked' });
+    const { errors, issues } = formIssues(f);
+    const respondent = opts.respondent === 'primary' ? 'primary' : 'any';
+    const spec = { mode: clean(opts.audienceSpec?.mode), classIds: [...new Set(opts.audienceSpec?.classIds || [])], familyIds: [...new Set(opts.audienceSpec?.familyIds || [])] };
+    const aud = resolveFormAudience(user, spec, respondent);
+    if (!aud.count) errors.audience = aud.why;
+    const due = new Date(opts.dueAt || '');
+    if (Number.isNaN(due.getTime())) errors.dueAt = 'Choose a due date and time.';
+    else if (due.getTime() <= Date.now() + 60 * 60000) errors.dueAt = 'The due date must be at least an hour from now.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors, issues });
+    const requireSignature = Boolean(opts.requireSignature);
+    if (requireSignature && !f.questions.some(q => q.type === 'signature')) f.questions.push(newFormQuestion('signature', f.type));
+    const app = getParentApp();
+    const now = new Date().toISOString();
+    f.recipients = aud.recipients.map(r => ({ ...r, delivery: appDelivery({ ...r, kind: 'family' }, app), reminders: [], removed: false }));
+    Object.assign(f, { status: 'open', version: 1, audienceSpec: spec, audience: aud.label, respondent, requireSignature, dueAt: due.toISOString(), publishedAt: now, updatedAt: now, closedAt: null });
+    if (!saveForms(list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'publish:form', f.id, `${f.title} → ${aud.label}`);
+    const queued = f.recipients.filter(r => /^queued/.test(r.delivery)).length;
+    return settle({ ok: true, form: f, queued, skipped: f.recipients.length - queued });
+  }
+  function closeForm(user, id) {
+    const list = getForms();
+    const f = list.find(x => x.id === id);
+    if (!f) return settle({ ok: false, reason: 'missing' });
+    if (!canManageForm(user, f)) return settle({ ok: false, reason: 'forbidden' });
+    if (f.status !== 'open') return settle({ ok: false, reason: 'locked' });
+    Object.assign(f, { status: 'closed', closedAt: new Date().toISOString(), closedBy: user.name, updatedAt: new Date().toISOString() });
+    if (!saveForms(list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'close:form', f.id, f.title);
+    return settle({ ok: true });
+  }
+  // Reopens a closed (or past-due) form with a new due date. The audience is checked again: families no longer
+  // eligible are marked removed (their responses are kept but no longer counted); newly eligible families are added.
+  function reopenForm(user, id, dueAt) {
+    const list = getForms();
+    const f = list.find(x => x.id === id);
+    if (!f) return settle({ ok: false, reason: 'missing' });
+    if (!canManageForm(user, f)) return settle({ ok: false, reason: 'forbidden' });
+    if (!(f.status === 'closed' || formOverdue(f))) return settle({ ok: false, reason: 'locked' });
+    const due = new Date(dueAt || '');
+    if (Number.isNaN(due.getTime()) || due.getTime() <= Date.now() + 60 * 60000) return settle({ ok: false, reason: 'invalid', errors: { dueAt: 'Choose a new due date at least an hour from now.' } });
+    const aud = resolveFormAudience(user, f.audienceSpec, f.respondent);
+    const app = getParentApp();
+    const now_ = aud.recipients.map(r => { const old = f.recipients.find(x => x.familyId === r.familyId); return { ...r, delivery: old?.delivery || appDelivery({ ...r, kind: 'family' }, app), reminders: old?.reminders || [], removed: false }; });
+    const oldIds = new Set(f.recipients.map(r => r.familyId));
+    const gone = f.recipients.filter(r => !aud.recipients.some(x => x.familyId === r.familyId)).map(r => ({ ...r, removed: true }));
+    const now = new Date().toISOString();
+    Object.assign(f, { recipients: [...now_, ...gone], status: 'open', dueAt: due.toISOString(), closedAt: null, reopenedAt: now, updatedAt: now, audience: aud.label });
+    if (!saveForms(list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'reopen:form', f.id, `${f.title} until ${f.dueAt}`);
+    return settle({ ok: true, form: f, added: now_.filter(r => !oldIds.has(r.familyId)).length, removed: gone.length });
+  }
+  function remindFormNonResponders(user, id) {
+    const list = getForms();
+    const f = list.find(x => x.id === id);
+    if (!f) return settle({ ok: false, reason: 'missing' });
+    if (!canManageForm(user, f)) return settle({ ok: false, reason: 'forbidden' });
+    if (!formAccepting(f)) return settle({ ok: false, reason: 'closed' });
+    const done = new Set(getFormResponses().filter(r => r.formId === f.id).map(r => r.familyId));
+    const pending = f.recipients.filter(r => !r.removed && !done.has(r.familyId));
+    if (!pending.length) return settle({ ok: false, reason: 'none' });
+    const app = getParentApp();
+    const now = new Date().toISOString();
+    const since = Date.now() - 10 * 60000;
+    let queued = 0;
+    let skipped = 0;
+    pending.forEach(r => {
+      const recent = (r.reminders || []).some(x => new Date(x.at).getTime() >= since && !/^skipped/.test(x.result));
+      const result = recent ? 'skipped: reminded in the last 10 minutes' : appDelivery({ ...r, kind: 'family' }, app);
+      r.reminders = [...(r.reminders || []), { at: now, by: user.name, result }];
+      if (/^skipped/.test(result)) skipped += 1; else queued += 1;
+    });
+    f.reminders = [...(f.reminders || []), { at: now, by: user.name, targeted: pending.length, queued, skipped }];
+    if (!saveForms(list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'remind:form', f.id, `${pending.length} pending · ${queued} reminded · ${skipped} skipped`);
+    return settle({ ok: true, targeted: pending.length, queued, skipped });
+  }
+
+  // Files for one question of an open form: type and size are checked against the question and the file's content.
+  function uploadFormFile(user, formId, qid, { name, mime, size, data }) {
+    if (!canAccess(user, 'forms')) return settle({ ok: false, reason: 'forbidden' });
+    const f = getForms().find(x => x.id === formId);
+    const q = f?.questions.find(x => x.id === qid);
+    if (!q || !['file', 'signature'].includes(q.type)) return settle({ ok: false, reason: 'missing' });
+    if (!formAccepting(f)) return settle({ ok: false, reason: 'closed', errors: { file: 'This form isn’t accepting responses.' } });
+    const allowed = q.type === 'signature' ? ['image/png'] : q.accept.flatMap(k => FORM_FILE_TYPES[k]);
+    const sig = CHAT_FILE_SIGNATURES[mime];
+    const body = String(data || '').split(',')[1] || '';
+    const label = q.accept?.length === 1 ? (q.accept[0] === 'pdf' ? 'a PDF' : 'an image (JPEG, PNG, WebP)') : 'an image (JPEG, PNG, WebP) or a PDF';
+    if (!allowed.includes(mime) || !sig || !String(data).startsWith(`data:${mime};base64,`) || !body.startsWith(sig)) return settle({ ok: false, reason: 'invalid', errors: { file: q.type === 'signature' ? 'The signature couldn’t be read. Clear it and sign again.' : `Attach ${label}.` } });
+    const max = q.type === 'signature' ? 300 * 1024 : q.maxKB * 1024;
+    if (!(Number(size) > 0) || Number(size) > max || body.length > max * 1.4) return settle({ ok: false, reason: 'invalid', errors: { file: `Files must be ${Math.round(max / 1024)} KB or less.` } });
+    const file = { id: newId('ff'), formId, qid, kind: q.type, name: clean(name).slice(0, 120) || 'File', mime, size: Number(size), data, at: new Date().toISOString(), responseId: null, uploadedBy: user.id };
+    if (!write(formFilesKey(school.id), [...getFormFiles(), file])) return settle({ ok: false, reason: 'storage', errors: { file: 'There isn’t room on this device for this file.' } });
+    return settle({ ok: true, file: { id: file.id, name: file.name, mime, size: file.size } });
+  }
+  function formFile(user, fileId) {
+    const file = getFormFiles().find(x => x.id === fileId);
+    if (!file) return null;
+    if (!file.responseId) return file.uploadedBy === user.id ? file : null;
+    const v = formView(user, file.formId);
+    return !v.error && v.responses.some(r => r.id === file.responseId) ? file : null;
+  }
+
+  function formAnswerError(q, v) {
+    if (q.type === 'short' && String(v).length > 300) return 'Keep this under 300 characters.';
+    if (q.type === 'long' && String(v).length > 4000) return 'Keep this under 4,000 characters.';
+    if (q.type === 'date' && (!/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(new Date(`${v}T12:00:00`).getTime()))) return 'Enter a valid date.';
+    if (q.type === 'rating' && !(Number.isInteger(Number(v)) && v >= 1 && v <= 5)) return 'Choose a rating from 1 to 5.';
+    if (q.type === 'yesno' && !['yes', 'no'].includes(v)) return 'Choose Yes or No.';
+    if (q.type === 'single' && !q.options.some(o => o.id === v)) return 'Choose one of the options.';
+    if (q.type === 'multi' && (!Array.isArray(v) || v.some(x => !q.options.some(o => o.id === x)))) return 'Choose from the options.';
+    return '';
+  }
+  // A family's submission (entered in the demo parent view). Validates only what's visible; drops hidden answers.
+  function submitFormResponse(user, formId, { familyId, guardianId, answers = {} } = {}) {
+    if (!canAccess(user, 'forms')) return settle({ ok: false, reason: 'forbidden' });
+    const list = getForms();
+    const f = list.find(x => x.id === formId);
+    if (!f) return settle({ ok: false, reason: 'missing' });
+    if (f.status === 'closed') return settle({ ok: false, reason: 'closed' });
+    if (f.status !== 'open') return settle({ ok: false, reason: 'missing' });
+    if (formOverdue(f)) return settle({ ok: false, reason: 'overdue' });
+    const r = f.recipients.find(x => x.familyId === familyId && !x.removed);
+    if (!r) return settle({ ok: false, reason: 'ineligible' });
+    if (!r.guardianIds.includes(guardianId)) return settle({ ok: false, reason: 'invalid', errors: { guardian: 'Choose a guardian who can respond for this family.' } });
+    const responses = getFormResponses();
+    const existing = responses.find(x => x.formId === formId && x.familyId === familyId);
+    if (existing) return settle({ ok: false, reason: 'duplicate', response: existing });
+    const files = getFormFiles();
+    const shown = visibleFormQuestions(f.questions, answers);
+    const errors = {};
+    const kept = {};
+    const signatures = {};
+    const g = guardianById(guardianId);
+    const now = new Date().toISOString();
+    f.questions.filter(q => shown.has(q.id)).forEach(q => {
+      const v = answers[q.id];
+      if (!formAnswered(q, v)) { if (q.required) errors[q.id] = q.type === 'signature' ? 'Please sign here.' : q.type === 'file' ? 'Please attach a file.' : 'Please answer this question.'; return; }
+      if (q.type === 'file') {
+        if (v.some(id => !files.some(x => x.id === id && x.formId === formId && x.qid === q.id && !x.responseId))) { errors[q.id] = 'An attachment is missing. Remove it and attach it again.'; return; }
+        kept[q.id] = [...new Set(v)];
+        return;
+      }
+      if (q.type === 'signature') {
+        if (!files.some(x => x.id === v.fileId && x.formId === formId && x.qid === q.id && x.kind === 'signature' && !x.responseId)) { errors[q.id] = 'The signature wasn’t saved. Clear it and sign again.'; return; }
+        kept[q.id] = { fileId: v.fileId };
+        signatures[q.id] = { fileId: v.fileId, name: g?.name || 'Guardian', at: now };
+        return;
+      }
+      const err = formAnswerError(q, typeof v === 'string' ? v.trim() : v);
+      if (err) { errors[q.id] = err; return; }
+      kept[q.id] = q.type === 'rating' ? Number(v) : q.type === 'multi' ? [...new Set(v)] : String(v).trim();
+    });
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const resp = { id: newId('fr'), formId, version: f.version, familyId, guardianId, guardianName: g?.name || 'Guardian', children: r.children, answers: kept, signatures, submittedAt: now, demo: true, enteredBy: user.id };
+    const used = new Set([...Object.values(kept).flatMap(v => (Array.isArray(v) ? v : v?.fileId ? [v.fileId] : []))]);
+    files.forEach(x => { if (used.has(x.id)) x.responseId = resp.id; });
+    if (!commit([{ key: formResponsesKey(school.id), value: [...responses, resp] }, { key: formFilesKey(school.id), value: files }])) return settle({ ok: false, reason: 'storage' });
+    notifyUsers({ module: 'forms', kind: 'form', title: `New response: ${f.title}`, body: `${r.name} · ${formStats(f).received} of ${formStats(f).eligible} responded`, recordType: 'form', recordId: f.id, dedupeKey: `form-response:${resp.id}`, actorId: user.id }, { toUserIds: [f.createdById].filter(x => x !== user.id) });
+    return settle({ ok: true, response: resp });
+  }
+
+  // Per-question summaries, from stored responses only.
+  function formQuestionSummary(f, responses) {
+    return f.questions.map(q => {
+      const rows = responses.filter(r => formAnswered(q, r.answers[q.id]));
+      const n = rows.length;
+      const base = { q, n };
+      if (q.type === 'yesno') return { ...base, options: [['yes', 'Yes'], ['no', 'No']].map(([k, l]) => { const c = rows.filter(r => r.answers[q.id] === k).length; return { label: l, count: c, pct: n ? Math.round((c / n) * 100) : 0 }; }) };
+      if (q.type === 'single' || q.type === 'multi') return { ...base, options: q.options.map(o => { const c = rows.filter(r => (q.type === 'multi' ? r.answers[q.id].includes(o.id) : r.answers[q.id] === o.id)).length; return { label: o.label, count: c, pct: n ? Math.round((c / n) * 100) : 0 }; }) };
+      if (q.type === 'rating') { const vals = rows.map(r => Number(r.answers[q.id])); return { ...base, avg: n ? Math.round((vals.reduce((a, b) => a + b, 0) / n) * 10) / 10 : null, options: [1, 2, 3, 4, 5].map(k => { const c = vals.filter(v => v === k).length; return { label: String(k), count: c, pct: n ? Math.round((c / n) * 100) : 0 }; }) }; }
+      if (q.type === 'signature') return { ...base, items: rows.map(r => ({ responseId: r.id, ...(r.signatures?.[q.id] || { fileId: r.answers[q.id].fileId, name: r.guardianName, at: r.submittedAt }), family: r.familyId })) };
+      if (q.type === 'file') return { ...base, items: rows.flatMap(r => r.answers[q.id].map(fileId => ({ fileId, responseId: r.id, family: r.familyId }))) };
+      return { ...base, items: rows.map(r => ({ value: r.answers[q.id], responseId: r.id, family: r.familyId })) };
+    });
+  }
+  // Text shown for an answer in tables, drawers and CSV.
+  function formAnswerText(q, v, r = null) {
+    if (!formAnswered(q, v)) return '';
+    if (q.type === 'yesno') return v === 'yes' ? 'Yes' : 'No';
+    if (q.type === 'single') return q.options.find(o => o.id === v)?.label || '';
+    if (q.type === 'multi') return v.map(id => q.options.find(o => o.id === id)?.label).filter(Boolean).join('; ');
+    if (q.type === 'rating') return `${v} / 5`;
+    if (q.type === 'file') { const files = getFormFiles(); return v.map(id => files.find(x => x.id === id)?.name || 'file').join('; '); }
+    if (q.type === 'signature') { const s = r?.signatures?.[q.id]; return s ? `Signed by ${s.name} at ${new Date(s.at).toLocaleString('en-GB')}` : 'Signed'; }
+    return String(v);
+  }
+  // One row per submitted response the user may see. Cells are quoted and formula-like text is neutralised.
+  function formResponsesCsv(user, id) {
+    const v = formView(user, id);
+    if (v.error) return { error: v.error };
+    const f = v.form;
+    const cell = x => { let s = String(x ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const sigQs = f.questions.filter(q => q.type === 'signature');
+    const fams = Object.fromEntries(listFamilies({ includeMerged: true }).map(x => [x.id, x.name]));
+    const header = ['Form', 'Version', 'Family', 'Guardian', 'Children', 'Submitted at', ...f.questions.map((q, i) => `Q${i + 1}. ${q.label}`), ...(sigQs.length ? ['Signature status', 'Signed at'] : [])];
+    const rows = v.responses.slice().sort((a, b) => a.submittedAt.localeCompare(b.submittedAt)).map(r => {
+      const sig = Object.values(r.signatures || {})[0];
+      return [f.title, f.version, fams[r.familyId] || r.familyId, r.guardianName, r.children.join('; '), new Date(r.submittedAt).toLocaleString('en-GB'),
+        ...f.questions.map(q => (q.type === 'signature' ? (r.signatures?.[q.id] ? 'Signed' : '') : formAnswerText(q, r.answers[q.id], r))),
+        ...(sigQs.length ? [sig ? `Signed by ${sig.name}` : 'Not signed', sig ? new Date(sig.at).toLocaleString('en-GB') : ''] : [])];
+    });
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { csv: `﻿${[header, ...rows].map(r => r.map(cell).join(',')).join('\r\n')}`, rows: rows.length, filename: `${f.type}-form-responses-${stamp}.csv` };
+  }
+
   /* S32 Emergency broadcasts: shown to every role until each user acknowledges it. */
   const broadcastsKey = id => `nexora-broadcasts:${id}`;
   const getBroadcasts = (schoolId = school.id) => read(broadcastsKey(schoolId), []);
@@ -5072,6 +5569,7 @@
       case 'enquiry': return getAdmissionEnquiries().some(e => e.id === n.recordId) ? go('admissions', { status: 'all', focus: n.recordId }) : missing;
       case 'invoice': return getInvoices().some(i => i.id === n.recordId) ? go('fees', { status: 'all', focus: n.recordId }) : missing;
       case 'incident': return getIncidents().some(i => i.id === n.recordId) ? go('safeguarding', { status: 'all', focus: n.recordId }) : missing;
+      case 'form': return getForms().some(f => f.id === n.recordId) ? go('forms', { results: n.recordId }) : missing;
       case 'announcement': return getAnnouncements().some(a => a.id === n.recordId) ? go('communication', { focus: n.recordId }) : missing;
       case 'class': return classByName(n.recordId) ? go('attendance', { cls: n.recordId, view: n.kind === 'ratio' ? 'ratio' : '' }) : missing;
       case 'child': { const c = childById(n.recordId); return c && canAccess(user, 'children') && classScope(user).includes(c.cls) ? { href: routes.record(c.id) } : missing; }
@@ -5483,6 +5981,38 @@
     simulateAnnouncementActivity,
     remindUnread,
     sendEmergency,
+    FORM_TYPES,
+    FORM_STATUSES,
+    FORM_QTYPES,
+    FORM_OPS,
+    FORM_OPS_FOR,
+    canManageForms,
+    canManageForm,
+    newFormQuestion,
+    formAnswered,
+    visibleFormQuestions,
+    formIssues,
+    formTargets,
+    resolveFormAudience,
+    getForms,
+    listForms,
+    formView,
+    formStats,
+    formOverdue,
+    formAccepting,
+    saveFormDraft,
+    deleteForm,
+    duplicateForm,
+    publishForm,
+    closeForm,
+    reopenForm,
+    remindFormNonResponders,
+    uploadFormFile,
+    formFile,
+    submitFormResponse,
+    formQuestionSummary,
+    formAnswerText,
+    formResponsesCsv,
     postAnnouncement,
     getBroadcasts,
     activeBroadcasts,
