@@ -4572,7 +4572,7 @@
   // Duplicate rules: the same child (name) at the same contact is always blocked — open the existing record instead.
   // A different child at a known contact (a sibling) needs explicit confirmation; it's then linked to that family.
   function createEnquiry(user, input = {}, { confirmSibling = false, clientId = '' } = {}) {
-    if (!can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
+    if (user !== WEBSITE_ACTOR && !can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
     const list = getAdmissionEnquiries();
     if (clientId) { const again = list.find(e => e.clientId === clientId); if (again) return settle({ ok: true, enquiry: again, repeated: true }); }
     const { v, errors } = enquiryValues(input);
@@ -4591,6 +4591,32 @@
     if (ownerId) notifyUsers({ module: 'admissions', kind: 'enquiry', title: `New enquiry: ${e.child} — ${e.programme}`, body: `${e.parent} · ${ENQUIRY_SOURCES[e.source]} · ref ${e.id}`, recordType: 'enquiry', recordId: e.id, dedupeKey: `enquiry:${e.id}`, actorId: user.id }, { toUserIds: [ownerId] });
     logAudit(user, 'create:enquiry', '', `${e.child} (${e.programme})`);
     return settle({ ok: true, enquiry: e });
+  }
+  // The public "Book a visit" form (index.html). It files a Website enquiry into the same pipeline (S06), owned by the
+  // admissions team, and never tells a visitor whether a family or child is already on record: a repeat for the same
+  // child is added to that enquiry's timeline instead. No account is needed; in this prototype it's this browser only.
+  const WEBSITE_ACTOR = Object.freeze({ id: 'website', name: 'School website', role: 'System', schoolId: school.id });
+  async function websiteEnquiry(input = {}, { clientId = '' } = {}) {
+    const fields = { parent: input.parent, phone: input.phone, email: input.email, child: input.child, dob: input.dob, programme: input.programme, preferredStart: input.preferredStart, notes: String(input.message || '').trim().slice(0, 1000), source: 'website', followUp: today() };
+    const { v, errors } = enquiryValues(fields);
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const list = getAdmissionEnquiries();
+    if (clientId && list.some(e => e.clientId === clientId)) return settle({ ok: true, repeated: true });
+    const dup = enquiryDuplicates(v);
+    const same = list.find(e => dup.enquiries.some(d => d.id === e.id && d.sameChild));
+    if (same || dup.families.some(f => f.sameChild)) {
+      const target = same || null;
+      if (target) {
+        target.history = [...target.history, histEvent(WEBSITE_ACTOR, 'note', { detail: `Website visit request received again${v.notes ? `: ${v.notes}` : ''}` })];
+        target.updatedAt = new Date().toISOString();
+        if (!saveEnquiries(list)) return settle({ ok: false, reason: 'storage' });
+      }
+      const to = target?.ownerId ? [target.ownerId] : admissionsOwners().map(o => o.id);
+      notifyUsers({ module: 'admissions', kind: 'enquiry', title: `Website visit request: ${v.child}`, body: target ? `Repeat request · ref ${target.id}` : 'This child may already be enrolled — check before replying.', recordType: target ? 'enquiry' : null, recordId: target?.id || null, dedupeKey: `web-repeat:${normPhone(v.phone)}:${v.child.toLowerCase()}:${today()}`, actorId: 'website' }, { toUserIds: to });
+      return settle({ ok: true });
+    }
+    const r = await createEnquiry(WEBSITE_ACTOR, fields, { confirmSibling: true, clientId });
+    return r.ok ? { ok: true } : r;
   }
   function updateEnquiry(user, id, input = {}) {
     if (!can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
@@ -7161,6 +7187,7 @@
     enquiryPrefill,
     completeEnquiryEnrolment,
     admissionsKpis,
+    websiteEnquiry,
     APPLICANT_DOCS,
     APPLICANT_DOC_TYPES,
     CALL_OUTCOMES,

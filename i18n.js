@@ -292,6 +292,94 @@
     }
   };
 
+  /* Homepage (index.html) strings. English is the default; Tamil and Arabic follow the sign-in page's languages.
+     The Tamil and Arabic homepage strings are first drafts for review by a native speaker (see docs/site-map.md);
+     the headline reuses the existing approved sign-in tagline. */
+  const HOME = {
+    en: {
+      h_navHome: 'Home', h_navApproach: 'Approach', h_navProgrammes: 'Programmes', h_navAdmissions: 'Admissions', h_navVisit: 'Visit', h_navPages: 'All pages',
+      h_bookVisit: 'Book a visit', h_staffSignIn: 'Staff sign in', h_openDashboard: 'Open dashboard', h_language: 'Language', h_menu: 'Menu', h_close: 'Close menu',
+      h_eyebrow: 'Montessori school · {school}',
+      h_heroText: 'A calm, prepared environment where children learn by doing — and one connected place where families and teachers stay close.',
+      h_heroNote: 'Programmes for ages {min}–{max} · {email} · {phone}',
+      h_scroll: 'Scroll to discover',
+      h_approachEyebrow: 'Our approach', h_approachTitle: 'Learning through the five Montessori areas',
+      h_approachText: 'Each area is a shelf of hands-on materials that children choose freely and repeat until they master them. Below are activities from our classroom library.',
+      h_area_practical: 'Practical life', h_area_sensorial: 'Sensorial', h_area_language: 'Language', h_area_maths: 'Mathematics', h_area_culture: 'Culture',
+      h_programmesEyebrow: 'Programmes', h_programmesTitle: 'A class for every stage', h_ages: '{min}–{max} years', h_mixedAge: 'Mixed age', h_programmesEmpty: 'Programme details appear here once the school’s classes are set up.',
+      h_admissionsEyebrow: 'Admissions', h_admissionsTitle: 'From first visit to first day',
+      h_step1: 'Enquire', h_step1Text: 'Tell us about your child, online or by phone.', h_step2: 'Visit', h_step2Text: 'Tour the classrooms with our admissions team.', h_step3: 'Apply', h_step3Text: 'Share your child’s details and documents.', h_step4: 'Offer', h_step4Text: 'We confirm a place and a start date.', h_step5: 'Start', h_step5Text: 'Your child joins their class.',
+      h_visitEyebrow: 'Book a visit', h_visitTitle: 'Come and see a Montessori morning', h_visitText: 'Leave your details and our admissions team will contact you to arrange a tour.',
+      h_fParent: 'Your name', h_fPhone: 'Phone', h_fEmail: 'Email', h_fChild: 'Child’s name', h_fDob: 'Child’s date of birth', h_fProgramme: 'Programme', h_fChoose: 'Choose…', h_fStart: 'Preferred start date', h_fMessage: 'Anything we should know?', h_optional: 'optional', h_required: 'required',
+      h_send: 'Send request', h_sending: 'Sending…',
+      h_errParent: 'Enter your name.', h_errPhone: 'Enter a phone number using digits (7 to 15).', h_errEmail: 'Enter a valid email address, or leave it empty.', h_errChild: 'Enter your child’s name.', h_errProgramme: 'Choose a programme.', h_errStart: 'Choose a start date from today onwards.', h_errDob: 'Enter a valid date of birth.', h_errStartFar: 'Choose a start within the next two years.',
+      h_errGeneric: 'Your request wasn’t sent. Please try again, or call us on {phone}.',
+      h_successTitle: 'Thank you — we’ve received your request', h_successText: 'Our admissions team will contact you to arrange a visit.', h_again: 'Send another request',
+      h_demoNote: 'Demo: requests are kept in this browser and appear in the school’s admissions pipeline.',
+      h_contactTitle: 'Contact the school', h_email: 'Email', h_phone: 'Phone',
+      h_pagesTitle: 'Every page of the school app', h_pagesText: 'For staff: these open inside the app after sign-in. Some modules depend on your role or the school’s plan.',
+      h_g_start: 'Start here', h_g_class: 'Daily classroom', h_g_kids: 'Children & families', h_g_adm: 'Admissions', h_g_comm: 'Communication', h_g_mgmt: 'School management', h_g_help: 'Help & account', h_g_more: 'More pages',
+      h_p_signin: 'Sign in', h_p_dashboard: 'Dashboard', h_p_setup: 'School setup', h_p_plans: 'Plans & upgrade', h_p_attendance: 'Attendance', h_p_diary: 'Daily Diary', h_p_lessons: 'Lesson Planning', h_p_calendar: 'Calendar & Events', h_p_classes: 'Classes', h_p_roster: 'Class rosters', h_p_tracker: 'Classroom Tracker', h_p_observations: 'Observations', h_p_gallery: 'Gallery', h_p_children: 'Children', h_p_families: 'Families', h_p_enrol: 'Enrol child', h_p_waitlist: 'Waitlist', h_p_admissions: 'Admissions pipeline', h_p_tours: 'School Tours', h_p_applicant: 'Applicant details — open any enquiry from the pipeline', h_p_messages: 'Messages', h_p_announcements: 'Announcements', h_p_forms: 'Forms & Permissions', h_p_meetings: 'Parent–Teacher Meetings', h_p_notifications: 'Notifications', h_p_fees: 'Fees', h_p_reports: 'Reports', h_p_payroll: 'Payroll', h_p_safeguarding: 'Safeguarding', h_p_resources: 'Rooms & Resources', h_p_settings: 'Settings', h_p_help: 'Help', h_p_privacy: 'Privacy', h_p_forgot: 'Forgot password', h_p_ds: 'T00 Design System',
+      h_pagesNote: 'Detail pages open from their lists: a child’s profile, a family, a statement, a class and notification settings.',
+      h_footer: 'Montessori school management by Nexora', h_signedIn: 'Signed in as {name}.'
+    },
+    ta: {
+      h_navHome: 'முகப்பு', h_navApproach: 'எங்கள் அணுகுமுறை', h_navProgrammes: 'வகுப்புகள்', h_navAdmissions: 'சேர்க்கை', h_navVisit: 'வருகை', h_navPages: 'அனைத்து பக்கங்கள்',
+      h_bookVisit: 'வருகையை முன்பதிவு செய்க', h_staffSignIn: 'பணியாளர் உள்நுழைவு', h_openDashboard: 'டாஷ்போர்டைத் திற', h_language: 'மொழி', h_menu: 'பட்டி', h_close: 'பட்டியை மூடு',
+      h_eyebrow: 'மாண்டிசோரி பள்ளி · {school}',
+      h_heroText: 'குழந்தைகள் செய்து கற்கும் அமைதியான, தயாரான சூழல் — குடும்பங்களும் ஆசிரியர்களும் இணைந்திருக்கும் ஒரே இடம்.',
+      h_heroNote: '{min}–{max} வயதுக்கான வகுப்புகள் · {email} · {phone}',
+      h_scroll: 'மேலும் அறிய கீழே உருட்டவும்',
+      h_approachEyebrow: 'எங்கள் அணுகுமுறை', h_approachTitle: 'ஐந்து மாண்டிசோரி பகுதிகள் வழியாகக் கற்றல்',
+      h_approachText: 'ஒவ்வொரு பகுதியிலும் குழந்தைகள் தாங்களே தேர்ந்தெடுத்து, தேர்ச்சி பெறும் வரை மீண்டும் செய்யும் கைவினைப் பொருட்கள் உள்ளன. கீழே எங்கள் வகுப்பறை நூலகத்தின் செயல்பாடுகள் உள்ளன.',
+      h_area_practical: 'அன்றாட வாழ்க்கை', h_area_sensorial: 'புலனுணர்வு', h_area_language: 'மொழி', h_area_maths: 'கணிதம்', h_area_culture: 'பண்பாடு',
+      h_programmesEyebrow: 'வகுப்புகள்', h_programmesTitle: 'ஒவ்வொரு வளர்ச்சி நிலைக்கும் ஒரு வகுப்பு', h_ages: '{min}–{max} வயது', h_mixedAge: 'கலப்பு வயது', h_programmesEmpty: 'பள்ளியின் வகுப்புகள் அமைக்கப்பட்டதும் விவரங்கள் இங்கே தோன்றும்.',
+      h_admissionsEyebrow: 'சேர்க்கை', h_admissionsTitle: 'முதல் வருகையிலிருந்து முதல் நாள் வரை',
+      h_step1: 'விசாரணை', h_step1Text: 'உங்கள் குழந்தையைப் பற்றி இணையத்திலோ தொலைபேசியிலோ தெரிவிக்கவும்.', h_step2: 'வருகை', h_step2Text: 'சேர்க்கைக் குழுவுடன் வகுப்பறைகளைப் பார்வையிடுங்கள்.', h_step3: 'விண்ணப்பம்', h_step3Text: 'குழந்தையின் விவரங்களையும் ஆவணங்களையும் பகிருங்கள்.', h_step4: 'இட ஒதுக்கீடு', h_step4Text: 'இடத்தையும் தொடக்கத் தேதியையும் உறுதிசெய்கிறோம்.', h_step5: 'தொடக்கம்', h_step5Text: 'உங்கள் குழந்தை வகுப்பில் சேர்கிறது.',
+      h_visitEyebrow: 'வருகையை முன்பதிவு செய்க', h_visitTitle: 'ஒரு மாண்டிசோரி காலையை நேரில் காணுங்கள்', h_visitText: 'உங்கள் விவரங்களை அளியுங்கள்; பார்வையிட நேரம் ஏற்பாடு செய்ய எங்கள் சேர்க்கைக் குழு உங்களைத் தொடர்புகொள்ளும்.',
+      h_fParent: 'உங்கள் பெயர்', h_fPhone: 'தொலைபேசி', h_fEmail: 'மின்னஞ்சல்', h_fChild: 'குழந்தையின் பெயர்', h_fDob: 'குழந்தையின் பிறந்த தேதி', h_fProgramme: 'வகுப்பு', h_fChoose: 'தேர்ந்தெடுக்கவும்…', h_fStart: 'விரும்பும் தொடக்கத் தேதி', h_fMessage: 'நாங்கள் தெரிந்துகொள்ள வேண்டியவை?', h_optional: 'விருப்பத்தேர்வு', h_required: 'கட்டாயம்',
+      h_send: 'கோரிக்கையை அனுப்பு', h_sending: 'அனுப்புகிறது…',
+      h_errParent: 'உங்கள் பெயரை உள்ளிடவும்.', h_errPhone: 'தொலைபேசி எண்ணை இலக்கங்களில் உள்ளிடவும் (7 முதல் 15).', h_errEmail: 'சரியான மின்னஞ்சலை உள்ளிடவும், அல்லது காலியாக விடவும்.', h_errChild: 'குழந்தையின் பெயரை உள்ளிடவும்.', h_errProgramme: 'ஒரு வகுப்பைத் தேர்ந்தெடுக்கவும்.', h_errStart: 'இன்று அல்லது அதற்குப் பிந்தைய தேதியைத் தேர்ந்தெடுக்கவும்.', h_errDob: 'சரியான பிறந்த தேதியை உள்ளிடவும்.', h_errStartFar: 'அடுத்த இரண்டு ஆண்டுகளுக்குள் ஒரு தேதியைத் தேர்ந்தெடுக்கவும்.',
+      h_errGeneric: 'உங்கள் கோரிக்கை அனுப்பப்படவில்லை. மீண்டும் முயலவும், அல்லது {phone} எண்ணில் அழைக்கவும்.',
+      h_successTitle: 'நன்றி — உங்கள் கோரிக்கை கிடைத்தது', h_successText: 'வருகையை ஏற்பாடு செய்ய எங்கள் சேர்க்கைக் குழு உங்களைத் தொடர்புகொள்ளும்.', h_again: 'மற்றொரு கோரிக்கையை அனுப்பு',
+      h_demoNote: 'செயல்விளக்கம்: கோரிக்கைகள் இந்த உலாவியில் சேமிக்கப்பட்டு பள்ளியின் சேர்க்கைப் பட்டியலில் தோன்றும்.',
+      h_contactTitle: 'பள்ளியைத் தொடர்புகொள்ள', h_email: 'மின்னஞ்சல்', h_phone: 'தொலைபேசி',
+      h_pagesTitle: 'பள்ளி பயன்பாட்டின் அனைத்துப் பக்கங்களும்', h_pagesText: 'பணியாளர்களுக்கு: உள்நுழைந்த பிறகு இவை பயன்பாட்டினுள் திறக்கும். சில பகுதிகள் உங்கள் பங்கு அல்லது பள்ளியின் திட்டத்தைப் பொறுத்தவை.',
+      h_g_start: 'இங்கே தொடங்குங்கள்', h_g_class: 'அன்றாட வகுப்பறை', h_g_kids: 'குழந்தைகள் & குடும்பங்கள்', h_g_adm: 'சேர்க்கை', h_g_comm: 'தகவல்தொடர்பு', h_g_mgmt: 'பள்ளி நிர்வாகம்', h_g_help: 'உதவி & கணக்கு', h_g_more: 'மேலும் பக்கங்கள்',
+      h_p_signin: 'உள்நுழைக', h_p_dashboard: 'டாஷ்போர்டு', h_p_setup: 'பள்ளி அமைப்பு', h_p_plans: 'திட்டங்கள் & மேம்படுத்தல்', h_p_attendance: 'வருகைப்பதிவு', h_p_diary: 'தினசரி நாட்குறிப்பு', h_p_lessons: 'பாடத் திட்டமிடல்', h_p_calendar: 'நாட்காட்டி & நிகழ்வுகள்', h_p_classes: 'வகுப்புகள்', h_p_roster: 'வகுப்புப் பட்டியல்கள்', h_p_tracker: 'வகுப்பறைக் கண்காணிப்பு', h_p_observations: 'கவனிப்புகள்', h_p_gallery: 'படத்தொகுப்பு', h_p_children: 'குழந்தைகள்', h_p_families: 'குடும்பங்கள்', h_p_enrol: 'குழந்தையைச் சேர்', h_p_waitlist: 'காத்திருப்புப் பட்டியல்', h_p_admissions: 'சேர்க்கைப் பட்டியல்', h_p_tours: 'பள்ளிப் பார்வையிடல்கள்', h_p_applicant: 'விண்ணப்பதாரர் விவரங்கள் — பட்டியலிலிருந்து எந்த விசாரணையையும் திறக்கவும்', h_p_messages: 'செய்திகள்', h_p_announcements: 'அறிவிப்புகள்', h_p_forms: 'படிவங்கள் & அனுமதிகள்', h_p_meetings: 'பெற்றோர்–ஆசிரியர் சந்திப்புகள்', h_p_notifications: 'அறிவிப்புகள் (தனிப்பட்டவை)', h_p_fees: 'கட்டணம்', h_p_reports: 'அறிக்கைகள்', h_p_payroll: 'ஊதியம்', h_p_safeguarding: 'பாதுகாப்பு', h_p_resources: 'அறைகள் & வளங்கள்', h_p_settings: 'அமைப்புகள்', h_p_help: 'உதவி', h_p_privacy: 'தனியுரிமை', h_p_forgot: 'கடவுச்சொல் மறந்துவிட்டதா', h_p_ds: 'T00 வடிவமைப்பு அமைப்பு',
+      h_pagesNote: 'விவரப் பக்கங்கள் அவற்றின் பட்டியல்களிலிருந்து திறக்கும்: குழந்தையின் சுயவிவரம், குடும்பம், கணக்கு அறிக்கை, வகுப்பு, அறிவிப்பு அமைப்புகள்.',
+      h_footer: 'Nexora வழங்கும் மாண்டிசோரி பள்ளி நிர்வாகம்', h_signedIn: '{name} ஆக உள்நுழைந்துள்ளீர்கள்.'
+    },
+    ar: {
+      h_navHome: 'الرئيسية', h_navApproach: 'نهجنا', h_navProgrammes: 'البرامج', h_navAdmissions: 'القبول', h_navVisit: 'الزيارة', h_navPages: 'كل الصفحات',
+      h_bookVisit: 'احجز زيارة', h_staffSignIn: 'دخول الموظفين', h_openDashboard: 'افتح لوحة التحكم', h_language: 'اللغة', h_menu: 'القائمة', h_close: 'إغلاق القائمة',
+      h_eyebrow: 'مدرسة مونتيسوري · {school}',
+      h_heroText: 'بيئة هادئة ومُعدّة يتعلّم فيها الأطفال بالممارسة — ومكان واحد متصل يبقى فيه الأهل والمعلمون على تواصل.',
+      h_heroNote: 'برامج للأعمار ⁦{min}–{max}⁩ · ⁦{email}⁩ · ⁦{phone}⁩',
+      h_scroll: 'مرّر لاكتشاف المزيد',
+      h_approachEyebrow: 'نهجنا', h_approachTitle: 'التعلّم عبر مجالات مونتيسوري الخمسة',
+      h_approachText: 'كل مجال رفّ من الأدوات العملية يختارها الأطفال بحرية ويكررونها حتى يتقنوها. فيما يلي أنشطة من مكتبة صفوفنا.',
+      h_area_practical: 'الحياة العملية', h_area_sensorial: 'الحواس', h_area_language: 'اللغة', h_area_maths: 'الرياضيات', h_area_culture: 'الثقافة',
+      h_programmesEyebrow: 'البرامج', h_programmesTitle: 'صفّ لكل مرحلة', h_ages: '⁦{min}–{max}⁩ سنوات', h_mixedAge: 'أعمار مختلطة', h_programmesEmpty: 'تظهر تفاصيل البرامج هنا بعد إعداد صفوف المدرسة.',
+      h_admissionsEyebrow: 'القبول', h_admissionsTitle: 'من الزيارة الأولى إلى اليوم الأول',
+      h_step1: 'استفسار', h_step1Text: 'أخبرنا عن طفلك عبر الإنترنت أو الهاتف.', h_step2: 'زيارة', h_step2Text: 'تجوّل في الصفوف مع فريق القبول.', h_step3: 'تقديم', h_step3Text: 'شارك بيانات طفلك ومستنداته.', h_step4: 'عرض', h_step4Text: 'نؤكد المقعد وتاريخ البدء.', h_step5: 'البدء', h_step5Text: 'ينضم طفلك إلى صفه.',
+      h_visitEyebrow: 'احجز زيارة', h_visitTitle: 'تعال وشاهد صباحاً في مونتيسوري', h_visitText: 'اترك بياناتك وسيتواصل معك فريق القبول لترتيب جولة.',
+      h_fParent: 'اسمك', h_fPhone: 'الهاتف', h_fEmail: 'البريد الإلكتروني', h_fChild: 'اسم الطفل', h_fDob: 'تاريخ ميلاد الطفل', h_fProgramme: 'البرنامج', h_fChoose: 'اختر…', h_fStart: 'تاريخ البدء المفضّل', h_fMessage: 'هل هناك ما يجب أن نعرفه؟', h_optional: 'اختياري', h_required: 'مطلوب',
+      h_send: 'أرسل الطلب', h_sending: 'جارٍ الإرسال…',
+      h_errParent: 'أدخل اسمك.', h_errPhone: 'أدخل رقم هاتف بالأرقام (من 7 إلى 15).', h_errEmail: 'أدخل بريداً إلكترونياً صحيحاً أو اتركه فارغاً.', h_errChild: 'أدخل اسم طفلك.', h_errProgramme: 'اختر برنامجاً.', h_errStart: 'اختر تاريخ بدء من اليوم فصاعداً.', h_errDob: 'أدخل تاريخ ميلاد صحيحاً.', h_errStartFar: 'اختر تاريخ بدء خلال العامين القادمين.',
+      h_errGeneric: 'لم يُرسل طلبك. حاول مرة أخرى أو اتصل بنا على ⁦{phone}⁩.',
+      h_successTitle: 'شكراً — تلقّينا طلبك', h_successText: 'سيتواصل معك فريق القبول لترتيب زيارة.', h_again: 'أرسل طلباً آخر',
+      h_demoNote: 'نسخة تجريبية: تُحفظ الطلبات في هذا المتصفح وتظهر في قائمة القبول بالمدرسة.',
+      h_contactTitle: 'تواصل مع المدرسة', h_email: 'البريد الإلكتروني', h_phone: 'الهاتف',
+      h_pagesTitle: 'كل صفحات تطبيق المدرسة', h_pagesText: 'للموظفين: تُفتح هذه الصفحات داخل التطبيق بعد تسجيل الدخول. تعتمد بعض الوحدات على دورك أو خطة المدرسة.',
+      h_g_start: 'ابدأ هنا', h_g_class: 'الصف اليومي', h_g_kids: 'الأطفال والعائلات', h_g_adm: 'القبول', h_g_comm: 'التواصل', h_g_mgmt: 'إدارة المدرسة', h_g_help: 'المساعدة والحساب', h_g_more: 'صفحات أخرى',
+      h_p_signin: 'تسجيل الدخول', h_p_dashboard: 'لوحة التحكم', h_p_setup: 'إعداد المدرسة', h_p_plans: 'الخطط والترقية', h_p_attendance: 'الحضور', h_p_diary: 'اليوميات', h_p_lessons: 'تخطيط الدروس', h_p_calendar: 'التقويم والفعاليات', h_p_classes: 'الصفوف', h_p_roster: 'قوائم الصفوف', h_p_tracker: 'متابعة الصف', h_p_observations: 'الملاحظات', h_p_gallery: 'معرض الصور', h_p_children: 'الأطفال', h_p_families: 'العائلات', h_p_enrol: 'تسجيل طفل', h_p_waitlist: 'قائمة الانتظار', h_p_admissions: 'مسار القبول', h_p_tours: 'زيارات المدرسة', h_p_applicant: 'تفاصيل المتقدّم — افتح أي استفسار من المسار', h_p_messages: 'الرسائل', h_p_announcements: 'الإعلانات', h_p_forms: 'النماذج والأذونات', h_p_meetings: 'اجتماعات الأهل والمعلمين', h_p_notifications: 'الإشعارات', h_p_fees: 'الرسوم', h_p_reports: 'التقارير', h_p_payroll: 'الرواتب', h_p_safeguarding: 'الحماية', h_p_resources: 'الغرف والموارد', h_p_settings: 'الإعدادات', h_p_help: 'المساعدة', h_p_privacy: 'الخصوصية', h_p_forgot: 'نسيت كلمة المرور', h_p_ds: 'نظام التصميم T00',
+      h_pagesNote: 'تُفتح صفحات التفاصيل من قوائمها: ملف الطفل، العائلة، كشف الحساب، الصف وإعدادات الإشعارات.',
+      h_footer: 'إدارة مدارس مونتيسوري من Nexora', h_signedIn: 'تم تسجيل الدخول باسم {name}.'
+    }
+  };
+  Object.keys(HOME).forEach(code => Object.assign(translations[code], HOME[code]));
+
   const byCode = code => languages.find(l => l.code === code) || null;
 
   function locale() {

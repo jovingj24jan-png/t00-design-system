@@ -71,13 +71,27 @@ conversion rate has history.
 
 They're recalculated on every change through the store's change events.
 
+## Website visit requests — homepage `#visit` → `store.websiteEnquiry(input, { clientId })`
+
+- Validates with the same rules as staff enquiries (`enquiryValues`). Fields: parent, phone, optional email, child,
+  optional DOB, programme (`CLASS_LEVELS`), preferred start (today to +2 years) and an optional message (saved as notes).
+- Creates a normal S06 enquiry: source **Website**, stage Enquiry, created by "School website". It gets the usual owner
+  assignment, follow-up date and team notification.
+- **Duplicates stay private.** If the same child already has an enquiry or a family record, nothing new is created. The
+  existing enquiry gets a "website request" note and its owner is notified. The visitor sees the same thank-you message
+  either way, so the form never reveals whether a child is already known.
+- The same `clientId` (one per form fill) is never saved twice. Double submits are also blocked while sending.
+- States: field errors (localised), loading, success, and an error message with the school phone number.
+  Test hook: `index.html?fail=visit`.
+
 ## Backend gaps
 
 | Needed | Why |
 | --- | --- |
 | Server-side duplicate check + unique constraints on normalised contact | Two staff on different devices could create the same family at once. |
 | Versioned/conditional stage updates | The `from`/`updatedAt` checks here only protect one browser. |
-| Email/SMS reminders, web enquiry form | Not connected; follow-ups are in-app only. |
+| Email/SMS reminders and confirmation emails | Not connected; follow-ups are in-app only. |
+| Public enquiry endpoint with spam protection (rate limit, CAPTCHA or similar) | The homepage visit form writes to this browser's localStorage only. |
 | Server-side permissions and tenant isolation | Enforced in the browser today. |
 
 Test hook: `?fail=1` (load error with **Try again**).

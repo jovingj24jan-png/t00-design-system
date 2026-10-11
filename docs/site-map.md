@@ -9,7 +9,7 @@ project path. `404.html` sets its base path automatically.
 
 | Path | Page |
 | --- | --- |
-| `/` (`index.html`) | **Homepage** — Sign in / Open dashboard, and links to every page |
+| `/` (`index.html`) | **Homepage** — school website (approach, programmes, admissions, visit request) and links to every page |
 | `/signin.html` | Sign in (S01) — English, தமிழ், العربية; `?next=` returns you to the page you asked for |
 | `/forgot-password.html` | Password help (S02) |
 | `/first-login.html` | First login (S03) |
@@ -54,3 +54,26 @@ Signed-out visitors who open an app page go to sign-in and come back afterwards.
 - **Homepage hero:** `assets/images/hero-classroom.svg`, a local illustration (no remote images). To use a real
   classroom photo, add it to `assets/images/` and change the `url(...)` in the `.hm-hero` rule in `styles.css`.
 - One URL doesn't mean one database: all data is still demo data kept in each browser's localStorage, as before.
+
+## Homepage (`index.html` + `home.js`)
+
+- **Navigation:** a floating ivory pill with Home, Approach, Programmes, Admissions, Visit and All pages. The link for the
+  section on screen is marked current. It also has a language selector and a terracotta **Book a visit** button.
+  Below 1024px, or whenever the links don't fit in the current language, they move into a menu (Escape or an outside
+  click closes it). Staff sign-in sits in the hero and the menu.
+- **Content comes only from existing school data:**
+  - learning areas: `LEARNING_AREAS` and the activity library
+  - programmes: the class registry (ages, mixed age, room)
+  - contact: `school.email` and `school.phone`
+  - admissions steps: the pipeline stages
+- **Not shown, because no real content exists:** a gallery, team or staff bios, an address or map, testimonials,
+  awards and statistics. Add real content before adding these sections.
+- **Visit form:** creates a Website enquiry in the admissions pipeline (see `docs/admissions.md`).
+- **Languages:**
+  - English is the default. Tamil and Arabic come from the existing `NexoraI18n` keys (`h_*` in `i18n.js`) and are
+    saved in `nexora-locale`, so the choice carries over to sign-in. Arabic switches the page to right-to-left.
+  - The headline reuses the approved sign-in tagline. **The other Tamil and Arabic homepage strings are first drafts
+    and need review by a native speaker before release.**
+  - Class names, activity titles and app page names from the store are school content, so they stay as entered
+    (marked `lang="en"`).
+- **App modules are English-only.** No approved Tamil or Arabic strings exist for them, so they were not machine-translated.

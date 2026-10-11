@@ -3,112 +3,190 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Nexora · Montessori school management</title>
-  <meta name="description" content="Nexora — one place for a Montessori school: children, families, classes, attendance, admissions, communication and more.">
+  <title>Northvale Academy · Montessori school</title>
+  <meta name="description" content="Northvale Academy — a Montessori school. Our approach, programmes, admissions and visit booking, plus every page of the Nexora school app.">
   <script src="config.js"></script>
+  <script src="i18n.js"></script>
+  <script>document.documentElement.lang = NexoraI18n.locale(); document.documentElement.dir = NexoraI18n.language(NexoraI18n.locale()).dir;</script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="hm-body">
 <a class="skip-link" href="#hm-main">Skip to content</a>
-<header class="hm-hero" aria-labelledby="hm-title">
+<header class="hm-hero" id="top" aria-labelledby="hm-title">
   <nav class="hm-float" aria-label="Main">
-    <a class="brand hm-brand" href="index.html"><img class="brand__logo" src="assets/logos/northvale-crest.png" alt="" width="40" height="40"><span><span class="brand__name">Nexora</span><span class="brand__sub">Northvale Academy</span></span></a>
-    <div class="hm-float__links"><a href="#hm-pages">All pages</a><a href="design-system.html">Design system</a><a href="support.html?topic=help">Help</a></div>
-    <a class="btn btn--primary hm-float__cta" href="signin.html" data-cta>Sign in</a>
+    <a class="brand hm-brand" href="index.html"><img class="brand__logo" src="assets/logos/northvale-crest.png" alt="" width="40" height="40"><span><span class="brand__name" data-school-name>Northvale Academy</span><span class="brand__sub">Montessori</span></span></a>
+    <ul class="hm-float__links" id="hm-links">
+      <li><a href="#top" aria-current="page" data-i18n="h_navHome">Home</a></li>
+      <li><a href="#approach" data-i18n="h_navApproach">Approach</a></li>
+      <li><a href="#programmes" data-i18n="h_navProgrammes">Programmes</a></li>
+      <li><a href="#admissions" data-i18n="h_navAdmissions">Admissions</a></li>
+      <li><a href="#visit" data-i18n="h_navVisit">Visit</a></li>
+      <li><a href="#hm-pages" data-i18n="h_navPages">All pages</a></li>
+      <li class="hm-float__staff"><a href="signin.html" data-cta data-i18n="h_staffSignIn">Staff sign in</a></li>
+    </ul>
+    <div class="hm-float__end">
+      <div class="hm-lang">
+        <label class="sr-only" for="hm-lang" data-i18n="h_language">Language</label>
+        <svg class="hm-lang__icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        <select id="hm-lang" class="hm-lang__select"></select>
+      </div>
+      <a class="btn hm-float__cta" href="#visit" data-i18n="h_bookVisit">Book a visit</a>
+      <button class="hm-menu" type="button" aria-expanded="false" aria-controls="hm-links" data-menu><span class="sr-only" data-i18n="h_menu">Menu</span><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    </div>
   </nav>
   <div class="hm-hero__inner">
-    <p class="hm-eyebrow">Nexora · Montessori school management</p>
-    <h1 class="hm-hero__title" id="hm-title">Every child, every day, <em>in one place.</em></h1>
-    <p class="hm-hero__text">Attendance, daily diaries, lesson plans, families, admissions, tours and messages — one calm, connected home for the whole school.</p>
+    <p class="hm-eyebrow" data-i18n="h_eyebrow">Montessori school · Northvale Academy</p>
+    <h1 class="hm-hero__title" id="hm-title"><span data-i18n="taglineStart">Every child, every day, </span><em data-i18n="taglineAccent">in one place.</em></h1>
+    <p class="hm-hero__text" data-i18n="h_heroText">A calm, prepared environment where children learn by doing — and one connected place where families and teachers stay close.</p>
     <div class="hm-hero__acts">
-      <a class="btn hm-cta" href="signin.html" data-cta-main>Sign in</a>
-      <a class="btn hm-cta-2" href="dashboard.html">Open the dashboard</a>
+      <a class="btn hm-cta" href="#visit" data-i18n="h_bookVisit">Book a visit</a>
+      <a class="btn hm-cta-2" href="signin.html" data-cta data-i18n="h_staffSignIn">Staff sign in</a>
     </div>
-    <p class="hm-hero__note" data-signed>Pages inside the school app ask you to sign in first, then bring you back. This is a demo — data is kept in your browser. Sign-in is available in English, தமிழ் and العربية.</p>
+    <p class="hm-hero__note" data-hero-note></p>
   </div>
+  <a class="hm-scroll" href="#approach"><span data-i18n="h_scroll">Scroll to discover</span><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
   <svg class="hm-curve" viewBox="0 0 1440 90" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M0 90 V44 C240 6 520 0 720 22 C960 48 1200 70 1440 30 V90 Z"/></svg>
 </header>
+
 <main id="hm-main" class="hm">
-  <section class="hm-pages" id="hm-pages" aria-labelledby="hm-pages-h">
-    <h2 class="hm-h2" id="hm-pages-h">Every page</h2>
-    <p class="hm-sub">One address for everything. Some modules depend on your role or the school’s plan — the app explains when a page isn’t available.</p>
-    <div class="hm-grid">
-      <section class="panel hm-group" aria-labelledby="g-start"><h3 id="g-start">Start here</h3><ul>
-        <li><a href="signin.html">Sign in</a></li>
-        <li><a href="dashboard.html">Dashboard</a></li>
-        <li><a href="setup.html">School setup</a></li>
-        <li><a href="plans.html">Plans &amp; upgrade</a></li>
-      </ul></section>
-      <section class="panel hm-group" aria-labelledby="g-class"><h3 id="g-class">Daily classroom</h3><ul>
-        <li><a href="app.html?page=attendance">Attendance</a></li>
-        <li><a href="app.html?page=diary">Daily Diary</a></li>
-        <li><a href="app.html?page=lessons">Lesson Planning</a></li>
-        <li><a href="app.html?page=calendar">Calendar &amp; Events</a></li>
-        <li><a href="app.html?page=classes">Classes</a></li>
-        <li><a href="app.html?page=roster">Class rosters</a></li>
-        <li><a href="app.html?page=classroom-tracker">Classroom Tracker</a></li>
-        <li><a href="app.html?page=observations">Observations</a></li>
-        <li><a href="app.html?page=gallery">Gallery</a></li>
-      </ul></section>
-      <section class="panel hm-group" aria-labelledby="g-kids"><h3 id="g-kids">Children &amp; families</h3><ul>
-        <li><a href="app.html?page=children">Children</a></li>
-        <li><a href="app.html?page=families">Families</a></li>
-        <li><a href="app.html?page=enrol">Enrol child</a></li>
-        <li><a href="app.html?page=waitlist">Waitlist</a></li>
-      </ul></section>
-      <section class="panel hm-group" aria-labelledby="g-adm"><h3 id="g-adm">Admissions</h3><ul>
-        <li><a href="app.html?page=admissions">Admissions pipeline</a></li>
-        <li><a href="app.html?page=tours">School Tours</a></li>
-        <li><span class="hm-detail">Applicant details — open any enquiry from the pipeline</span></li>
-      </ul></section>
-      <section class="panel hm-group" aria-labelledby="g-comm"><h3 id="g-comm">Communication</h3><ul>
-        <li><a href="app.html?page=messages">Messages</a></li>
-        <li><a href="app.html?page=communication">Announcements</a></li>
-        <li><a href="app.html?page=forms">Forms &amp; Permissions</a></li>
-        <li><a href="app.html?page=meetings">Parent–Teacher Meetings</a></li>
-        <li><a href="app.html?page=notifications">Notifications</a></li>
-      </ul></section>
-      <section class="panel hm-group" aria-labelledby="g-mgmt"><h3 id="g-mgmt">School management</h3><ul>
-        <li><a href="app.html?page=fees">Fees</a></li>
-        <li><a href="app.html?page=reports">Reports</a></li>
-        <li><a href="app.html?page=payroll">Payroll</a></li>
-        <li><a href="app.html?page=safeguarding">Safeguarding</a></li>
-        <li><a href="app.html?page=resources">Rooms &amp; Resources</a></li>
-        <li><a href="app.html?page=settings">Settings</a></li>
-      </ul></section>
-      <section class="panel hm-group" aria-labelledby="g-help"><h3 id="g-help">Help &amp; account</h3><ul>
-        <li><a href="support.html?topic=help">Help</a></li>
-        <li><a href="support.html?topic=privacy">Privacy</a></li>
-        <li><a href="forgot-password.html">Forgot password</a></li>
-        <li><a href="design-system.html">T00 Design System</a></li>
-      </ul></section>
-      <section class="panel hm-group" data-more hidden aria-labelledby="g-more"><h3 id="g-more">More pages</h3><ul data-more-list></ul></section>
+  <section class="hm-sec" id="approach" aria-labelledby="approach-h">
+    <div class="hm-sec__head">
+      <p class="hm-kicker"><span>01</span><span data-i18n="h_approachEyebrow">Our approach</span></p>
+      <h2 class="hm-h2" id="approach-h" data-i18n="h_approachTitle">Learning through the five Montessori areas</h2>
+      <p class="hm-sub" data-i18n="h_approachText">Each area is a shelf of hands-on materials that children choose freely and repeat until they master them.</p>
     </div>
-    <p class="hm-sub hm-sub--small">Detail pages open from their lists: a child’s profile (from Children), a family, a family statement, a class, message drafts and notification settings.</p>
+    <ul class="hm-areas" data-areas></ul>
+  </section>
+
+  <section class="hm-sec" id="programmes" aria-labelledby="programmes-h">
+    <div class="hm-sec__head">
+      <p class="hm-kicker"><span>02</span><span data-i18n="h_programmesEyebrow">Programmes</span></p>
+      <h2 class="hm-h2" id="programmes-h" data-i18n="h_programmesTitle">A class for every stage</h2>
+    </div>
+    <ul class="hm-progs" data-programmes></ul>
+  </section>
+
+  <section class="hm-sec" id="admissions" aria-labelledby="admissions-h">
+    <div class="hm-sec__head">
+      <p class="hm-kicker"><span>03</span><span data-i18n="h_admissionsEyebrow">Admissions</span></p>
+      <h2 class="hm-h2" id="admissions-h" data-i18n="h_admissionsTitle">From first visit to first day</h2>
+    </div>
+    <ol class="hm-steps">
+      <li><span class="hm-steps__n" aria-hidden="true">1</span><h3 data-i18n="h_step1">Enquire</h3><p data-i18n="h_step1Text"></p></li>
+      <li><span class="hm-steps__n" aria-hidden="true">2</span><h3 data-i18n="h_step2">Visit</h3><p data-i18n="h_step2Text"></p></li>
+      <li><span class="hm-steps__n" aria-hidden="true">3</span><h3 data-i18n="h_step3">Apply</h3><p data-i18n="h_step3Text"></p></li>
+      <li><span class="hm-steps__n" aria-hidden="true">4</span><h3 data-i18n="h_step4">Offer</h3><p data-i18n="h_step4Text"></p></li>
+      <li><span class="hm-steps__n" aria-hidden="true">5</span><h3 data-i18n="h_step5">Start</h3><p data-i18n="h_step5Text"></p></li>
+    </ol>
+  </section>
+
+  <section class="hm-sec hm-visit" id="visit" aria-labelledby="visit-h">
+    <div class="hm-visit__intro">
+      <p class="hm-kicker"><span>04</span><span data-i18n="h_visitEyebrow">Book a visit</span></p>
+      <h2 class="hm-h2" id="visit-h" data-i18n="h_visitTitle">Come and see a Montessori morning</h2>
+      <p class="hm-sub" data-i18n="h_visitText">Leave your details and our admissions team will contact you to arrange a tour.</p>
+      <div class="hm-contact">
+        <h3 data-i18n="h_contactTitle">Contact the school</h3>
+        <dl>
+          <div><dt data-i18n="h_email">Email</dt><dd><a data-school-email href="mailto:office@northvale.school">office@northvale.school</a></dd></div>
+          <div><dt data-i18n="h_phone">Phone</dt><dd><a data-school-phone href="tel:+914423456789" dir="ltr">+91 44 2345 6789</a></dd></div>
+        </dl>
+      </div>
+    </div>
+    <div class="panel hm-visit__card">
+      <form class="hm-form" data-visit-form novalidate>
+        <div class="hm-form__err" role="alert" tabindex="-1" data-form-error hidden></div>
+        <div class="hm-form__grid">
+          <div class="field"><label class="field__label" for="v-parent"><span data-i18n="h_fParent">Your name</span> <span class="field__req" aria-hidden="true">*</span></label><input class="input" id="v-parent" name="parent" autocomplete="name" required aria-describedby="v-parent-e"><p class="field__hint field__hint--error" hidden id="v-parent-e" data-error-for="parent"></p></div>
+          <div class="field"><label class="field__label" for="v-phone"><span data-i18n="h_fPhone">Phone</span> <span class="field__req" aria-hidden="true">*</span></label><input class="input" id="v-phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" dir="ltr" required aria-describedby="v-phone-e"><p class="field__hint field__hint--error" hidden id="v-phone-e" data-error-for="phone"></p></div>
+          <div class="field"><label class="field__label" for="v-email"><span data-i18n="h_fEmail">Email</span> <span class="field__extra" data-i18n="h_optional">optional</span></label><input class="input" id="v-email" name="email" type="email" autocomplete="email" dir="ltr" aria-describedby="v-email-e"><p class="field__hint field__hint--error" hidden id="v-email-e" data-error-for="email"></p></div>
+          <div class="field"><label class="field__label" for="v-child"><span data-i18n="h_fChild">Child’s name</span> <span class="field__req" aria-hidden="true">*</span></label><input class="input" id="v-child" name="child" required aria-describedby="v-child-e"><p class="field__hint field__hint--error" hidden id="v-child-e" data-error-for="child"></p></div>
+          <div class="field"><label class="field__label" for="v-dob"><span data-i18n="h_fDob">Child’s date of birth</span> <span class="field__extra" data-i18n="h_optional">optional</span></label><input class="input" id="v-dob" name="dob" type="date" aria-describedby="v-dob-e"><p class="field__hint field__hint--error" hidden id="v-dob-e" data-error-for="dob"></p></div>
+          <div class="field"><label class="field__label" for="v-programme"><span data-i18n="h_fProgramme">Programme</span> <span class="field__req" aria-hidden="true">*</span></label><select class="input" id="v-programme" name="programme" required aria-describedby="v-programme-e" data-levels></select><p class="field__hint field__hint--error" hidden id="v-programme-e" data-error-for="programme"></p></div>
+          <div class="field"><label class="field__label" for="v-start"><span data-i18n="h_fStart">Preferred start date</span> <span class="field__req" aria-hidden="true">*</span></label><input class="input" id="v-start" name="preferredStart" type="date" required aria-describedby="v-start-e"><p class="field__hint field__hint--error" hidden id="v-start-e" data-error-for="preferredStart"></p></div>
+          <div class="field hm-form__wide"><label class="field__label" for="v-message"><span data-i18n="h_fMessage">Anything we should know?</span> <span class="field__extra" data-i18n="h_optional">optional</span></label><textarea class="input" id="v-message" name="message" rows="3" maxlength="1000"></textarea></div>
+        </div>
+        <button class="btn hm-cta hm-form__send" type="submit" data-send><span data-i18n="h_send">Send request</span></button>
+        <p class="hm-sub hm-sub--small" data-i18n="h_demoNote">Demo: requests are kept in this browser and appear in the school’s admissions pipeline.</p>
+      </form>
+      <div class="hm-done" data-visit-done hidden tabindex="-1">
+        <span class="hm-done__icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <h3 data-i18n="h_successTitle">Thank you — we’ve received your request</h3>
+        <p data-i18n="h_successText">Our admissions team will contact you to arrange a visit.</p>
+        <button class="btn btn--secondary" type="button" data-again data-i18n="h_again">Send another request</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="hm-sec hm-pages" id="hm-pages" aria-labelledby="hm-pages-h">
+    <div class="hm-sec__head">
+      <p class="hm-kicker"><span>05</span><span data-i18n="h_navPages">All pages</span></p>
+      <h2 class="hm-h2" id="hm-pages-h" data-i18n="h_pagesTitle">Every page of the school app</h2>
+      <p class="hm-sub" data-i18n="h_pagesText">For staff: these open inside the app after sign-in. Some modules depend on your role or the school’s plan.</p>
+    </div>
+    <div class="hm-grid">
+      <section class="panel hm-group" aria-labelledby="g-start"><h3 id="g-start" data-i18n="h_g_start">Start here</h3><ul>
+        <li><a href="signin.html" data-i18n="h_p_signin">Sign in</a></li>
+        <li><a href="dashboard.html" data-i18n="h_p_dashboard">Dashboard</a></li>
+        <li><a href="setup.html" data-i18n="h_p_setup">School setup</a></li>
+        <li><a href="plans.html" data-i18n="h_p_plans">Plans &amp; upgrade</a></li>
+      </ul></section>
+      <section class="panel hm-group" aria-labelledby="g-class"><h3 id="g-class" data-i18n="h_g_class">Daily classroom</h3><ul>
+        <li><a href="app.html?page=attendance" data-i18n="h_p_attendance">Attendance</a></li>
+        <li><a href="app.html?page=diary" data-i18n="h_p_diary">Daily Diary</a></li>
+        <li><a href="app.html?page=lessons" data-i18n="h_p_lessons">Lesson Planning</a></li>
+        <li><a href="app.html?page=calendar" data-i18n="h_p_calendar">Calendar &amp; Events</a></li>
+        <li><a href="app.html?page=classes" data-i18n="h_p_classes">Classes</a></li>
+        <li><a href="app.html?page=roster" data-i18n="h_p_roster">Class rosters</a></li>
+        <li><a href="app.html?page=classroom-tracker" data-i18n="h_p_tracker">Classroom Tracker</a></li>
+        <li><a href="app.html?page=observations" data-i18n="h_p_observations">Observations</a></li>
+        <li><a href="app.html?page=gallery" data-i18n="h_p_gallery">Gallery</a></li>
+      </ul></section>
+      <section class="panel hm-group" aria-labelledby="g-kids"><h3 id="g-kids" data-i18n="h_g_kids">Children &amp; families</h3><ul>
+        <li><a href="app.html?page=children" data-i18n="h_p_children">Children</a></li>
+        <li><a href="app.html?page=families" data-i18n="h_p_families">Families</a></li>
+        <li><a href="app.html?page=enrol" data-i18n="h_p_enrol">Enrol child</a></li>
+        <li><a href="app.html?page=waitlist" data-i18n="h_p_waitlist">Waitlist</a></li>
+      </ul></section>
+      <section class="panel hm-group" aria-labelledby="g-adm"><h3 id="g-adm" data-i18n="h_g_adm">Admissions</h3><ul>
+        <li><a href="app.html?page=admissions" data-i18n="h_p_admissions">Admissions pipeline</a></li>
+        <li><a href="app.html?page=tours" data-i18n="h_p_tours">School Tours</a></li>
+        <li><span class="hm-detail" data-i18n="h_p_applicant">Applicant details — open any enquiry from the pipeline</span></li>
+      </ul></section>
+      <section class="panel hm-group" aria-labelledby="g-comm"><h3 id="g-comm" data-i18n="h_g_comm">Communication</h3><ul>
+        <li><a href="app.html?page=messages" data-i18n="h_p_messages">Messages</a></li>
+        <li><a href="app.html?page=communication" data-i18n="h_p_announcements">Announcements</a></li>
+        <li><a href="app.html?page=forms" data-i18n="h_p_forms">Forms &amp; Permissions</a></li>
+        <li><a href="app.html?page=meetings" data-i18n="h_p_meetings">Parent–Teacher Meetings</a></li>
+        <li><a href="app.html?page=notifications" data-i18n="h_p_notifications">Notifications</a></li>
+      </ul></section>
+      <section class="panel hm-group" aria-labelledby="g-mgmt"><h3 id="g-mgmt" data-i18n="h_g_mgmt">School management</h3><ul>
+        <li><a href="app.html?page=fees" data-i18n="h_p_fees">Fees</a></li>
+        <li><a href="app.html?page=reports" data-i18n="h_p_reports">Reports</a></li>
+        <li><a href="app.html?page=payroll" data-i18n="h_p_payroll">Payroll</a></li>
+        <li><a href="app.html?page=safeguarding" data-i18n="h_p_safeguarding">Safeguarding</a></li>
+        <li><a href="app.html?page=resources" data-i18n="h_p_resources">Rooms &amp; Resources</a></li>
+        <li><a href="app.html?page=settings" data-i18n="h_p_settings">Settings</a></li>
+      </ul></section>
+      <section class="panel hm-group" aria-labelledby="g-help"><h3 id="g-help" data-i18n="h_g_help">Help &amp; account</h3><ul>
+        <li><a href="support.html?topic=help" data-i18n="h_p_help">Help</a></li>
+        <li><a href="support.html?topic=privacy" data-i18n="h_p_privacy">Privacy</a></li>
+        <li><a href="forgot-password.html" data-i18n="h_p_forgot">Forgot password</a></li>
+        <li><a href="design-system.html" data-i18n="h_p_ds">T00 Design System</a></li>
+      </ul></section>
+      <section class="panel hm-group" data-more hidden aria-labelledby="g-more"><h3 id="g-more" data-i18n="h_g_more">More pages</h3><ul data-more-list></ul></section>
+    </div>
+    <p class="hm-sub hm-sub--small" data-i18n="h_pagesNote">Detail pages open from their lists: a child’s profile, a family, a statement, a class and notification settings.</p>
   </section>
 </main>
-<footer class="hm-foot"><span>Nexora · Montessori school management (demo)</span><a href="design-system.html">Design system</a><a href="support.html?topic=privacy">Privacy</a></footer>
+<footer class="hm-foot">
+  <span><strong data-school-name>Northvale Academy</strong> · <span data-i18n="h_footer">Montessori school management by Nexora</span></span>
+  <a data-school-email href="mailto:office@northvale.school">office@northvale.school</a>
+  <a data-school-phone href="tel:+914423456789" dir="ltr">+91 44 2345 6789</a>
+  <a href="support.html?topic=privacy" data-i18n="h_p_privacy">Privacy</a>
+  <a href="design-system.html" data-i18n="h_p_ds">T00 Design System</a>
+</footer>
 <script src="store.js"></script>
-<script>
-  // Signed-in visitors go straight to their dashboard; any app page registered in the store but not listed above is
-  // added under "More pages", so this map can't fall out of date.
-  (() => {
-    const store = window.NexoraStore;
-    if (!store) return;
-    const signedIn = store.session?.isSignedIn?.();
-    if (signedIn) {
-      document.querySelectorAll('[data-cta], [data-cta-main]').forEach(a => { a.href = store.routes.landing; a.textContent = 'Open dashboard'; });
-      const n = document.querySelector('[data-signed]');
-      if (n) n.textContent = `Signed in as ${store.currentUser().name}. This is a demo — data is kept in your browser.`;
-    }
-    const listed = new Set([...document.querySelectorAll('.hm-group a[href^="app.html?page="]')].map(a => new URLSearchParams(a.getAttribute('href').split('?')[1]).get('page')));
-    const detail = new Set(['family', 'class', 'statement', 'compose', 'notification-settings']);
-    const extra = [...store.moduleKeys, ...['children', 'families', 'roster', 'waitlist', 'enrol', 'classes', 'diary', 'calendar', 'lessons', 'resources', 'messages', 'forms', 'meetings', 'notifications', 'settings']].filter((k, i, a) => a.indexOf(k) === i && !listed.has(k) && !detail.has(k) && store.pageByKey(k));
-    if (extra.length) {
-      document.querySelector('[data-more-list]').innerHTML = extra.map(k => `<li><a href="${store.routes.page(k)}">${store.pageByKey(k).name.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</a></li>`).join('');
-      document.querySelector('[data-more]').hidden = false;
-    }
-  })();
-</script>
+<script src="home.js"></script>
 </body>
 </html>
