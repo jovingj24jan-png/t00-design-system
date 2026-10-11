@@ -28,7 +28,7 @@
   const ALERT_SECTION = { allergy: 'medical', medical: 'medical', dietary: 'medical', custody: 'custody' };
   const MARK = {
     present: { tone: 'in', label: 'Present' }, late: { tone: 'in', label: 'Present (late)' },
-    absent: { tone: 'out', label: 'Absent' }, none: { tone: 'wait', label: 'Not recorded yet' }
+    absent: { tone: 'out', label: 'Absent' }, collected: { tone: 'done', label: 'Collected' }, none: { tone: 'wait', label: 'Not recorded yet' }
   };
   const DIARY_TYPES = [['meals', 'Meals'], ['rest', 'Rest'], ['notes', 'Notes']];
   const FAIL = {
@@ -67,9 +67,14 @@
       const card = store.classCards().find(c => c.id === id);
       const register = store.getRegister()[card.name] || null;
       const children = store.enrolledIn(card.name).sort((a, b) => (a.status === b.status ? store.childName(a).localeCompare(store.childName(b)) : a.status === 'active' ? -1 : 1));
-      return { card, register, children };
+      return { card, register, children, view: store.attendanceView(card.name) };
     }
-    const markOf = (d, child) => (child.status !== 'active' ? null : d.register ? (d.register.marks[child.id] || 'none') : 'none');
+    // From the shared S19 attendance view: in / collected / absent / not recorded.
+    const markOf = (d, child) => {
+      if (child.status !== 'active') return null;
+      const r = d.view.rows.find(x => x.child.id === child.id);
+      return r ? { in: r.late ? 'late' : 'present', out: 'collected', absent: 'absent', 'not-arrived': 'none' }[r.status] : 'none';
+    };
 
     /* ---------------------------------------------------------------- Header */
 
@@ -115,13 +120,14 @@
     function rosterHtml(d) {
       if (!d.children.length) return state('users', 'No children in this class yet', 'Children enrolled in this class will appear here.', canMove ? `<a class="btn btn--primary kids-yellow" href="${routes.page('enrol')}">${icon('user-plus', 'icon--sm')}Enrol a child</a>` : '');
       const active = d.children.filter(k => k.status === 'active');
-      const n = { in: 0, out: 0, wait: 0 };
+      const n = { in: 0, out: 0, wait: 0, done: 0 };
       active.forEach(k => { n[MARK[markOf(d, k)].tone] += 1; });
       return `<section class="panel cd-sec" aria-label="Roster">
         <div class="cd-bar">
           <ul class="cd-legend" aria-label="Today’s attendance">
             <li><i class="cd-ring cd-ring--in" aria-hidden="true"></i>Present <b>${n.in}</b></li>
             <li><i class="cd-ring cd-ring--wait" aria-hidden="true"></i>${d.register ? 'Not recorded' : 'Register not taken'} <b>${n.wait}</b></li>
+            <li><i class="cd-ring cd-ring--done" aria-hidden="true"></i>Collected <b>${n.done}</b></li>
             <li><i class="cd-ring cd-ring--out" aria-hidden="true"></i>Absent <b>${n.out}</b></li>
           </ul>
           ${canMove ? `<button class="btn btn--secondary btn--sm" type="button" data-move>${icon('move', 'icon--sm')}Move child</button>` : ''}
@@ -177,14 +183,17 @@
 
     function todayHtml(d) {
       const active = d.children.filter(k => k.status === 'active');
-      const n = { in: 0, out: 0, wait: 0 };
+      const n = { in: 0, out: 0, wait: 0, done: 0 };
       active.forEach(k => { n[MARK[markOf(d, k)].tone] += 1; });
       const stat = (label, value, tone = '') => `<div class="cd-stat${tone ? ` cd-stat--${tone}` : ''}"><span class="cd-stat__n">${value}</span><span class="cd-stat__l">${label}</span></div>`;
-      const attendance = `
+      const closed = !d.view.day.open;
+      const attendance = closed ? `
+        <section class="panel cd-sec" aria-labelledby="cd-att"><header class="cd-sec__head"><h2 class="cd-h2" id="cd-att">Attendance</h2></header>
+          <p class="cd-note">${d.view.day.kind === 'holiday' ? `School holiday: ${esc(d.view.day.name)}.` : `The school is closed on ${esc(d.view.day.name)}s.`} No children are expected today.</p></section>` : `
         <section class="panel cd-sec" aria-labelledby="cd-att">
           <header class="cd-sec__head"><h2 class="cd-h2" id="cd-att">Attendance</h2><span class="cp-muted">${d.register ? `Register taken ${esc(timeOf(d.register.takenAt))} by ${esc(d.register.takenBy)}` : 'Register not taken yet'}</span></header>
-          <div class="cd-stats">${stat('Enrolled today', active.length)}${stat('Present', n.in, 'in')}${stat('Absent', n.out, 'out')}${stat(d.register ? 'Not recorded' : 'Not yet arrived', n.wait, 'wait')}</div>
-          ${active.length && d.register ? `<p class="cd-note">${pct(n.in + n.out, active.length)}% of children have a mark.${n.wait ? ' Children without a mark aren’t counted as absent.' : ''}</p>` : ''}
+          <div class="cd-stats">${stat('Enrolled today', active.length)}${stat('Present', n.in, 'in')}${stat('Collected', n.done, 'done')}${stat('Absent', n.out, 'out')}${stat(d.register ? 'Not recorded' : 'Not yet arrived', n.wait, 'wait')}</div>
+          ${active.length && d.register ? `<p class="cd-note">${pct(n.in + n.out + n.done, active.length)}% of children have a mark.${n.wait ? ' Children without a mark aren’t counted as absent.' : ''}</p>` : ''}
           ${!d.register && store.canAccess(user, 'attendance') ? `<a class="btn btn--secondary btn--sm" href="${routes.page('attendance', { cls: d.card.name })}">Take attendance</a>` : ''}
         </section>`;
 
@@ -192,7 +201,7 @@
       if (!store.canView(user, 'diary')) diary = '<p class="cp-muted">Your role can’t see the daily diary.</p>';
       else if (!d.register) diary = '<p class="cd-note">Diary completion starts once the register is taken — entries are expected for children who are present.</p>';
       else {
-        const present = active.filter(k => MARK[markOf(d, k)].tone === 'in');
+        const present = active.filter(k => ['in', 'done'].includes(MARK[markOf(d, k)].tone));
         if (!present.length) diary = '<p class="cd-note">No children are present, so no diary entries are expected today.</p>';
         else {
           const todays = present.map(k => store.getDiary(k.id).filter(e => e.date === store.today()));

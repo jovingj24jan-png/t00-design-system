@@ -92,7 +92,7 @@
       </div>
       <p class="cls-today__why"><span>${esc(note)}</span><span class="cls-rule">Rule ${esc(rule)} <span class="sr-only">adults to children</span></span></p>
       <p class="cls-today__present">${c.present == null
-        ? `${icon('clock', 'icon--sm')}<span>Present today: <b>not recorded</b></span>`
+        ? `${icon('clock', 'icon--sm')}<span>Present today: <b>${store.schoolDay().open ? 'not recorded' : 'school closed'}</b></span>`
         : `${icon('calendar-check', 'icon--sm')}<span>Present today: <b>${c.present} / ${c.onRegister}</b></span>`}</p>
     </div>`;
   }
@@ -318,7 +318,7 @@
       return stat('grid', 'Classes', list.length, 'Active classes')
         + stat('users', 'Children enrolled', enrolled, places ? `${places} places in total` : 'Capacity not set')
         + stat('alert-triangle', 'At or near capacity', full + near, esc(parts(full && `${full} full or over`, near && `${near} nearly full`)), full ? 'alert' : near ? 'warn' : '')
-        + stat('shield', 'Staffing attention', breach + unstaffed, esc(parts(breach && `${breach} below ratio`, unstaffed && `${unstaffed} without staff`, unknown && `${unknown} not yet recorded`)), breach + unstaffed ? 'alert' : '');
+        + stat('shield', 'Staffing attention', breach + unstaffed, esc(!store.schoolDay().open ? parts(unstaffed && `${unstaffed} without staff`, 'School closed today') : parts(breach && `${breach} below ratio`, unstaffed && `${unstaffed} without staff`, unknown && `${unknown} not yet recorded`)), breach + unstaffed ? 'alert' : '');
     }
 
     function draw() {

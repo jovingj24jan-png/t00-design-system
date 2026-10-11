@@ -767,7 +767,7 @@
     set('liftedRestrictions', []);
     set('restrictionsDeclared', c.alerts.some(a => a.type === 'custody') ? 'recorded' : 'unknown');
     set('healthDeclared', { allergies: c.alerts.some(a => a.type === 'allergy') ? 'recorded' : 'unknown', conditions: c.alerts.some(a => a.type === 'medical') ? 'recorded' : 'unknown', medications: (c.medications || seed.medications || []).length ? 'recorded' : 'unknown' });
-    if (c.pickup) c.pickup.authorised.forEach(p => { if (p.status === undefined) { p.status = 'authorised'; p.idRef = ''; changed = true; } });
+    if (c.pickup) c.pickup.authorised.forEach(p => { if (p.status === undefined) { p.status = 'authorised'; p.idRef = ''; changed = true; } if (!p.id) { p.id = newId('pk'); changed = true; } });
     c.medications.forEach(m => { if (m.consent === undefined) { m.consent = 'pending'; m.schedule = m.schedule || ''; m.notes = m.notes || ''; changed = true; } });
     c.guardianLinks.forEach(l => { if (l.livesWith === undefined) { l.livesWith = null; l.responsibility = null; changed = true; } });
     set('careNotes', '');
@@ -873,7 +873,14 @@
     switch (section) {
       case 'identity': Object.assign(c, values); break;
       case 'emergency': c.emergency = values; break;
-      case 'pickup': c.pickup = { ...c.pickup, ...values }; break;
+      case 'pickup': {
+        // Contacts keep their ID while name and phone stay the same, so a changed person needs re-selecting at check-out.
+        const prev = c.pickup?.authorised || [];
+        const same = p => q => q.name.trim().toLowerCase() === p.name.trim().toLowerCase() && String(q.phone).replace(/\D/g, '') === String(p.phone).replace(/\D/g, '');
+        values.authorised = values.authorised.map(p => ({ ...p, id: prev.find(same(p))?.id || newId('pk') }));
+        c.pickup = { ...c.pickup, ...values };
+        break;
+      }
       case 'passcode': c.pickup = { ...c.pickup, passcode: values.passcode }; break;
       // Saving keeps attachments linked to the same entries, and an emptied list goes back to "not recorded", never "none".
       case 'custody': {
@@ -2007,8 +2014,22 @@
     if (!can(user, 'attendance') || !classScope(user).includes(cls)) return settle({ ok: false, reason: 'forbidden' });
     if (!pupils.length || pupils.some(s => !['present', 'late', 'absent'].includes(marks[s.id]))) return settle({ ok: false, reason: 'incomplete' });
     const reg = getRegister();
-    reg[cls] = { takenAt: new Date().toISOString(), takenBy: user.name, marks: Object.fromEntries(pupils.map(s => [s.id, marks[s.id]])) };
-    if (!write(registerKey(school.id, today()), reg)) return settle({ ok: false, reason: 'storage' });
+    const before = reg[cls] || { marks: {}, live: {} };
+    const live = { ...(before.live || {}) };
+    // A collected child can't be re-marked absent from the register; S19 check-in/out details are kept.
+    const clash = pupils.find(s => marks[s.id] === 'absent' && ['in', 'out'].includes(live[s.id]?.status) && before.marks?.[s.id] !== 'absent');
+    if (clash && live[clash.id].status === 'out') return settle({ ok: false, reason: 'conflict', child: clash.name });
+    const at = new Date().toISOString();
+    const evs = [];
+    pupils.forEach(s => {
+      if (before.marks?.[s.id] === marks[s.id]) return;
+      if (marks[s.id] === 'absent') live[s.id] = { status: 'absent', reason: null, note: '', absentAt: at, absentBy: user.name };
+      else if (live[s.id]?.status === 'absent') delete live[s.id];
+      else if (live[s.id]) live[s.id] = { ...live[s.id], late: marks[s.id] === 'late' };
+      evs.push({ id: newId('at'), type: 'register', childId: s.id, classId: classByName(cls)?.id || null, cls, date: today(), at, by: actor(user), mark: marks[s.id] });
+    });
+    reg[cls] = { takenAt: at, takenBy: user.name, marks: Object.fromEntries(pupils.map(s => [s.id, marks[s.id]])), live };
+    if (!commit([{ key: registerKey(school.id, today()), value: reg }, { key: attEventsKey(school.id, today()), value: [...getAttendanceEvents(), ...evs] }])) return settle({ ok: false, reason: 'storage' });
     events.register(user, cls);
     return settle({ ok: true, cls });
   }
@@ -2042,6 +2063,7 @@
     if (!c || !Number.isInteger(adults) || adults <= 0 || !Number.isInteger(per) || per <= 0) return { ...base, status: 'unavailable', reason: 'No ratio set' };
     const limit = per / adults;
     const rule = { ...base, limit, ratio: { adults, children: per } };
+    if (!schoolDay().open) return { ...rule, status: 'unavailable', reason: 'School closed today' };
     const entry = register[cls];
     if (!entry) return { ...rule, status: 'unavailable', reason: 'Register not taken yet' };
     // Today's team: assigned staff who aren't being covered, plus anyone covering this class today.
@@ -2050,7 +2072,8 @@
     const team = [...staffOf(cls).filter(e => !covered.has(e.id)), ...covers.map(s => educators.find(e => e.id === s.substituteId)).filter(Boolean)];
     if (!team.length) return { ...rule, status: 'unavailable', reason: 'No staff assigned' };
     if (team.some(e => !staff[e.id])) return { ...rule, status: 'unavailable', reason: 'Staff attendance not recorded' };
-    const children = Object.values(entry.marks).filter(m => m !== 'absent').length;
+    // Children on site now: checked in and not yet collected (S19).
+    const children = attendanceView(cls).counts.in;
     const onDuty = team.filter(e => staff[e.id] === 'present' && countedClassOf(e.id) === cls).length;
     const required = Math.ceil(children / limit);
     return { ...rule, children, educators: onDuty, assigned: team.length, required, status: onDuty >= required ? 'ok' : 'breach' };
@@ -2058,6 +2081,303 @@
   function ratioStatus(user) {
     const ctx = { register: getRegister(), staff: getStaffAttendance() };
     return classScope(user).map(cls => classRatio(cls, ctx));
+  }
+
+  /* ---------------------------------------------------------------- S19 live attendance: check-in, check-out, absence
+     Append-only events `nexora-attendance-events:<school>:<date>`:
+       { id, requestId, type: 'check-in'|'check-out'|'absent'|'undo'|'register'|'release-refused'|'passcode-failed',
+         childId, classId, cls, date, at, by: { id, name, role }, late, start, droppedBy, collector: { id, name, relation },
+         verification: { method, result }, reason, note, bulkId, reverts, corrects }
+     The day's register (`nexora-register:<school>:<date>`) is the projection every page reads:
+       marks { childId: 'present'|'late'|'absent' } for older readers + live { childId: { status: 'in'|'out'|'absent', … } }.
+     Event and projection are saved in one commit; a repeated requestId returns the first result (no duplicates).
+     Times come from this device's clock, which stands in for the school's local time. Passcodes are compared
+     here and never returned or logged. This is a browser prototype: production must run these checks on a server. */
+
+  const attEventsKey = (id, date) => `nexora-attendance-events:${id}:${date}`;
+  const holidaysKey = id => `nexora-holidays:${id}`;
+  const remindersKey = id => `nexora-attendance-reminders:${id}`;
+  const ABSENCE_REASONS = { sick: 'Sick', holiday: 'Holiday', unknown: 'Unknown', other: 'Other' };
+  const PASSCODE_TRIES = 5;
+  const PASSCODE_WINDOW_MIN = 15;
+  const UNDO_GRACE_MS = 15000;
+  // School calendar: declared holidays (demo entries). Weekly closed days come from Settings → school days.
+  const getHolidays = () => seeded(holidaysKey(school.id), () => [{ date: '2026-11-09', name: 'Deepavali holiday' }, { date: '2026-12-25', name: 'Christmas Day' }]);
+  function schoolDay(date = today()) {
+    const h = getHolidays().find(x => x.date === date);
+    if (h) return { open: false, kind: 'holiday', name: h.name };
+    if (!schoolDays().includes(weekdayOf(date))) return { open: false, kind: 'closed', name: new Date(`${date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'long' }) };
+    return { open: true, kind: 'open', name: '' };
+  }
+  const registerFor = date => (date === today() ? getRegister() : read(registerKey(school.id, date), {}));
+  const getAttendanceEvents = (date = today()) => read(attEventsKey(school.id, date), []);
+  const nowMinutes = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+  // Expected: active, started by the date, and booked for that weekday (no booked days = every school day).
+  const expectedOn = (child, date) => child.status === 'active' && (!child.startDate || child.startDate <= date) && (!child.schedule?.days?.length || child.schedule.days.includes(weekdayOf(date)));
+
+  function attendanceView(cls, date = today()) {
+    const c = classByName(cls);
+    const day = schoolDay(date);
+    const entry = registerFor(date)[cls] || null;
+    const start = c ? classRoutine(c.id, date).blocks[0]?.start || null : null;
+    const kids = day.open ? getChildren().filter(k => k.cls === cls && expectedOn(k, date)).sort((a, b) => childName(a).localeCompare(childName(b))) : [];
+    const rows = kids.map(k => {
+      const live = entry?.live?.[k.id] || null;
+      const mark = entry?.marks?.[k.id];
+      const status = live ? live.status : mark === 'absent' ? 'absent' : mark ? 'in' : 'not-arrived';
+      return { child: k, status, late: live ? Boolean(live.late) : mark === 'late', detail: live, legacy: !live && Boolean(mark) };
+    });
+    const counts = { expected: rows.length, notArrived: 0, in: 0, out: 0, absent: 0, late: 0 };
+    const KEY = { 'not-arrived': 'notArrived', in: 'in', out: 'out', absent: 'absent' };
+    rows.forEach(r => { counts[KEY[r.status]] += 1; if (r.late && r.status !== 'absent') counts.late += 1; });
+    return { cls, classId: c?.id || null, date, live: date === today(), day, start, entry, rows, counts };
+  }
+
+  // One shape for the S04 dashboard and anything else that totals attendance across a user's classes.
+  function attendanceSummary(user, date = today()) {
+    const scope = classScope(user);
+    const perClass = scope.map(cls => { const v = attendanceView(cls, date); return { cls, ...v.counts, taken: Boolean(v.entry), takenAt: v.entry?.takenAt || null, complete: v.counts.expected > 0 && v.counts.notArrived === 0 }; });
+    const sum = k => perClass.reduce((t, p) => t + p[k], 0);
+    return { scope, day: schoolDay(date), perClass, counts: { expected: sum('expected'), in: sum('in'), out: sum('out'), absent: sum('absent'), notArrived: sum('notArrived'), late: sum('late') } };
+  }
+
+  const activeRestrictions = c => c.alerts.filter(a => a.type === 'custody' && a.status !== 'lifted' && a.restrictedPerson).map(a => ({ name: a.restrictedPerson.trim(), detail: a.detail }));
+  // Who may collect, as the check-out screen sees it. Never includes the passcode, only whether one is required.
+  function pickupOptions(user, childId) {
+    const c = childById(childId);
+    if (!c || !canView(user, 'emergency') || !classScope(user).includes(c.cls)) return null;
+    const barred = activeRestrictions(c);
+    const isBarred = name => barred.some(b => b.name.toLowerCase() === String(name).trim().toLowerCase());
+    const contacts = (c.pickup?.authorised || []).map(p => {
+      const restricted = isBarred(p.name);
+      const reason = restricted ? 'Do not release' : p.status === 'pending' ? 'Pending verification — can’t collect yet' : p.status === 'suspended' ? 'Suspended — can’t collect' : p.status !== 'authorised' ? 'Not authorised' : '';
+      return { id: p.id, name: p.name, relation: p.relation || '', status: p.status || 'authorised', hasIdRef: Boolean(p.idRef), eligible: !reason, restricted, reason };
+    });
+    return {
+      contacts,
+      restricted: barred.filter(b => !contacts.some(p => p.name.toLowerCase() === b.name.toLowerCase())),
+      passcodeRequired: Boolean(c.pickup?.passcode),
+      verification: c.pickup?.verification || '',
+      custody: c.alerts.filter(a => a.type === 'custody' && a.status !== 'lifted').map(a => a.detail)
+    };
+  }
+  // People who might drop a child off: linked guardians and listed pickup contacts (dropping off grants nothing).
+  function familyContacts(child) {
+    const out = [];
+    (child.guardianLinks || []).forEach(l => { const g = guardianById(l.guardianId); if (g) out.push({ id: g.id, name: g.name, relation: l.relation || 'Guardian' }); });
+    (child.pickup?.authorised || []).forEach(p => { if (p.id && !out.some(x => x.name.toLowerCase() === p.name.toLowerCase())) out.push({ id: p.id, name: p.name, relation: p.relation || '' }); });
+    return out;
+  }
+
+  const actor = user => ({ id: user.id, name: user.name, role: user.role });
+  const priorEvent = requestId => (requestId ? getAttendanceEvents().find(e => e.requestId === requestId) : null);
+  function attendanceCtx(user, cls, childId) {
+    if (!can(user, 'attendance') || !classScope(user).includes(cls)) return { error: 'forbidden' };
+    if (!schoolDay().open) return { error: 'closed' };
+    const view = attendanceView(cls);
+    const row = childId ? view.rows.find(r => r.child.id === childId) : null;
+    if (childId && !row) return { error: 'not-expected' };
+    return { view, row };
+  }
+  // changes: [{ childId, live (null = clear), mark (null = clear), event }]; extra: events with no state change.
+  function recordAttendance(user, cls, changes, extra = []) {
+    const date = today();
+    const writes = [];
+    if (changes.length) {
+      const reg = getRegister();
+      const entry = reg[cls] || { takenAt: new Date().toISOString(), takenBy: user.name, marks: {} };
+      entry.marks = entry.marks || {};
+      entry.live = entry.live || {};
+      changes.forEach(ch => {
+        if (ch.live) entry.live[ch.childId] = ch.live; else delete entry.live[ch.childId];
+        if (ch.mark) entry.marks[ch.childId] = ch.mark; else delete entry.marks[ch.childId];
+      });
+      entry.updatedAt = new Date().toISOString();
+      if (Object.keys(entry.marks).length) reg[cls] = entry; else delete reg[cls];
+      writes.push({ key: registerKey(school.id, date), value: reg });
+    }
+    writes.push({ key: attEventsKey(school.id, date), value: [...getAttendanceEvents(date), ...changes.map(ch => ch.event).filter(Boolean), ...extra] });
+    return commit(writes);
+  }
+  const lateNow = start => (start ? nowMinutes() > toMinutes(start) : false);
+
+  function checkIn(user, { cls, childId, droppedBy = '', requestId = '' }) {
+    const prior = priorEvent(requestId);
+    if (prior) return settle({ ok: true, repeated: true, event: prior, late: prior.late });
+    const ctx = attendanceCtx(user, cls, childId);
+    if (ctx.error) return settle({ ok: false, reason: ctx.error });
+    const { row, view } = ctx;
+    if (!['not-arrived', 'absent'].includes(row.status)) return settle({ ok: false, reason: 'conflict', status: row.status });
+    let dropper = null;
+    if (droppedBy) {
+      dropper = familyContacts(row.child).find(p => p.id === droppedBy);
+      if (!dropper) return settle({ ok: false, reason: 'invalid', errors: { droppedBy: 'Choose someone from the list, or skip this.' } });
+    }
+    const at = new Date().toISOString();
+    const late = lateNow(view.start);
+    const event = { id: newId('at'), requestId, type: 'check-in', childId, classId: view.classId, cls, date: today(), at, by: actor(user), late, start: view.start, droppedBy: dropper, corrects: row.status === 'absent' ? 'absent' : null };
+    const live = { status: 'in', inAt: at, inBy: user.name, late, droppedBy: dropper };
+    if (!recordAttendance(user, cls, [{ childId, live, mark: late ? 'late' : 'present', event }])) return settle({ ok: false, reason: 'storage' });
+    resolveReminder(childId, today(), 'Checked in');
+    events.ratio(cls);
+    return settle({ ok: true, event, late });
+  }
+
+  function bulkCheckIn(user, { cls, requestId = '' }) {
+    const prior = priorEvent(requestId);
+    if (prior) return settle({ ok: true, repeated: true, bulkId: prior.bulkId, ids: getAttendanceEvents().filter(e => e.bulkId === prior.bulkId).map(e => e.childId) });
+    const ctx = attendanceCtx(user, cls);
+    if (ctx.error) return settle({ ok: false, reason: ctx.error });
+    const { view } = ctx;
+    const rows = view.rows.filter(r => r.status === 'not-arrived');
+    if (!rows.length) return settle({ ok: false, reason: 'conflict' });
+    const bulkId = newId('bulk');
+    const at = new Date().toISOString();
+    const late = lateNow(view.start);
+    const changes = rows.map((r, i) => ({
+      childId: r.child.id, mark: late ? 'late' : 'present', live: { status: 'in', inAt: at, inBy: user.name, late, droppedBy: null, bulkId },
+      event: { id: newId('at'), requestId: i ? '' : requestId, type: 'check-in', childId: r.child.id, classId: view.classId, cls, date: today(), at, by: actor(user), late, start: view.start, bulkId }
+    }));
+    if (!recordAttendance(user, cls, changes)) return settle({ ok: false, reason: 'storage' });
+    rows.forEach(r => resolveReminder(r.child.id, today(), 'Checked in'));
+    events.ratio(cls);
+    return settle({ ok: true, bulkId, ids: rows.map(r => r.child.id), at });
+  }
+
+  // Reverts only children whose latest attendance event is still this bulk check-in; later changes are left alone.
+  function undoBulk(user, { cls, bulkId }) {
+    const ctx = attendanceCtx(user, cls);
+    if (ctx.error) return settle({ ok: false, reason: ctx.error });
+    const all = getAttendanceEvents();
+    const mine = all.filter(e => e.bulkId === bulkId && e.type === 'check-in');
+    if (!mine.length) return settle({ ok: false, reason: 'missing' });
+    if (mine[0].by.id !== user.id) return settle({ ok: false, reason: 'forbidden' });
+    if (Date.now() - new Date(mine[0].at).getTime() > UNDO_GRACE_MS) return settle({ ok: false, reason: 'expired' });
+    if (all.some(e => e.type === 'undo' && e.bulkId === bulkId)) return settle({ ok: false, reason: 'missing' });
+    const STATE = ['check-in', 'check-out', 'absent', 'undo', 'register'];
+    const latest = id => [...all].reverse().find(e => e.childId === id && STATE.includes(e.type));
+    const at = new Date().toISOString();
+    const reverted = [];
+    const skipped = [];
+    const changes = [];
+    mine.forEach(e => {
+      if (latest(e.childId)?.id !== e.id) { skipped.push(e.childId); return; }
+      reverted.push(e.childId);
+      changes.push({ childId: e.childId, live: null, mark: null, event: { id: newId('at'), type: 'undo', childId: e.childId, classId: e.classId, cls, date: today(), at, by: actor(user), reverts: e.id, bulkId } });
+    });
+    if (changes.length && !recordAttendance(user, cls, changes)) return settle({ ok: false, reason: 'storage' });
+    if (changes.length) { logAudit(user, 'undo:attendance', cls, `${reverted.length} check-ins undone`); events.ratio(cls); }
+    return settle({ ok: true, reverted, skipped });
+  }
+
+  function failedPasscodes(childId) {
+    const since = Date.now() - PASSCODE_WINDOW_MIN * 60000;
+    return getAttendanceEvents().filter(e => e.type === 'passcode-failed' && e.childId === childId && new Date(e.at).getTime() >= since).length;
+  }
+
+  // Check-out: the collector must be on the child's current list, authorised, not restricted, and pass the passcode.
+  function checkOut(user, { cls, childId, collectorId, passcode = '', requestId = '' }) {
+    const prior = priorEvent(requestId);
+    if (prior && prior.type === 'check-out') return settle({ ok: true, repeated: true, event: prior });
+    const ctx = attendanceCtx(user, cls, childId);
+    if (ctx.error) return settle({ ok: false, reason: ctx.error });
+    const { row, view } = ctx;
+    if (row.status !== 'in') return settle({ ok: false, reason: 'conflict', status: row.status });
+    const opts = pickupOptions(user, childId);
+    if (!opts) return settle({ ok: false, reason: 'forbidden' });
+    const base = { childId, classId: view.classId, cls, date: today(), by: actor(user) };
+    const contact = opts.contacts.find(p => p.id === collectorId);
+    if (!contact) return settle({ ok: false, reason: 'not-authorised', errors: { collectorId: `This person isn’t on ${row.child.firstName}’s current authorised list. The list may have just changed — choose again.` } });
+    if (!contact.eligible) {
+      recordAttendance(user, cls, [], [{ id: newId('at'), type: 'release-refused', ...base, at: new Date().toISOString(), collector: { id: contact.id, name: contact.name, relation: contact.relation }, reason: contact.reason }]);
+      logAudit(user, 'release-refused', childId, `${contact.name}: ${contact.reason}`);
+      return settle({ ok: false, reason: 'not-authorised', errors: { collectorId: `${contact.name} can’t collect ${row.child.firstName}: ${contact.reason}.` } });
+    }
+    if (opts.passcodeRequired) {
+      if (failedPasscodes(childId) >= PASSCODE_TRIES) return settle({ ok: false, reason: 'locked', errors: { passcode: `Too many wrong passcodes. Wait ${PASSCODE_WINDOW_MIN} minutes and call a guardian or the office.` } });
+      if (!String(passcode).trim()) return settle({ ok: false, reason: 'invalid', errors: { passcode: 'Enter the pickup passcode.' } });
+      if (String(passcode).trim() !== String(childById(childId).pickup.passcode)) {
+        recordAttendance(user, cls, [], [{ id: newId('at'), type: 'passcode-failed', ...base, at: new Date().toISOString(), collector: { id: contact.id, name: contact.name, relation: contact.relation } }]);
+        logAudit(user, 'passcode-failed', childId, `Wrong pickup passcode for ${contact.name}`);
+        const left = PASSCODE_TRIES - failedPasscodes(childId);
+        return settle({ ok: false, reason: left > 0 ? 'invalid' : 'locked', errors: { passcode: left > 0 ? `That passcode isn’t right. ${left} ${left === 1 ? 'try' : 'tries'} left.` : `Too many wrong passcodes. Wait ${PASSCODE_WINDOW_MIN} minutes and call a guardian or the office.` } });
+      }
+    }
+    const at = new Date().toISOString();
+    const collector = { id: contact.id, name: contact.name, relation: contact.relation };
+    const verification = { method: opts.passcodeRequired ? 'passcode' : 'authorised-list', result: 'passed' };
+    const event = { id: newId('at'), requestId, type: 'check-out', ...base, at, collector, verification };
+    const live = { ...(row.detail || { inAt: null, late: row.late }), status: 'out', outAt: at, outBy: user.name, collector, verification };
+    if (!recordAttendance(user, cls, [{ childId, live, mark: row.late ? 'late' : 'present', event }])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'check-out', childId, `Collected by ${collector.name} (${verification.method})`);
+    events.ratio(cls);
+    return settle({ ok: true, event });
+  }
+
+  // "Someone else": nothing changes; the refusal is recorded for safeguarding.
+  function refuseRelease(user, { cls, childId }) {
+    const ctx = attendanceCtx(user, cls, childId);
+    if (ctx.error) return settle({ ok: false, reason: ctx.error });
+    const ok = recordAttendance(user, cls, [], [{ id: newId('at'), type: 'release-refused', childId, classId: ctx.view.classId, cls, date: today(), at: new Date().toISOString(), by: actor(user), collector: null, reason: 'Not on authorised list' }]);
+    logAudit(user, 'release-refused', childId, 'Person not on the authorised list; child not released');
+    return settle(ok ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+
+  function markAbsent(user, { cls, childIds, reason, note = '', requestId = '' }) {
+    const prior = priorEvent(requestId);
+    if (prior) return settle({ ok: true, repeated: true, applied: getAttendanceEvents().filter(e => e.requestId === requestId || (prior.bulkId && e.bulkId === prior.bulkId)).map(e => e.childId), skipped: [] });
+    const ctx = attendanceCtx(user, cls);
+    if (ctx.error) return settle({ ok: false, reason: ctx.error });
+    if (!ABSENCE_REASONS[reason]) return settle({ ok: false, reason: 'invalid', errors: { reason: 'Choose a reason.' } });
+    const text = clean(note).slice(0, 500);
+    const ids = [...new Set(childIds || [])];
+    const rows = ids.map(id => ctx.view.rows.find(r => r.child.id === id));
+    const applied = [];
+    const skipped = [];
+    ids.forEach((id, i) => { const r = rows[i]; if (r && ['not-arrived', 'absent'].includes(r.status)) applied.push(r); else skipped.push({ id, status: r?.status || 'not-expected' }); });
+    if (!applied.length) return settle({ ok: false, reason: 'conflict', skipped });
+    const at = new Date().toISOString();
+    const bulkId = applied.length > 1 ? newId('bulk') : null;
+    const changes = applied.map((r, i) => ({
+      childId: r.child.id, mark: 'absent', live: { status: 'absent', reason, note: text, absentAt: at, absentBy: user.name },
+      event: { id: newId('at'), requestId: i ? '' : requestId, type: 'absent', childId: r.child.id, classId: ctx.view.classId, cls, date: today(), at, by: actor(user), reason, note: text, bulkId, corrects: r.status === 'absent' ? 'absent' : null }
+    }));
+    if (!recordAttendance(user, cls, changes)) return settle({ ok: false, reason: 'storage' });
+    applied.forEach(r => (reason === 'unknown' ? scheduleReminder(user, r.child.id, cls, today()) : resolveReminder(r.child.id, today(), `Reason recorded: ${ABSENCE_REASONS[reason]}`)));
+    return settle({ ok: true, applied: applied.map(r => r.child.id), skipped });
+  }
+
+  /* Unknown-absence reminders `nexora-attendance-reminders:<school>`:
+     { id, childId, cls, date, dueAt (10:00 that day), status: 'pending'|'due'|'resolved', resolvedAt, why }.
+     There is no background job in this prototype: a pending reminder becomes due (and notifies once) when
+     processDueReminders() runs — on the S19 page and dashboard while they're open. */
+  const getReminders = () => read(remindersKey(school.id), []);
+  function scheduleReminder(user, childId, cls, date) {
+    const list = getReminders();
+    if (list.some(r => r.childId === childId && r.date === date && r.status !== 'resolved')) return;
+    list.push({ id: newId('rem'), childId, cls, date, dueAt: new Date(`${date}T10:00:00`).toISOString(), status: 'pending', createdAt: new Date().toISOString(), createdBy: user.name });
+    write(remindersKey(school.id), list);
+  }
+  function resolveReminder(childId, date, why) {
+    const list = getReminders();
+    const open = list.filter(r => r.childId === childId && r.date === date && r.status !== 'resolved');
+    if (!open.length) return;
+    open.forEach(r => Object.assign(r, { status: 'resolved', resolvedAt: new Date().toISOString(), why }));
+    write(remindersKey(school.id), list);
+  }
+  const remindersFor = (cls, date = today()) => getReminders().filter(r => r.cls === cls && r.date === date);
+  function processDueReminders() {
+    const list = getReminders();
+    let changed = false;
+    list.filter(r => r.status === 'pending' && new Date(r.dueAt).getTime() <= Date.now()).forEach(r => {
+      const row = attendanceView(r.cls, r.date).rows.find(x => x.child.id === r.childId);
+      if (!row || row.status !== 'absent' || row.detail?.reason !== 'unknown') { Object.assign(r, { status: 'resolved', resolvedAt: new Date().toISOString(), why: 'No longer an unknown absence' }); changed = true; return; }
+      r.status = 'due';
+      changed = true;
+      notifyUsers({ module: 'attendance', kind: 'absence-call', title: `Call ${childName(row.child)}’s family`, body: `${r.cls}: absent with no reason given. Contact a guardian.`, recordType: 'child', recordId: r.childId, severity: 'critical', dedupeKey: `absence-call:${r.childId}:${r.date}` },
+        { toRoles: STAFF_RATIO_ROLES, toUserIds: staffOf(r.cls).filter(e => e.userId).map(e => e.userId) });
+    });
+    if (changed) write(remindersKey(school.id), list);
   }
 
 
@@ -2077,11 +2397,13 @@
     const staff = getStaffAttendance();
     return activeClasses().map(c => {
       const enrolled = enrolledIn(c.name).length;
-      const entry = register[c.name];
-      const present = entry ? Object.values(entry.marks).filter(m => m !== 'absent').length : null;
+      const view = attendanceView(c.name);
+      const entry = view.day.open ? register[c.name] : null;
+      // Present today = attended (in now, or already collected).
+      const present = entry ? view.counts.in + view.counts.out : null;
       // duty: today's staff attendance ('present' | 'absent' | undefined = not recorded); countedIn: the class their ratio counts in.
       const team = staffOf(c.name).map(e => ({ id: e.id, name: e.name, duty: staff[e.id], countedIn: countedClassOf(e.id) }));
-      return { ...c, staff: team, enrolled, capacityInfo: capacityState(enrolled, c.capacity), present, onRegister: entry ? Object.keys(entry.marks).length : null, attendanceTakenAt: entry?.takenAt || null, ratioToday: classRatio(c.name, { register, staff }) };
+      return { ...c, staff: team, enrolled, capacityInfo: capacityState(enrolled, c.capacity), present, onRegister: entry ? view.counts.expected : null, attendanceTakenAt: entry?.takenAt || null, ratioToday: classRatio(c.name, { register, staff }) };
     });
   }
 
@@ -2849,6 +3171,22 @@
     getRatioRules,
     getRegister,
     saveRegister,
+    ABSENCE_REASONS,
+    schoolDay,
+    getHolidays,
+    attendanceView,
+    attendanceSummary,
+    getAttendanceEvents,
+    pickupOptions,
+    familyContacts,
+    checkIn,
+    bulkCheckIn,
+    undoBulk,
+    checkOut,
+    refuseRelease,
+    markAbsent,
+    remindersFor,
+    processDueReminders,
     getStaffAttendance,
     setStaffAttendance,
     canManageStaff,

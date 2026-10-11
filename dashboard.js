@@ -38,20 +38,19 @@
 
   /* ------------------------------------------------------------ Data selectors (pure, read from the store) */
 
+  // Built on store.attendanceSummary — the same S19 view the attendance page and class pages read.
   function attendanceSummary(user) {
-    const scope = store.classScope(user);
-    const reg = store.getRegister();
-    const taken = scope.filter(c => reg[c]);
-    const counts = { present: 0, late: 0, absent: 0, enrolled: 0 };
-    taken.forEach(c => Object.values(reg[c].marks).forEach(m => { counts[m] += 1; counts.enrolled += 1; }));
-    const perClass = scope.map(c => {
-      const pupils = store.roster.filter(s => s.cls === c).length;
-      if (!reg[c]) return { cls: c, pupils, taken: false };
-      const m = Object.values(reg[c].marks);
-      return { cls: c, pupils, taken: true, present: m.filter(x => x === 'present').length, late: m.filter(x => x === 'late').length, absent: m.filter(x => x === 'absent').length, takenAt: reg[c].takenAt, takenBy: reg[c].takenBy };
-    });
-    return { scope, taken, missing: scope.filter(c => !reg[c]), counts, perClass };
+    const sum = store.attendanceSummary(user);
+    const perClass = sum.perClass.map(p => ({ cls: p.cls, pupils: p.expected, taken: p.taken, takenAt: p.takenAt, inNow: p.in, out: p.out, notArrived: p.notArrived, present: p.in + p.out - p.late, late: p.late, absent: p.absent }));
+    return {
+      scope: sum.scope, day: sum.day, closed: !sum.day.open, perClass,
+      taken: perClass.filter(p => p.taken).map(p => p.cls),
+      complete: perClass.filter(p => p.pupils && !p.notArrived).map(p => p.cls),
+      missing: perClass.filter(p => p.notArrived).map(p => p.cls),
+      counts: { ...sum.counts, enrolled: sum.counts.expected }
+    };
   }
+  const closedKpi = (a, href, iconName, label) => kpi({ href, iconName, label, value: '—', context: a.day.kind === 'holiday' ? `School holiday · ${esc(a.day.name)}` : `School closed on ${esc(a.day.name)}s`, unavailable: true });
 
   /* ------------------------------------------------------------ Widget catalogue
      group: mobile priority (attendance → actions → kpi → chart → list).
@@ -80,10 +79,9 @@
       render(user) {
         const a = attendanceSummary(user);
         if (!a.scope.length) return kpi({ href: pageUrl('attendance'), iconName: 'users', label: 'Children on site', value: '—', context: 'No classes assigned to you', unavailable: true });
-        if (!a.taken.length) return kpi({ href: pageUrl('attendance', { status: 'not-taken' }), iconName: 'users', label: 'Children on site', value: '—', context: 'No registers taken yet', unavailable: true, flag: { tone: 'warn', icon: 'clock', text: 'Waiting for registers' } });
-        const onSite = a.counts.present + a.counts.late;
-        const pct = Math.round((onSite / a.counts.enrolled) * 100);
-        return kpi({ href: pageUrl('attendance'), iconName: 'users', label: 'Children on site', value: onSite, context: `of ${a.counts.enrolled} in ${plural(a.taken.length, 'register')} · ${pct}%` });
+        if (a.closed) return closedKpi(a, pageUrl('attendance'), 'users', 'Children on site');
+        if (!a.taken.length) return kpi({ href: pageUrl('attendance', { status: 'not-taken' }), iconName: 'users', label: 'Children on site', value: '—', context: 'Nobody checked in yet', unavailable: true, flag: { tone: 'warn', icon: 'clock', text: 'Waiting for arrivals' } });
+        return kpi({ href: pageUrl('attendance'), iconName: 'users', label: 'Children on site', value: a.counts.in, context: `of ${a.counts.expected} expected · ${a.counts.out} collected · ${a.counts.notArrived} not arrived` });
       }
     },
     {
@@ -91,11 +89,12 @@
       render(user) {
         const a = attendanceSummary(user);
         const href = pageUrl('attendance', { status: 'absent' });
+        if (a.closed) return closedKpi(a, href, 'calendar-check', 'Absent today');
         if (!a.taken.length) return kpi({ href, iconName: 'calendar-check', label: 'Absent today', value: '—', context: 'Known once registers are taken', unavailable: true });
         return kpi({
           href, iconName: 'calendar-check', label: 'Absent today', value: a.counts.absent,
           context: `${plural(a.counts.late, 'late arrival')}`,
-          flag: a.counts.absent ? { tone: 'info', icon: 'phone', text: 'Check absence reasons' } : { tone: 'ok', icon: 'check-circle', text: 'Everyone is in' }
+          flag: a.counts.absent ? { tone: 'info', icon: 'phone', text: 'Check absence reasons' } : a.counts.notArrived ? { tone: 'warn', icon: 'clock', text: `${a.counts.notArrived} not arrived` } : { tone: 'ok', icon: 'check-circle', text: 'Everyone is in' }
         });
       }
     },
@@ -104,11 +103,12 @@
       render(user) {
         const a = attendanceSummary(user);
         if (!a.scope.length) return kpi({ href: pageUrl('attendance'), iconName: 'check-circle', label: 'Registers taken', value: '—', context: 'No classes assigned to you', unavailable: true });
+        if (a.closed) return closedKpi(a, pageUrl('attendance'), 'check-circle', 'Registers taken');
         const done = !a.missing.length;
         return kpi({
           href: pageUrl('attendance', done ? {} : { status: 'not-taken' }), iconName: 'check-circle', label: 'Registers taken',
-          value: `${a.taken.length}<small>/${a.scope.length}</small>`,
-          context: done ? 'All attendance is up to date' : `Not taken: ${esc(a.missing.join(', '))}`,
+          value: `${a.complete.length}<small>/${a.scope.length}</small>`,
+          context: done ? 'Every expected child is accounted for' : `Children still to arrive in ${esc(a.missing.join(', '))}`,
           tone: done ? '' : 'warn',
           flag: done ? { tone: 'ok', icon: 'check', text: 'Complete' } : { tone: 'warn', icon: 'alert-triangle', text: `${plural(a.missing.length, 'register')} to take` }
         });
@@ -197,11 +197,12 @@
       render(user) {
         const a = attendanceSummary(user);
         if (!a.perClass.length) return `<div class="dcard">${cardHead('Attendance by class', '')}${empty('calendar-check', 'No classes yet', 'Attendance by class appears once classes have children.')}</div>`;
+        if (a.closed) return `<div class="dcard">${cardHead('Attendance by class', '')}${empty('calendar-check', a.day.kind === 'holiday' ? a.day.name : `Closed on ${a.day.name}s`, 'No children are expected today.')}</div>`;
         const legend = `<ul class="legend" aria-hidden="true"><li><i class="legend__key legend__key--present"></i>Present</li><li><i class="legend__key legend__key--late"></i>Late</li><li><i class="legend__key legend__key--absent"></i>Absent</li></ul>`;
         const bars = a.perClass.map(c => {
           if (!c.taken) return `<li><a class="hbar hbar--empty" href="${pageUrl('attendance', { cls: c.cls })}" data-tip="${esc(`${c.cls}: register not taken yet`)}"><span class="hbar__label">${esc(c.cls)}</span><span class="hbar__track"><span class="hbar__note">Register not taken</span></span><span class="hbar__value">—</span></a></li>`;
           const seg = (k, n) => (n ? `<span class="hbar__seg hbar__seg--${k}" style="--w:${(n / c.pupils) * 100}%"></span>` : '');
-          return `<li><a class="hbar" href="${pageUrl('attendance', { cls: c.cls })}" data-tip="${esc(`${c.cls}: ${c.present} present, ${c.late} late, ${c.absent} absent · taken ${time(c.takenAt)} by ${c.takenBy}`)}"><span class="hbar__label">${esc(c.cls)}</span><span class="hbar__track">${seg('present', c.present)}${seg('late', c.late)}${seg('absent', c.absent)}</span><span class="hbar__value">${c.present + c.late}/${c.pupils}</span></a></li>`;
+          return `<li><a class="hbar" href="${pageUrl('attendance', { cls: c.cls })}" data-tip="${esc(`${c.cls}: ${c.present} present, ${c.late} late, ${c.absent} absent, ${c.notArrived} not arrived · ${c.out} collected`)}"><span class="hbar__label">${esc(c.cls)}</span><span class="hbar__track">${seg('present', c.present)}${seg('late', c.late)}${seg('absent', c.absent)}</span><span class="hbar__value">${c.present + c.late}/${c.pupils}</span></a></li>`;
         }).join('');
         const table = `<table class="sr-only"><caption>Attendance by class today</caption><thead><tr><th scope="col">Class</th><th scope="col">Present</th><th scope="col">Late</th><th scope="col">Absent</th></tr></thead><tbody>${a.perClass.map(c => `<tr><th scope="row">${esc(c.cls)}</th>${c.taken ? `<td>${c.present}</td><td>${c.late}</td><td>${c.absent}</td>` : '<td colspan="3">Register not taken</td>'}</tr>`).join('')}</tbody></table>`;
         return `<figure class="dcard">${cardHead('Attendance by class', 'Today · children on site of enrolled', pageUrl('attendance'), 'Attendance')}${legend}<ul class="hbars" aria-hidden="true">${bars}</ul>${table}</figure>`;
@@ -573,6 +574,9 @@
 
     // Store changes (this tab or another): batch into one render per frame.
     let queued = false;
+    // Unknown-absence reminders become due while the dashboard is open (no background job in this prototype).
+    store.processDueReminders();
+    setInterval(() => store.processDueReminders(), 60000);
     store.subscribe(() => {
       if (queued) return;
       queued = true;

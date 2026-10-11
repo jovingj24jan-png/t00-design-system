@@ -1,4 +1,6 @@
-/* Shared toast: NexoraToast.show(title, text, icon). Uses the page's #toast-region, creating it if missing. */
+/* Shared toast: NexoraToast.show(title, text, icon, { action: { label, onClick }, duration }) → { dismiss }.
+   With an action the toast lasts exactly `duration` (no pause on hover), so the action's window is honest.
+   Uses the page's #toast-region, creating it if missing. */
 (() => {
   'use strict';
 
@@ -18,15 +20,17 @@
     return r;
   }
 
-  function show(title, text = '', kind = 'check-circle') {
+  function show(title, text = '', kind = 'check-circle', { action = null, duration = 4500 } = {}) {
     const toastRegion = region();
     const el = document.createElement('div');
     el.className = 'toast';
     el.innerHTML = `${icon(kind, kind === 'check-circle' ? 'icon--success' : 'icon--info')}
       <div class="toast__body"><p class="toast__title">${esc(title)}</p>${text ? `<p class="toast__text">${esc(text)}</p>` : ''}</div>
-      <button class="btn btn--icon-ghost" type="button" aria-label="Dismiss">${icon('x')}</button>
+      ${action ? `<button class="btn btn--secondary btn--sm toast__action" type="button" data-toast-action>${esc(action.label)}</button>` : ''}
+      <button class="btn btn--icon-ghost" type="button" aria-label="Dismiss" data-toast-dismiss>${icon('x')}</button>
       <span class="toast__timer" aria-hidden="true"></span>`;
-    let remaining = 4500;
+    if (action) el.style.setProperty('--toast-duration', `${duration}ms`);
+    let remaining = duration;
     let started = Date.now();
     let timer = setTimeout(dismiss, remaining);
     function dismiss() {
@@ -35,12 +39,17 @@
       el.classList.add('is-leaving');
       setTimeout(() => el.remove(), reduceMotion.matches ? 0 : 180);
     }
-    el.addEventListener('mouseenter', () => { clearTimeout(timer); remaining -= Date.now() - started; });
-    el.addEventListener('mouseleave', () => { started = Date.now(); timer = setTimeout(dismiss, Math.max(remaining, 1000)); });
-    el.querySelector('button').addEventListener('click', dismiss);
+    if (!action) {
+      el.addEventListener('mouseenter', () => { clearTimeout(timer); remaining -= Date.now() - started; });
+      el.addEventListener('mouseleave', () => { started = Date.now(); timer = setTimeout(dismiss, Math.max(remaining, 1000)); });
+    } else {
+      el.querySelector('[data-toast-action]').addEventListener('click', () => { dismiss(); action.onClick(); });
+    }
+    el.querySelector('[data-toast-dismiss]').addEventListener('click', dismiss);
     toastRegion.appendChild(el);
     const all = toastRegion.querySelectorAll('.toast:not(.is-leaving)');
     if (all.length > 3) all[0].remove();
+    return { dismiss };
   }
 
   // A message handed over from the previous page (e.g. "Your school is ready" after setup).
