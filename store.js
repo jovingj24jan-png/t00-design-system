@@ -202,6 +202,7 @@
     roster: { name: 'Class rosters', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Who is in each class, with capacity and schedules.' },
     compose: { name: 'Message families', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Write to selected families. Prototype: messages are saved, not delivered.' },
     classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Manage classrooms, capacity and today’s staffing.' },
+    lessons: { name: 'Lesson Planning', icon: 'book', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Weekly plans, monthly themes, class timetable and the activity library, with review and approval.' },
     calendar: { name: 'Calendar & Events', icon: 'calendar-check', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'School events, trips, meetings, closures and parent conferences, with RSVP and consent.' },
     diary: { name: 'Daily Diary', icon: 'book', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Meals, naps, toileting, mood, activities, notes and photos for each child, shared with families.' },
     class: { name: 'Class', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'One class: roster, staff, today, routine and room.' },
@@ -3200,6 +3201,323 @@
   }
 
 
+  /* ---------------------------------------------------------------- Lesson planning & class timetable (lessons.js; S04 "Today's plan")
+     Activities `nexora-activities:<school>` { id, title, area (LEARNING_AREAS), ages, objectives, materials[], prep, notes,
+       outcomeIds[], status: 'active'|'archived', createdBy, createdAt, updatedAt } — seeded with demo Montessori presentations.
+     Weekly plans `nexora-lesson-plans:<school>` { id, schoolId, classId, weekStart (Monday), status: 'draft'|'submitted'|
+       'approved'|'changes', revision (number of submissions), entries: [{ id, activityId, day: 'mon'…, blockId, order, note }],
+       approved: { revision, entries, by, at } | null, createdBy/At, updatedBy/At, submittedBy/At }
+     Reviews `nexora-plan-reviews:<school>` { id, planId, revision, submittedBy, submittedById, submittedAt, reviewerId,
+       decision: null|'approved'|'changes', comment, decidedBy, decidedAt } — never overwritten.
+     Themes `nexora-themes:<school>` { id, classId, start, end, name, description, focusAreas[], vocabulary[], activityIds[], notes }.
+     Reviewer `nexora-plan-settings:<school>` { reviewerId } (default: the Director account).
+     Timetable = the class routine (`nexora-class-routines`); blocks have stable ids and optional weekdays. Plan entries point
+     at block ids, so changing the timetable never silently moves planned activities.
+     S24 framework outcomes: read through frameworkOutcomes() from `nexora-framework-outcomes:<school>`. That module isn't
+     built yet, so no outcome exists and none is invented; activities can link outcomes once it does. */
+
+  const activitiesKey = id => `nexora-activities:${id}`;
+  const plansKey = id => `nexora-lesson-plans:${id}`;
+  const reviewsKey = id => `nexora-plan-reviews:${id}`;
+  const themesKey = id => `nexora-themes:${id}`;
+  const planSettingsKey = id => `nexora-plan-settings:${id}`;
+  const outcomesKey = id => `nexora-framework-outcomes:${id}`;
+  const PLAN_STATUS = { draft: 'Draft', submitted: 'Submitted', approved: 'Approved', changes: 'Changes requested' };
+  const PLAN_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const DAY_NAMES = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
+  const ACTIVITY_SEED = [
+    ['Pouring water', 'Practical life', '2–6', 'Control of movement; care of the environment.', ['Two small jugs', 'Tray', 'Sponge']],
+    ['Polishing wood', 'Practical life', '3–6', 'Concentration, order and care of objects.', ['Polish', 'Cloths', 'Small wooden object', 'Mat']],
+    ['Dressing frames: buttons', 'Practical life', '3–5', 'Independence in dressing; fine-motor coordination.', ['Button dressing frame']],
+    ['Pink tower', 'Sensorial', '2–4', 'Visual discrimination of dimension.', ['Pink tower (10 cubes)', 'Floor mat']],
+    ['Knobbed cylinders', 'Sensorial', '2–4', 'Size discrimination; pincer grip.', ['Cylinder block 1']],
+    ['Colour tablets box 2', 'Sensorial', '3–5', 'Matching colours; colour names.', ['Colour box 2']],
+    ['Sandpaper letters', 'Language', '3–5', 'Letter sounds through touch.', ['Sandpaper letters (selected set)']],
+    ['Sound games (I spy)', 'Language', '2–5', 'Hearing beginning sounds.', ['Small objects basket']],
+    ['Movable alphabet', 'Language', '4–6', 'Building words before writing.', ['Movable alphabet box', 'Small objects']],
+    ['Number rods', 'Mathematics', '3–5', 'Quantity 1–10 and sequence.', ['Number rods', 'Floor mat']],
+    ['Spindle box', 'Mathematics', '4–5', 'Zero and counting loose quantities.', ['Spindle box', '45 spindles']],
+    ['Golden beads introduction', 'Mathematics', '4–6', 'Units, tens, hundreds, thousands.', ['Golden bead material', 'Tray']],
+    ['Puzzle map: continents', 'Culture', '3–6', 'Names and shapes of the continents.', ['Continents puzzle map']],
+    ['Land and water forms', 'Culture', '3–5', 'Island, lake and other land forms.', ['Land and water trays', 'Water jug']],
+    ['Botany: parts of a leaf', 'Culture', '4–6', 'Naming leaf parts; observing real leaves.', ['Leaf puzzle', 'Fresh leaves']]
+  ];
+  const getActivities = () => seeded(activitiesKey(school.id), () => ACTIVITY_SEED.map(([title, area, ages, objectives, materials], i) => ({ id: `act-${i + 1}`, title, area, ages, objectives, materials, prep: '', notes: '', outcomeIds: [], status: 'active', demo: true, createdBy: 'Demo library', createdAt: atToday(9, 0, -90), updatedAt: null })));
+  const activityById = id => getActivities().find(a => a.id === id) || null;
+  // S24 adapter: the only place outcome records are read. Empty until the framework module exists.
+  function frameworkOutcomes() {
+    const list = read(outcomesKey(school.id), []);
+    return { available: list.length > 0, outcomes: list };
+  }
+  const canPlan = (user, cls) => (LEADERS.includes(user.role) || user.role === 'Teacher') && classScope(user).includes(cls);
+  function saveActivity(user, input, activityId = null) {
+    if (!canAccess(user, 'lessons')) return settle({ ok: false, reason: 'forbidden' });
+    const list = getActivities();
+    const errors = {};
+    const v = { title: clean(input.title).slice(0, 80), area: clean(input.area), ages: clean(input.ages).slice(0, 20), objectives: clean(input.objectives).slice(0, 600), materials: (input.materials || []).map(clean).filter(Boolean).slice(0, 20), prep: clean(input.prep).slice(0, 600), notes: clean(input.notes).slice(0, 600), outcomeIds: [...new Set(input.outcomeIds || [])] };
+    if (!v.title) errors.title = 'Give the activity a title.';
+    else if (list.some(a => a.id !== activityId && a.status === 'active' && a.title.toLowerCase() === v.title.toLowerCase())) errors.title = 'An activity with this title is already in the library.';
+    if (!LEARNING_AREAS.includes(v.area)) errors.area = 'Choose a learning area.';
+    const known = frameworkOutcomes().outcomes.map(o => o.id);
+    if (v.outcomeIds.some(id => !known.includes(id))) errors.outcomeIds = 'One of the outcomes isn’t in the framework.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const now = new Date().toISOString();
+    let a = activityId ? list.find(x => x.id === activityId) : null;
+    if (activityId && !a) return settle({ ok: false, reason: 'missing' });
+    if (a) Object.assign(a, v, { updatedAt: now, updatedBy: user.name });
+    else { a = { id: newId('act'), ...v, status: 'active', createdBy: user.name, createdAt: now, updatedAt: null }; list.push(a); }
+    if (!write(activitiesKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    return settle({ ok: true, activity: a });
+  }
+
+  // Timetable blocks (class routine) with stable ids. A block's `days` limits it to some weekdays (null = routine days).
+  function routineFor(classId) {
+    const all = getRoutines();
+    const r = all[classId];
+    if (!r) return null;
+    let changed = false;
+    r.blocks.forEach(b => { if (!b.id) { b.id = newId('rb'); changed = true; } if (b.days === undefined) { b.days = null; changed = true; } });
+    if (changed) { try { localStorage.setItem(routinesKey(school.id), JSON.stringify(all)); } catch { /* in memory */ } }
+    return r;
+  }
+  const blockDays = (r, b) => (b.days?.length ? b.days : r.days);
+  function routineBlocks(classId) {
+    const r = routineFor(classId);
+    return r ? [...r.blocks].sort((a, b) => toMinutes(a.start) - toMinutes(b.start)).map(b => ({ ...b, appliesTo: blockDays(r, b) })) : [];
+  }
+  const canEditTimetable = (user, classId) => { const c = classById(classId); return Boolean(c) && (LEADERS.includes(user.role) || (user.role === 'Teacher' && classScope(user).includes(c.name))); };
+  function saveRoutineBlock(user, classId, input, blockId = null, { allowOverlap = false } = {}) {
+    if (!canEditTimetable(user, classId)) return settle({ ok: false, reason: 'forbidden' });
+    const all = getRoutines();
+    if (!all[classId]) all[classId] = { days: SCHOOL_WEEK, blocks: [] };
+    routineFor(classId);
+    const r = all[classId];
+    r.blocks.forEach(b => { if (!b.id) b.id = newId('rb'); if (b.days === undefined) b.days = null; });
+    const errors = {};
+    const v = { title: clean(input.title).slice(0, 60), start: clean(input.start), end: clean(input.end), description: clean(input.description).slice(0, 300), location: clean(input.location).slice(0, 80), activityId: clean(input.activityId) || null, days: [...new Set((input.days || []).filter(d => PLAN_DAYS.includes(d)))] };
+    if (!v.title) errors.title = 'Name the block.';
+    if (!isTime(v.start)) errors.start = 'Choose a start time.';
+    if (!isTime(v.end)) errors.end = 'Choose an end time.';
+    else if (!errors.start && toMinutes(v.end) <= toMinutes(v.start)) errors.end = 'The end time must be after the start time.';
+    if (v.activityId && !activityById(v.activityId)) errors.activityId = 'Choose an activity from the library.';
+    const days = v.days.length ? v.days : r.days;
+    const others = r.blocks.filter(b => b.id !== blockId);
+    if (!Object.keys(errors).length && others.some(b => b.title.toLowerCase() === v.title.toLowerCase() && b.start === v.start && b.end === v.end)) errors.title = 'This block is already in the timetable.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const clash = others.filter(b => blockDays(r, b).some(d => days.includes(d)) && toMinutes(b.start) < toMinutes(v.end) && toMinutes(v.start) < toMinutes(b.end));
+    if (clash.length && !allowOverlap) return settle({ ok: false, reason: 'overlap', clash: clash.map(b => `${b.title} ${b.start}–${b.end}`) });
+    const block = { ...v, days: v.days.length ? v.days : null };
+    if (blockId) {
+      const b = r.blocks.find(x => x.id === blockId);
+      if (!b) return settle({ ok: false, reason: 'missing' });
+      Object.assign(b, block);
+    } else r.blocks.push({ id: newId('rb'), ...block });
+    if (!write(routinesKey(school.id), all)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, blockId ? 'edit:timetable' : 'add:timetable', classId, `${v.title} ${v.start}–${v.end}`);
+    return settle({ ok: true });
+  }
+  // Deleting a block that plans use needs confirmation; those entries stay (shown as "Routine removed"), never moved.
+  function deleteRoutineBlock(user, classId, blockId, { confirmPlans = false } = {}) {
+    if (!canEditTimetable(user, classId)) return settle({ ok: false, reason: 'forbidden' });
+    const all = getRoutines();
+    const r = all[classId];
+    if (!r || !r.blocks.some(b => b.id === blockId)) return settle({ ok: false, reason: 'missing' });
+    const used = getPlans().filter(p => p.classId === classId).reduce((n, p) => n + p.entries.filter(e => e.blockId === blockId).length, 0);
+    if (used && !confirmPlans) return settle({ ok: false, reason: 'in-use', count: used });
+    r.blocks = r.blocks.filter(b => b.id !== blockId);
+    if (!write(routinesKey(school.id), all)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'delete:timetable', classId, blockId);
+    return settle({ ok: true, kept: used });
+  }
+
+  const getPlans = () => read(plansKey(school.id), []);
+  const getReviews = () => read(reviewsKey(school.id), []);
+  const weekOf = date => dAdd(date, -((new Date(`${date}T12:00:00`).getDay() + 6) % 7));
+  const planDays = () => PLAN_DAYS.filter(d => schoolDays().includes(d));
+  function weeklyPlan(classId, weekStart) {
+    const ws = weekOf(weekStart);
+    const p = getPlans().find(x => x.classId === classId && x.weekStart === ws);
+    return p || { id: null, classId, weekStart: ws, status: 'draft', revision: 0, entries: [], approved: null };
+  }
+  const getPlanSettings = () => ({ reviewerId: 'u-director', ...read(planSettingsKey(school.id), {}) });
+  const planReviewer = () => { const u = users.find(x => x.id === getPlanSettings().reviewerId && x.schoolId === school.id); return u && LEADERS.includes(u.role) ? u : null; };
+  function setPlanReviewer(user, reviewerId) {
+    if (!LEADERS.includes(user.role)) return settle({ ok: false, reason: 'forbidden' });
+    const u = users.find(x => x.id === reviewerId && x.schoolId === school.id && LEADERS.includes(x.role));
+    if (reviewerId && !u) return settle({ ok: false, reason: 'invalid', errors: { reviewerId: 'Choose a school leader.' } });
+    return settle(write(planSettingsKey(school.id), { reviewerId: reviewerId || null }) ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+  const plannerCtx = (user, classId) => { const c = classById(classId); return c && c.status === 'active' && canPlan(user, c.name) ? c : null; };
+
+  // Replaces the week's entries (the planner sends the whole grid after each change). Only drafts and plans with
+  // changes requested can be edited; an approved plan needs startRevision() first.
+  function savePlanEntries(user, { classId, weekStart, entries }) {
+    const c = plannerCtx(user, classId);
+    if (!c) return settle({ ok: false, reason: 'forbidden' });
+    const ws = weekOf(weekStart);
+    const list = getPlans();
+    let p = list.find(x => x.classId === classId && x.weekStart === ws);
+    if (p && p.status === 'submitted') return settle({ ok: false, reason: 'submitted' });
+    if (p && p.status === 'approved') return settle({ ok: false, reason: 'approved' });
+    const blocks = routineBlocks(classId);
+    const seen = new Set();
+    const clean2 = [];
+    for (const e of entries || []) {
+      const a = activityById(e.activityId);
+      const b = blocks.find(x => x.id === e.blockId);
+      if (!PLAN_DAYS.includes(e.day)) return settle({ ok: false, reason: 'invalid', errors: { entries: 'A day in the plan isn’t valid.' } });
+      if (!a) return settle({ ok: false, reason: 'invalid', errors: { entries: 'An activity in the plan is no longer in the library.' } });
+      if (b && !b.appliesTo.includes(e.day)) return settle({ ok: false, reason: 'invalid', errors: { entries: `${b.title} doesn’t run on ${DAY_NAMES[e.day]}.` } });
+      if (!b && !(p?.entries || []).some(x => x.id === e.id && x.blockId === e.blockId)) return settle({ ok: false, reason: 'invalid', errors: { entries: 'Choose a timetable block for the activity.' } });
+      const k = `${e.day}|${e.blockId}|${e.activityId}`;
+      if (seen.has(k)) return settle({ ok: false, reason: 'invalid', errors: { entries: `${a.title} is already in that slot.` } });
+      seen.add(k);
+      clean2.push({ id: e.id || newId('pe'), activityId: a.id, day: e.day, blockId: e.blockId, order: Number(e.order) || 0, note: clean(e.note).slice(0, 300), flag: e.flag || null });
+    }
+    const now = new Date().toISOString();
+    if (!p) { p = { id: newId('plan'), schoolId: school.id, classId, weekStart: ws, status: 'draft', revision: 0, entries: [], approved: null, createdBy: user.name, createdAt: now }; list.push(p); }
+    Object.assign(p, { entries: clean2, updatedBy: user.name, updatedAt: now });
+    if (!write(plansKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    return settle({ ok: true, plan: p });
+  }
+
+  function copyLastWeek(user, { classId, weekStart }) {
+    const c = plannerCtx(user, classId);
+    if (!c) return settle({ ok: false, reason: 'forbidden' });
+    const ws = weekOf(weekStart);
+    const src = weeklyPlan(classId, dAdd(ws, -7));
+    if (!src.entries.length) return settle({ ok: false, reason: 'empty-source' });
+    const dest = weeklyPlan(classId, ws);
+    if (dest.status === 'submitted') return settle({ ok: false, reason: 'submitted' });
+    if (dest.status === 'approved') return settle({ ok: false, reason: 'approved' });
+    const blocks = routineBlocks(classId);
+    const entries = src.entries.map(e => {
+      const a = activityById(e.activityId);
+      const b = blocks.find(x => x.id === e.blockId);
+      const flag = !a || a.status !== 'active' ? 'activity-missing' : !b || !b.appliesTo.includes(e.day) ? 'block-missing' : null;
+      return { id: newId('pe'), activityId: e.activityId, day: e.day, blockId: e.blockId, order: e.order, note: e.note, flag };
+    });
+    const list = getPlans();
+    let p = list.find(x => x.classId === classId && x.weekStart === ws);
+    const now = new Date().toISOString();
+    if (!p) { p = { id: newId('plan'), schoolId: school.id, classId, weekStart: ws, status: 'draft', revision: 0, entries: [], approved: null, createdBy: user.name, createdAt: now }; list.push(p); }
+    Object.assign(p, { entries, status: p.status === 'changes' ? 'changes' : 'draft', updatedBy: user.name, updatedAt: now, copiedFrom: src.id });
+    if (!write(plansKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'copy:plan', classId, `${src.weekStart} → ${ws}`);
+    return settle({ ok: true, plan: p, flagged: entries.filter(e => e.flag).length });
+  }
+
+  // Editing an approved plan starts a new draft revision; the approved version is kept.
+  function startRevision(user, planId) {
+    const list = getPlans();
+    const p = list.find(x => x.id === planId);
+    if (!p || !plannerCtx(user, p.classId)) return settle({ ok: false, reason: p ? 'forbidden' : 'missing' });
+    if (p.status !== 'approved') return settle({ ok: false, reason: 'invalid' });
+    p.status = 'draft';
+    p.updatedBy = user.name; p.updatedAt = new Date().toISOString();
+    if (!write(plansKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'revise:plan', p.classId, `${p.weekStart} revision after ${p.revision}`);
+    return settle({ ok: true, plan: p });
+  }
+
+  function submitPlan(user, planId) {
+    const list = getPlans();
+    const p = list.find(x => x.id === planId);
+    if (!p) return settle({ ok: false, reason: 'missing' });
+    if (!plannerCtx(user, p.classId)) return settle({ ok: false, reason: 'forbidden' });
+    if (!['draft', 'changes'].includes(p.status)) return settle({ ok: false, reason: 'invalid' });
+    if (!p.entries.length) return settle({ ok: false, reason: 'invalid', errors: { plan: 'Add at least one activity before submitting.' } });
+    if (p.entries.some(e => e.flag)) return settle({ ok: false, reason: 'invalid', errors: { plan: 'Resolve the flagged activities (missing activity or timetable block) first.' } });
+    const reviewer = planReviewer();
+    if (!reviewer) return settle({ ok: false, reason: 'no-reviewer' });
+    if (reviewer.id === user.id) return settle({ ok: false, reason: 'self-review' });
+    const now = new Date().toISOString();
+    const reviews = getReviews();
+    const review = { id: newId('rv'), planId: p.id, revision: p.revision + 1, submittedBy: user.name, submittedById: user.id, submittedAt: now, reviewerId: reviewer.id, decision: null, comment: '', decidedBy: null, decidedAt: null, entries: p.entries.map(e => ({ ...e })) };
+    Object.assign(p, { status: 'submitted', revision: p.revision + 1, submittedBy: user.name, submittedById: user.id, submittedAt: now, updatedAt: now });
+    if (!commit([{ key: plansKey(school.id), value: list }, { key: reviewsKey(school.id), value: [...reviews, review] }])) return settle({ ok: false, reason: 'storage' });
+    const cls = classById(p.classId)?.name || '';
+    notifyUsers({ module: 'lessons', kind: 'plan-submitted', title: `${cls} weekly plan to review`, body: `${user.name} submitted the plan for the week of ${p.weekStart} (revision ${p.revision}).`, recordType: 'plan', recordId: p.id, dedupeKey: `plan-submit:${p.id}:${p.revision}`, actorId: user.id }, { toUserIds: [reviewer.id] });
+    logAudit(user, 'submit:plan', p.classId, `${p.weekStart} r${p.revision}`);
+    return settle({ ok: true, plan: p, reviewer: reviewer.name });
+  }
+
+  function reviewPlan(user, planId, decision, comment = '') {
+    const list = getPlans();
+    const p = list.find(x => x.id === planId);
+    if (!p) return settle({ ok: false, reason: 'missing' });
+    const reviewer = planReviewer();
+    if (!reviewer || reviewer.id !== user.id) return settle({ ok: false, reason: 'forbidden' });
+    if (p.submittedById === user.id) return settle({ ok: false, reason: 'self-review' });
+    if (p.status !== 'submitted') return settle({ ok: false, reason: 'invalid' });
+    if (!['approved', 'changes'].includes(decision)) return settle({ ok: false, reason: 'invalid' });
+    const text = clean(comment).slice(0, 1000);
+    if (decision === 'changes' && text.length < 5) return settle({ ok: false, reason: 'invalid', errors: { comment: 'Explain what needs to change.' } });
+    const reviews = getReviews();
+    const r = [...reviews].reverse().find(x => x.planId === p.id && x.revision === p.revision && !x.decision);
+    if (!r) return settle({ ok: false, reason: 'missing' });
+    const now = new Date().toISOString();
+    Object.assign(r, { decision, comment: text, decidedBy: user.name, decidedById: user.id, decidedAt: now });
+    p.status = decision;
+    p.updatedAt = now;
+    if (decision === 'approved') p.approved = { revision: p.revision, entries: p.entries.map(e => ({ ...e })), by: user.name, at: now };
+    if (!commit([{ key: plansKey(school.id), value: list }, { key: reviewsKey(school.id), value: reviews }])) return settle({ ok: false, reason: 'storage' });
+    const cls = classById(p.classId)?.name || '';
+    notifyUsers({ module: 'lessons', kind: decision === 'approved' ? 'plan-approved' : 'plan-changes', title: decision === 'approved' ? `${cls} plan approved` : `${cls} plan: changes requested`, body: decision === 'approved' ? `${user.name} approved the week of ${p.weekStart}.` : `${user.name}: ${text}`, recordType: 'plan', recordId: p.id, dedupeKey: `plan-review:${p.id}:${p.revision}`, actorId: user.id }, { toUserIds: [p.submittedById] });
+    logAudit(user, `review:plan-${decision}`, p.classId, `${p.weekStart} r${p.revision}`);
+    return settle({ ok: true, plan: p });
+  }
+  const planHistory = planId => getReviews().filter(r => r.planId === planId).sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+
+  // Themes for a class overlapping a month ('YYYY-MM').
+  const getThemes = () => read(themesKey(school.id), []);
+  function themesFor(classId, month) {
+    const first = `${month}-01`;
+    const last = dAdd(isoDate(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1, 12)), -1);
+    return getThemes().filter(t => t.classId === classId && t.start <= last && t.end >= first).sort((a, b) => a.start.localeCompare(b.start));
+  }
+  function saveTheme(user, classId, input, themeId = null) {
+    const c = plannerCtx(user, classId);
+    if (!c) return settle({ ok: false, reason: 'forbidden' });
+    const errors = {};
+    const v = { name: clean(input.name).slice(0, 80), start: clean(input.start), end: clean(input.end), description: clean(input.description).slice(0, 600), focusAreas: [...new Set(input.focusAreas || [])], vocabulary: [...new Set((input.vocabulary || []).map(clean).filter(Boolean))].slice(0, 30), activityIds: [...new Set(input.activityIds || [])], notes: clean(input.notes).slice(0, 1000) };
+    if (!v.name) errors.name = 'Name the theme.';
+    if (!isDate(v.start)) errors.start = 'Choose a start date.';
+    if (!isDate(v.end)) errors.end = 'Choose an end date.';
+    else if (!errors.start && v.end < v.start) errors.end = 'The end date can’t be before the start.';
+    else if (!errors.start && dDiff(v.end, v.start) > 42) errors.end = 'A theme can run for up to six weeks.';
+    if (v.focusAreas.some(a => !LEARNING_AREAS.includes(a))) errors.focusAreas = 'Choose focus areas from the list.';
+    if (v.activityIds.some(id => !activityById(id))) errors.activityIds = 'A linked activity is no longer in the library.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const list = getThemes();
+    const now = new Date().toISOString();
+    let t = themeId ? list.find(x => x.id === themeId && x.classId === classId) : null;
+    if (themeId && !t) return settle({ ok: false, reason: 'missing' });
+    if (t) Object.assign(t, v, { updatedBy: user.name, updatedAt: now });
+    else { t = { id: newId('th'), schoolId: school.id, classId, ...v, createdBy: user.name, createdAt: now }; list.push(t); }
+    if (!write(themesKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    return settle({ ok: true, theme: t });
+  }
+  function deleteTheme(user, classId, themeId) {
+    if (!plannerCtx(user, classId)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getThemes();
+    if (!list.some(t => t.id === themeId && t.classId === classId)) return settle({ ok: false, reason: 'missing' });
+    return settle(write(themesKey(school.id), list.filter(t => t.id !== themeId)) ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+
+  // S04: today's planned activities for the user's classes, from the saved weekly plans.
+  function todayPlan(user) {
+    const d = weekdayOf(today());
+    return classScope(user).map(name => {
+      const c = classByName(name);
+      const p = weeklyPlan(c.id, today());
+      const blocks = routineBlocks(c.id);
+      const items = p.entries.filter(e => e.day === d).map(e => ({ ...e, activity: activityById(e.activityId), block: blocks.find(b => b.id === e.blockId) || null }))
+        .sort((a, b) => (a.block ? toMinutes(a.block.start) : 9999) - (b.block ? toMinutes(b.block.start) : 9999) || a.order - b.order);
+      return { cls: name, classId: c.id, plan: p, items };
+    });
+  }
+
   /* S17 class operations. Enrolled = active + starting-soon children (the same count S14 uses for
      capacity); present today = present + late marks in today's S19 register. */
   const canManageClasses = user => MANAGE_PLAN_ROLES.includes(user.role);
@@ -3422,10 +3740,12 @@
   }
   // { configured, schoolDay, blocks (sorted by start) } for one class on one date.
   function classRoutine(classId, date = today()) {
-    const r = getRoutines()[classId];
+    const r = routineFor(classId);
     if (!r || !r.blocks?.length) return { configured: false, schoolDay: schoolDays().includes(weekdayOf(date)), blocks: [] };
-    const on = r.days.includes(weekdayOf(date));
-    return { configured: true, schoolDay: on, blocks: on ? [...r.blocks].sort((a, b) => toMinutes(a.start) - toMinutes(b.start)) : [] };
+    const wd = weekdayOf(date);
+    // A block with its own weekdays runs only on those days; others follow the routine's days.
+    const blocks = r.blocks.filter(b => (b.days?.length ? b.days : r.days).includes(wd));
+    return { configured: true, schoolDay: blocks.length > 0, blocks: blocks.sort((a, b) => toMinutes(a.start) - toMinutes(b.start)) };
   }
 
   // Seats left = capacity − enrolled (active + starting soon) − moves already scheduled into the class. null = capacity not set.
@@ -3771,6 +4091,7 @@
       case 'class': return classByName(n.recordId) ? go('attendance', { cls: n.recordId, view: n.kind === 'ratio' ? 'ratio' : '' }) : missing;
       case 'child': { const c = childById(n.recordId); return c && canAccess(user, 'children') && classScope(user).includes(c.cls) ? { href: routes.record(c.id) } : missing; }
       case 'broadcast': return { href: routes.dashboard };
+      case 'plan': { const p = getPlans().find(x => x.id === n.recordId); const c = p && classById(p.classId); return c ? go('lessons', { cls: c.name, week: p.weekStart }) : missing; }
       default:
         if (n.kind === 'upgrade-request') return { href: routes.plans({ plan: n.requiredPlan, module: n.page }) };
         if (n.kind === 'access-request') return { href: routes.page('notifications') };
@@ -3828,7 +4149,6 @@
     search,
     byId: id => records.find(r => r.id === id) || null,
     roles,
-    users,
     pages,
     pageByKey,
     currentUser,
@@ -4048,6 +4368,34 @@
     getCalendarPrefs,
     saveCalendarPrefs,
     childEvents,
+    PLAN_STATUS,
+    DAY_NAMES,
+    getActivities,
+    activityById,
+    saveActivity,
+    frameworkOutcomes,
+    canPlan,
+    routineBlocks,
+    canEditTimetable,
+    saveRoutineBlock,
+    deleteRoutineBlock,
+    weekOf,
+    planDays,
+    weeklyPlan,
+    getPlanSettings,
+    planReviewer,
+    setPlanReviewer,
+    savePlanEntries,
+    copyLastWeek,
+    startRevision,
+    submitPlan,
+    reviewPlan,
+    planHistory,
+    themesFor,
+    saveTheme,
+    deleteTheme,
+    todayPlan,
+    users,
     getStaffAttendance,
     setStaffAttendance,
     canManageStaff,

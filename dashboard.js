@@ -227,6 +227,23 @@
       }
     },
     {
+      // Today's planned activities from the saved weekly plans (store.todayPlan) — the same data as Lesson Planning.
+      id: 'today-plan', name: 'Today’s plan', module: 'lessons', group: 'list', size: 'half',
+      render(user) {
+        const rows = store.todayPlan(user);
+        const day = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+        if (!rows.length) return `<div class="dcard">${cardHead('Today’s plan', esc(day))}${empty('book', 'No class assigned', 'Today’s activities appear here for your classes.')}</div>`;
+        const tone = { draft: '', submitted: 'badge--warning badge--late', approved: 'badge--success', changes: 'badge--error badge--absent' };
+        const body = rows.slice(0, 3).map(r => `<div class="dplan">
+            <p class="dplan__head"><b>${esc(r.cls)}</b><span class="badge ${tone[r.plan.status]}">${esc(store.PLAN_STATUS[r.plan.status])}</span>${r.plan.status === 'changes' ? '<span class="dlist__muted">Changes requested</span>' : r.plan.status === 'submitted' ? '<span class="dlist__muted">Awaiting review</span>' : ''}</p>
+            ${r.items.length ? `<ul class="dlist">${r.items.slice(0, 4).map(i => `<li class="dlist__item"><span class="dplan__time">${esc(i.block?.start || '—')}</span><div class="dlist__main"><p class="dlist__title">${esc(i.activity?.title || 'Activity no longer in the library')}</p><p class="dlist__sub">${esc(i.block?.title || 'Routine removed')}${i.activity ? ` · ${esc(i.activity.area)}` : ''}</p></div></li>`).join('')}</ul>${r.items.length > 4 ? `<p class="dcard__more">${r.items.length - 4} more</p>` : ''}`
+              : `<p class="dlist__sub">Nothing planned for today. <a href="${pageUrl('lessons', { cls: r.cls })}">Plan today</a></p>`}
+            <a class="btn btn--tertiary btn--sm" href="${pageUrl('lessons', { cls: r.cls })}">Open plan${icon('arrow-right', 'icon--sm')}</a>
+          </div>`).join('');
+        return `<div class="dcard">${cardHead('Today’s plan', esc(day), pageUrl('lessons'), 'Lesson planning')}${body}</div>`;
+      }
+    },
+    {
       // Same data as the calendar (store.eventsBetween): next 14 days, with RSVP/consent follow-ups.
       id: 'events', name: 'Upcoming events', module: 'calendar', group: 'list', size: 'half',
       render(user) {

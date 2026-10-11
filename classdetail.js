@@ -244,7 +244,7 @@
     function scheduleHtml(d) {
       const r = store.classRoutine(d.card.id);
       const weekday = new Date().toLocaleDateString('en-GB', { weekday: 'long' });
-      if (!r.configured) return state('clock', 'No routine set up', 'This class doesn’t have a daily routine yet. The school office sets routines.');
+      if (!r.configured) return state('clock', 'No routine set up', 'This class doesn’t have a daily routine yet.', `<a class="btn btn--secondary" href="${routes.page('lessons', { cls: d.card.name, tab: 'timetable' })}">Set up the timetable</a>`);
       if (!r.schoolDay) return state('calendar-check', `No routine on ${weekday}s`, 'The class doesn’t meet today. The routine shows on school days.');
       const now = new Date();
       const nowMin = now.getHours() * 60 + now.getMinutes();
@@ -257,7 +257,7 @@
             <div class="cd-block__body"><p class="cd-block__title">${esc(b.title)}${current ? '<span class="badge badge--success cd-now">Now</span>' : ''}</p>
             ${b.description ? `<p class="cd-block__desc">${esc(b.description)}</p>` : ''}${b.location ? `<p class="cd-block__loc">${icon('door', 'icon--sm')}${esc(b.location)}</p>` : ''}</div></li>`;
         }).join('')}</ol>
-        <p class="cd-note cp-muted">Routines are set by the school office.</p></section>`;
+        <p class="cd-note"><a href="${routes.page('lessons', { cls: d.card.name, tab: 'timetable' })}">Edit the timetable</a> · <a href="${routes.page('lessons', { cls: d.card.name })}">This week’s lesson plan</a></p></section>`;
     }
 
     /* ---------------------------------------------------------------- Room & resources */
