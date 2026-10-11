@@ -4440,32 +4440,294 @@
     return settle({ ok: true, child: c, from, to: to.name, date, immediate: date === today() });
   }
 
-  /* Admission enquiries (Admissions module) */
+  /* Admissions pipeline (admissions.js at ?page=admissions; S07 applicant details at ?page=admissions&applicant=<id>)
+     The existing `nexora-admission-enquiries:<school>` records, extended — one per prospective child:
+       { id, child, dob, parent, phone, phoneNorm, email, emailNorm, programme (class level), preferredStart, source, notes,
+         ownerId, stage: enquiry|tour|applied|offer|enrolled|lost, stageAt, tourAt, followUp, lost: { reason, detail, at, by },
+         familyId, childId, createdAt, createdBy, createdById, updatedAt, clientId,
+         history: [{ id, at, by, byId, type, from, to, detail }] (append-only), status (legacy mirror for older readers) }
+     Older records (status new/contacted/visit/enrolled/closed) are migrated once. Enrolled is only ever set by
+     completeEnquiryEnrolment(), which S14 calls after it has saved the child — opening S14 doesn't change the stage.
+     Every check runs in this store; a server would also need to enforce duplicates and stage changes atomically. */
   const ENQUIRY_STATUSES = { new: 'New', contacted: 'Contacted', visit: 'Visit booked', enrolled: 'Enrolled', closed: 'Closed' };
+  const ENQUIRY_STAGES = { enquiry: 'Enquiry', tour: 'Tour booked', applied: 'Applied', offer: 'Offer sent', enrolled: 'Enrolled', lost: 'Lost' };
+  const ENQUIRY_SOURCES = { website: 'Website', walkin: 'Walk-in', referral: 'Referral', social: 'Social', event: 'Event', other: 'Other' };
+  const LOST_REASONS = { other_school: 'Chose another school', fees: 'Fees', location: 'Location', no_response: 'No response', other: 'Other' };
+  const STAGE_STATUS = { enquiry: 'new', tour: 'visit', applied: 'contacted', offer: 'contacted', enrolled: 'enrolled', lost: 'closed' };
   const admissionsKey = id => `nexora-admission-enquiries:${id}`;
-  const getAdmissionEnquiries = (schoolId = school.id) => seeded(admissionsKey(schoolId), () => [
-    { id: 'ae1', child: 'Advika Nair', parent: 'Lakshmi Nair', phone: '+91 98450 10101', email: 'lakshmi.nair@example.com', programme: 'Nursery', status: 'new', followUp: daysFromToday(0), notes: 'Asked about the June start.', createdAt: atToday(9, 5, -1), createdBy: 'Ms. Fernandes' },
-    { id: 'ae2', child: 'Rehan Kapoor', parent: 'Sonal Kapoor', phone: '+91 98450 20202', email: 'sonal.k@example.com', programme: 'LKG', status: 'contacted', followUp: daysFromToday(-1), notes: 'Wants a call back about transport.', createdAt: atToday(11, 30, -4), createdBy: 'Mrs. Rao' },
-    { id: 'ae3', child: 'Mira Thomas', parent: 'Anil Thomas', phone: '+91 98450 30303', email: '', programme: 'Montessori', status: 'visit', followUp: daysFromToday(2), notes: 'School visit booked.', createdAt: atToday(15, 10, -6), createdBy: 'Ms. Fernandes' },
-    { id: 'ae4', child: 'Aditi Rao', parent: 'Kiran Rao', phone: '+91 98450 40404', email: 'kiran.rao@example.com', programme: 'UKG', status: 'new', followUp: daysFromToday(1), notes: '', createdAt: atToday(10, 0, -2), createdBy: 'Ms. Fernandes' },
-    { id: 'ae5', child: 'Sameer Khan', parent: 'Farah Khan', phone: '+91 98450 50505', email: '', programme: 'Nursery', status: 'enrolled', followUp: '', notes: 'Starts next term.', createdAt: atToday(12, 0, -20), createdBy: 'Mrs. Rao' },
-    { id: 'ae6', child: 'Zoya Ali', parent: 'Imran Ali', phone: '+91 98450 60606', email: '', programme: 'LKG', status: 'closed', followUp: '', notes: 'Moved city.', createdAt: atToday(12, 0, -25), createdBy: 'Mrs. Rao' }
-  ]);
-  const isOpenEnquiry = e => !['enrolled', 'closed'].includes(e.status);
-  const followUpDue = e => isOpenEnquiry(e) && Boolean(e.followUp) && e.followUp <= today();
-  function addAdmissionEnquiry(user, data) {
-    if (!can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
-    const e = {
-      id: newId('ae'), child: String(data.child || '').trim(), parent: String(data.parent || '').trim(),
-      phone: String(data.phone || '').trim(), email: String(data.email || '').trim(),
-      programme: data.programme, status: 'new', followUp: data.followUp || '', notes: String(data.notes || '').trim().slice(0, 500),
-      assignedTo: data.assignedTo || '', createdAt: new Date().toISOString(), createdBy: user.name
+  const normPhone = p => { const d = String(p || '').replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d; };
+  const normEmail = e => String(e || '').trim().toLowerCase();
+  const sameName = (a, b) => String(a || '').trim().toLowerCase().replace(/\s+/g, ' ') === String(b || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const userIdByName = n => users.find(u => u.name === n)?.id || '';
+  const admissionsOwners = () => users.filter(u => u.schoolId === school.id && canAccess(u, 'admissions')).map(u => ({ id: u.id, name: u.name, role: u.role }));
+  const histEvent = (user, type, extra = {}) => ({ id: newId('eh'), at: new Date().toISOString(), by: user?.name || 'System', byId: user?.id || '', type, ...extra });
+
+  function seedEnquiries() {
+    const own = { 'Ms. Fernandes': 'u-admin', 'Mrs. Rao': 'u-director' };
+    const mk = (id, child, dobAgo, parent, phone, email, programme, stage, createdDays, stageDays, extra = {}) => {
+      const createdAt = atToday(10, 0, -createdDays);
+      const by = extra.by || 'Ms. Fernandes';
+      const startIn = extra.startIn ?? 60;
+      const dob = new Date(); dob.setMonth(dob.getMonth() - dobAgo);
+      const history = [{ id: `${id}-h1`, at: createdAt, by, byId: own[by], type: 'created', to: 'enquiry', detail: 'Enquiry created' }];
+      if (stage !== 'enquiry') history.push({ id: `${id}-h2`, at: atToday(11, 0, -stageDays), by, byId: own[by], type: 'stage', from: 'enquiry', to: stage, detail: extra.lostReason ? `Reason: ${LOST_REASONS[extra.lostReason]}` : '' });
+      return { id, child, dob: isoDay(dob), parent, phone, email, programme, preferredStart: daysFromToday(startIn), source: extra.source || 'website', notes: extra.notes || '', ownerId: own[by], stage, stageAt: stage === 'enquiry' ? createdAt : atToday(11, 0, -stageDays), tourAt: extra.tourAt || null, followUp: extra.followUp ?? '', lost: extra.lostReason ? { reason: extra.lostReason, detail: '', at: atToday(11, 0, -stageDays), by } : null, familyId: null, childId: null, createdAt, createdBy: by, createdById: own[by], updatedAt: createdAt, history, demo: true };
     };
-    const assignee = e.assignedTo ? users.find(u => u.id === e.assignedTo) : null;
-    if (!e.child || !e.parent || e.phone.replace(/\D/g, '').length < 10 || !CLASS_LEVELS.includes(e.programme) || (e.assignedTo && !(assignee && canAccess(assignee, 'admissions')))) return settle({ ok: false, reason: 'invalid' });
-    if (!write(admissionsKey(school.id), [e, ...getAdmissionEnquiries()])) return settle({ ok: false, reason: 'storage' });
-    events.enquiry(user, e, assignee?.id);
+    return [
+      mk('ae1', 'Advika Nair', 30, 'Lakshmi Nair', '+91 98450 10101', 'lakshmi.nair@example.com', 'Nursery', 'enquiry', 1, 1, { followUp: daysFromToday(0), notes: 'Asked about the June start.' }),
+      mk('ae2', 'Rehan Kapoor', 44, 'Sonal Kapoor', '+91 98450 20202', 'sonal.k@example.com', 'LKG', 'enquiry', 9, 9, { by: 'Mrs. Rao', followUp: daysFromToday(-1), notes: 'Wants a call back about transport.', source: 'referral' }),
+      mk('ae3', 'Mira Thomas', 36, 'Anil Thomas', '+91 98450 30303', '', 'Montessori', 'tour', 6, 3, { followUp: daysFromToday(2), notes: 'School visit booked.', tourAt: `${daysFromToday(2)}T10:30`, source: 'walkin' }),
+      mk('ae4', 'Aditi Rao', 52, 'Kiran Rao', '+91 98450 40404', 'kiran.rao@example.com', 'UKG', 'applied', 16, 15, { followUp: daysFromToday(1), source: 'social', startIn: 45 }),
+      mk('ae5', 'Sameer Khan', 30, 'Farah Khan', '+91 98450 50505', '', 'Nursery', 'offer', 20, 8, { by: 'Mrs. Rao', notes: 'Offer for next term.', startIn: 50, source: 'event' }),
+      mk('ae6', 'Zoya Ali', 46, 'Imran Ali', '+91 98450 60606', '', 'LKG', 'lost', 25, 20, { by: 'Mrs. Rao', notes: 'Moved city.', lostReason: 'location' }),
+      mk('ae7', 'Kabir Menon', 40, 'Divya Menon', '+91 98450 70707', 'divya.m@example.com', 'LKG', 'enrolled', 120, 90, { source: 'referral', startIn: -60 }),
+      mk('ae8', 'Ira Joshi', 34, 'Neha Joshi', '+91 98450 80808', '', 'Nursery', 'lost', 95, 80, { lostReason: 'fees' }),
+      mk('ae9', 'Vihaan Shetty', 50, 'Rahul Shetty', '+91 98450 90909', 'rahul.s@example.com', 'UKG', 'enrolled', 70, 50, { by: 'Mrs. Rao', source: 'website', startIn: -20 }),
+      mk('ae10', 'Anvi Gupta', 28, 'Pooja Gupta', '+91 98451 01010', '', 'Toddler', 'lost', 60, 40, { lostReason: 'no_response', source: 'social' }),
+      mk('ae11', 'Arjun Pillai', 38, 'Meera Pillai', '+91 98451 11111', 'meera.p@example.com', 'Montessori', 'lost', 45, 35, { lostReason: 'other_school' })
+    ];
+  }
+  // Older records (status-based) become pipeline records once; their history starts with what was known.
+  function migrateEnquiry(e) {
+    if (e.stage) return e;
+    const stage = { new: 'enquiry', contacted: 'enquiry', visit: 'tour', enrolled: 'enrolled', closed: 'lost' }[e.status] || 'enquiry';
+    const byId = userIdByName(e.createdBy);
+    return { ...e, dob: e.dob || '', preferredStart: e.preferredStart || '', source: e.source || 'other', ownerId: e.assignedTo || byId, stage, stageAt: e.createdAt, tourAt: null, lost: stage === 'lost' ? { reason: 'other', detail: e.notes || 'Closed before the pipeline', at: e.createdAt, by: e.createdBy } : null, familyId: null, childId: null, createdById: byId, updatedAt: e.createdAt,
+      history: [{ id: `${e.id}-h0`, at: e.createdAt, by: e.createdBy, byId, type: 'created', to: stage, detail: `Enquiry created${stage !== 'enquiry' ? ` (imported as ${ENQUIRY_STAGES[stage]})` : ''}` }] };
+  }
+  function getAdmissionEnquiries(schoolId = school.id) {
+    const list = seeded(admissionsKey(schoolId), seedEnquiries);
+    let changed = false;
+    const out = list.map(e => {
+      let x = e;
+      if (!x.stage) { x = migrateEnquiry(x); changed = true; }
+      if (x.phoneNorm === undefined || x.status !== STAGE_STATUS[x.stage]) { x = { ...x, phoneNorm: normPhone(x.phone), emailNorm: normEmail(x.email), status: STAGE_STATUS[x.stage] }; changed = true; }
+      return x;
+    });
+    if (changed) { try { localStorage.setItem(admissionsKey(schoolId), JSON.stringify(out)); } catch { /* in memory */ } }
+    return out;
+  }
+  const saveEnquiries = list => write(admissionsKey(school.id), list);
+  const isOpenEnquiry = e => !['enrolled', 'lost'].includes(e.stage || STAGE_STATUS[e.status]);
+  const followUpDue = e => isOpenEnquiry(e) && Boolean(e.followUp) && e.followUp <= today();
+  // Age at a date (default today), as { years, months }; null when the birth date is missing or after the date.
+  function ageAt(dob, at) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dob || '') || !/^\d{4}-\d{2}-\d{2}$/.test(at || '')) return null;
+    const b = new Date(`${dob}T12:00:00`);
+    const a = new Date(`${at}T12:00:00`);
+    if (Number.isNaN(b.getTime()) || Number.isNaN(a.getTime()) || b > a) return null;
+    let m = (a.getFullYear() - b.getFullYear()) * 12 + (a.getMonth() - b.getMonth());
+    if (a.getDate() < b.getDate()) m -= 1;
+    return { years: Math.floor(m / 12), months: m % 12 };
+  }
+  const daysInStage = (e, now = Date.now()) => Math.max(0, Math.floor((now - new Date(e.stageAt || e.createdAt).getTime()) / 864e5));
+
+  // Possible duplicates by normalised phone / email: other enquiries and existing family guardians.
+  function enquiryDuplicates(input, excludeId = null) {
+    const p = normPhone(input.phone);
+    const m = normEmail(input.email);
+    const hit = (ph, em) => (p.length >= 7 && normPhone(ph) === p) || (m && normEmail(em) === m);
+    const enquiries = getAdmissionEnquiries().filter(e => e.id !== excludeId && hit(e.phone, e.email)).map(e => ({ id: e.id, child: e.child, parent: e.parent, stage: e.stage, sameChild: sameName(e.child, input.child) }));
+    const families = listFamilies().filter(f => f.guardians.some(g => hit(g.phone, g.email))).map(f => ({ id: f.id, name: f.name, children: f.children.map(c => c.name), sameChild: f.children.some(c => sameName(c.name, input.child)) }));
+    return { enquiries, families };
+  }
+  function enquiryValues(input, { editing = null } = {}) {
+    const errors = {};
+    const v = {
+      child: clean(input.child).replace(/\s+/g, ' ').slice(0, 80), parent: clean(input.parent).replace(/\s+/g, ' ').slice(0, 80),
+      phone: clean(input.phone).replace(/\s+/g, ' ').slice(0, 24), email: clean(input.email).toLowerCase().slice(0, 120),
+      dob: clean(input.dob), programme: clean(input.programme), preferredStart: clean(input.preferredStart),
+      source: ENQUIRY_SOURCES[input.source] ? input.source : 'other', notes: String(input.notes || '').trim().slice(0, 1000),
+      ownerId: clean(input.ownerId), followUp: clean(input.followUp)
+    };
+    if (!v.parent) errors.parent = 'Enter the parent or guardian’s name.';
+    if (!v.child) errors.child = 'Enter the child’s name.';
+    const digits = v.phone.replace(/\D/g, '');
+    if (!v.phone) errors.phone = 'Enter a phone number.';
+    else if (!/^\+?[\d\s().-]+$/.test(v.phone) || digits.length < 7 || digits.length > 15) errors.phone = 'Enter a phone number using digits (7 to 15), with an optional + and spaces.';
+    if (v.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.email)) errors.email = 'Enter an email address like name@example.com, or leave it empty.';
+    if (!CLASS_LEVELS.includes(v.programme)) errors.programme = 'Choose a programme.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v.preferredStart) || Number.isNaN(new Date(`${v.preferredStart}T12:00:00`).getTime())) errors.preferredStart = 'Choose the preferred start date.';
+    else if (v.preferredStart < today() && !(editing && editing.preferredStart === v.preferredStart)) errors.preferredStart = 'The preferred start can’t be in the past.';
+    else if (v.preferredStart > daysFromToday(730)) errors.preferredStart = 'Choose a start within the next two years.';
+    if (v.dob) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v.dob) || Number.isNaN(new Date(`${v.dob}T12:00:00`).getTime())) errors.dob = 'Enter a valid date of birth.';
+      else if (v.dob > today()) errors.dob = 'The date of birth can’t be in the future.';
+      else if (v.dob < daysFromToday(-365 * 10)) errors.dob = 'Check the date of birth — that’s more than 10 years ago.';
+    }
+    if (v.followUp && (!/^\d{4}-\d{2}-\d{2}$/.test(v.followUp) || Number.isNaN(new Date(`${v.followUp}T12:00:00`).getTime()))) errors.followUp = 'Enter a valid follow-up date.';
+    const owners = admissionsOwners();
+    if (v.ownerId && !owners.some(o => o.id === v.ownerId)) errors.ownerId = 'Choose someone on the admissions team.';
+    return { v, errors };
+  }
+
+  // Duplicate rules: the same child (name) at the same contact is always blocked — open the existing record instead.
+  // A different child at a known contact (a sibling) needs explicit confirmation; it's then linked to that family.
+  function createEnquiry(user, input = {}, { confirmSibling = false, clientId = '' } = {}) {
+    if (!can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
+    const list = getAdmissionEnquiries();
+    if (clientId) { const again = list.find(e => e.clientId === clientId); if (again) return settle({ ok: true, enquiry: again, repeated: true }); }
+    const { v, errors } = enquiryValues(input);
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const dup = enquiryDuplicates(v);
+    const blocking = dup.enquiries.find(e => e.sameChild) || dup.families.find(f => f.sameChild);
+    if (blocking) return settle({ ok: false, reason: 'duplicate', blocking: true, duplicates: dup });
+    if ((dup.enquiries.length || dup.families.length) && !confirmSibling) return settle({ ok: false, reason: 'duplicate', blocking: false, duplicates: dup });
+    const now = new Date().toISOString();
+    const ownerId = v.ownerId || (admissionsOwners().some(o => o.id === user.id) ? user.id : admissionsOwners()[0]?.id || '');
+    const e = { id: newId('ae'), ...v, ownerId, phoneNorm: normPhone(v.phone), emailNorm: normEmail(v.email), stage: 'enquiry', status: 'new', stageAt: now, tourAt: null, lost: null, familyId: dup.families[0]?.id || null, childId: null, createdAt: now, createdBy: user.name, createdById: user.id, updatedAt: now, clientId: clientId || newId('cl'),
+      history: [histEvent(user, 'created', { to: 'enquiry', detail: `Enquiry created · source: ${ENQUIRY_SOURCES[v.source]}${dup.families[0] ? ` · linked to the ${dup.families[0].name}` : dup.enquiries[0] ? ` · sibling of ${dup.enquiries[0].child}` : ''}` })] };
+    if (ownerId) e.history.push(histEvent(user, 'owner', { detail: `Owner assigned: ${users.find(u => u.id === ownerId)?.name || 'Admissions team'}` }));
+    if (v.followUp) e.history.push(histEvent(user, 'followup', { detail: `Follow-up set for ${v.followUp}` }));
+    if (!saveEnquiries([e, ...list])) return settle({ ok: false, reason: 'storage' });
+    if (ownerId) notifyUsers({ module: 'admissions', kind: 'enquiry', title: `New enquiry: ${e.child} — ${e.programme}`, body: `${e.parent} · ${ENQUIRY_SOURCES[e.source]} · ref ${e.id}`, recordType: 'enquiry', recordId: e.id, dedupeKey: `enquiry:${e.id}`, actorId: user.id }, { toUserIds: [ownerId] });
+    logAudit(user, 'create:enquiry', '', `${e.child} (${e.programme})`);
     return settle({ ok: true, enquiry: e });
+  }
+  function updateEnquiry(user, id, input = {}) {
+    if (!can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
+    const list = getAdmissionEnquiries();
+    const e = list.find(x => x.id === id);
+    if (!e) return settle({ ok: false, reason: 'missing' });
+    if (input.updatedAt && input.updatedAt !== e.updatedAt) return settle({ ok: false, reason: 'stale' });
+    const { v, errors } = enquiryValues({ ...e, ...input }, { editing: e });
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const dup = enquiryDuplicates(v, id);
+    const blocking = dup.enquiries.find(x => x.sameChild && x.stage !== 'lost');
+    if (blocking) return settle({ ok: false, reason: 'duplicate', blocking: true, duplicates: { enquiries: [blocking], families: [] } });
+    const events_ = [];
+    if (v.ownerId !== e.ownerId) events_.push(histEvent(user, 'owner', { detail: `Owner changed: ${users.find(u => u.id === v.ownerId)?.name || 'Unassigned'}` }));
+    if (v.followUp !== (e.followUp || '')) events_.push(histEvent(user, 'followup', { detail: v.followUp ? `Follow-up set for ${v.followUp}` : 'Follow-up cleared' }));
+    if (v.preferredStart !== e.preferredStart) events_.push(histEvent(user, 'edit', { detail: `Preferred start changed: ${e.preferredStart || '—'} → ${v.preferredStart}` }));
+    const other = ['child', 'parent', 'phone', 'email', 'dob', 'programme', 'source', 'notes'].filter(k => (v[k] || '') !== (e[k] || ''));
+    if (other.length) events_.push(histEvent(user, 'edit', { detail: `Details updated: ${other.join(', ')}` }));
+    if (!events_.length) return settle({ ok: true, enquiry: e, unchanged: true });
+    Object.assign(e, v, { phoneNorm: normPhone(v.phone), emailNorm: normEmail(v.email), updatedAt: new Date().toISOString() });
+    e.history = [...e.history, ...events_];
+    if (!saveEnquiries(list)) return settle({ ok: false, reason: 'storage' });
+    if (v.ownerId && events_.some(x => x.type === 'owner') && v.ownerId !== user.id) notifyUsers({ module: 'admissions', kind: 'mention', title: `${user.name} assigned you an enquiry`, body: `${e.child} — ${e.programme}`, recordType: 'enquiry', recordId: e.id, mentions: [v.ownerId], dedupeKey: `assign:${e.id}:${v.ownerId}:${e.updatedAt}`, actorId: user.id }, { toUserIds: [v.ownerId] });
+    return settle({ ok: true, enquiry: e });
+  }
+  function setEnquiryFollowUp(user, id, date) {
+    if (!can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
+    const list = getAdmissionEnquiries();
+    const e = list.find(x => x.id === id);
+    if (!e) return settle({ ok: false, reason: 'missing' });
+    const d = clean(date);
+    if (d && (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(new Date(`${d}T12:00:00`).getTime()))) return settle({ ok: false, reason: 'invalid', errors: { followUp: 'Enter a valid follow-up date.' } });
+    if (d === (e.followUp || '')) return settle({ ok: true, enquiry: e, unchanged: true });
+    e.followUp = d;
+    e.updatedAt = new Date().toISOString();
+    e.history = [...e.history, histEvent(user, 'followup', { detail: d ? `Follow-up set for ${d}` : 'Follow-up cleared' })];
+    return settle(saveEnquiries(list) ? { ok: true, enquiry: e } : { ok: false, reason: 'storage' });
+  }
+  // Moves between pipeline stages. Lost needs a reason; Enrolled only comes from S14 (completeEnquiryEnrolment).
+  // `from` is the stage the person saw — if the record has moved since, nothing is overwritten.
+  let movingEnquiry = '';
+  function moveEnquiry(user, id, to, { from = null, reason = '', detail = '', tourAt = null } = {}) {
+    if (!can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
+    if (!ENQUIRY_STAGES[to]) return settle({ ok: false, reason: 'invalid' });
+    if (to === 'enrolled') return settle({ ok: false, reason: 'enrol-via-s14' });
+    if (movingEnquiry === id) return settle({ ok: false, reason: 'busy' });
+    const list = getAdmissionEnquiries();
+    const e = list.find(x => x.id === id);
+    if (!e) return settle({ ok: false, reason: 'missing' });
+    if (from && e.stage !== from) return settle({ ok: false, reason: 'stale', stage: e.stage });
+    if (e.stage === to) return settle({ ok: true, enquiry: e, unchanged: true });
+    if (e.stage === 'enrolled') return settle({ ok: false, reason: 'locked' });
+    const errors = {};
+    if (to === 'lost') {
+      if (!LOST_REASONS[reason]) errors.reason = 'Choose a reason.';
+      else if (reason === 'other' && !clean(detail)) errors.detail = 'Say why the enquiry was lost.';
+    }
+    if (to === 'tour' && tourAt && (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(tourAt) || Number.isNaN(new Date(tourAt).getTime()))) errors.tourAt = 'Enter a valid tour date and time.';
+    else if (to === 'tour' && tourAt && new Date(tourAt).getTime() < Date.now()) errors.tourAt = 'The tour can’t be in the past.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    movingEnquiry = id;
+    const now = new Date().toISOString();
+    const prev = e.stage;
+    Object.assign(e, { stage: to, status: STAGE_STATUS[to], stageAt: now, updatedAt: now });
+    if (to === 'lost') e.lost = { reason, detail: clean(detail).slice(0, 300), at: now, by: user.name };
+    if (to === 'tour') e.tourAt = tourAt || null;
+    e.history = [...e.history, histEvent(user, to === 'lost' ? 'lost' : 'stage', { from: prev, to, detail: to === 'lost' ? `Reason: ${LOST_REASONS[reason]}${clean(detail) ? ` — ${clean(detail)}` : ''}` : to === 'tour' && tourAt ? `Tour on ${tourAt.replace('T', ' ')}` : prev === 'lost' ? 'Reopened' : '' })];
+    const ok = saveEnquiries(list);
+    movingEnquiry = '';
+    if (!ok) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'stage:enquiry', '', `${e.child}: ${ENQUIRY_STAGES[prev]} → ${ENQUIRY_STAGES[to]}`);
+    return settle({ ok: true, enquiry: e, from: prev });
+  }
+  // What S14 needs before it can start; records that enrolment was started (once a day) without changing the stage.
+  function startEnquiryEnrolment(user, id) {
+    if (!can(user, 'admissions') || !canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getAdmissionEnquiries();
+    const e = list.find(x => x.id === id);
+    if (!e) return settle({ ok: false, reason: 'missing' });
+    if (e.stage === 'enrolled') return settle({ ok: false, reason: 'locked' });
+    const errors = {};
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(e.dob || '')) errors.dob = 'Add the child’s date of birth first — enrolment needs it.';
+    if (e.child.trim().split(/\s+/).length < 2) errors.child = 'Add the child’s last name first — enrolment needs a first and last name.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const last = e.history[e.history.length - 1];
+    if (!(last?.type === 'enrol-started' && last.at.slice(0, 10) === new Date().toISOString().slice(0, 10))) {
+      e.history = [...e.history, histEvent(user, 'enrol-started', { detail: 'Enrolment started in S14 (not enrolled yet)' })];
+      e.updatedAt = new Date().toISOString();
+      if (!saveEnquiries(list)) return settle({ ok: false, reason: 'storage' });
+    }
+    return settle({ ok: true, enquiry: e });
+  }
+  // Prefill for the S14 wizard: names split into first/last, the guardian contact, class level → an active class.
+  function enquiryPrefill(user, id) {
+    if (!can(user, 'admissions')) return null;
+    const e = getAdmissionEnquiries().find(x => x.id === id);
+    if (!e || e.stage === 'enrolled') return null;
+    const parts = e.child.trim().split(/\s+/);
+    const cls = activeClasses().find(c => c.level === e.programme) || activeClasses().find(c => c.name.startsWith(e.programme));
+    return { enquiryId: e.id, child: { firstName: parts.slice(0, -1).join(' ') || parts[0], lastName: parts.length > 1 ? parts[parts.length - 1] : '', dob: e.dob || '' }, guardian: { name: e.parent, phone: e.phone, email: e.email }, cls: cls?.name || '', startDate: e.preferredStart && e.preferredStart >= today() ? e.preferredStart : today(), familyId: e.familyId };
+  }
+  // Called by S14 after the child is saved: the only way an enquiry becomes Enrolled. Safe to call twice.
+  function completeEnquiryEnrolment(user, id, childId) {
+    const list = getAdmissionEnquiries();
+    const e = list.find(x => x.id === id);
+    const c = childById(childId);
+    if (!e || !c) return { ok: false, reason: 'missing' };
+    if (e.stage === 'enrolled' && e.childId === childId) return { ok: true, enquiry: e, repeated: true };
+    const fam = listFamilies().find(f => f.children.some(k => k.id === childId));
+    const now = new Date().toISOString();
+    const prev = e.stage;
+    Object.assign(e, { stage: 'enrolled', status: 'enrolled', stageAt: now, updatedAt: now, childId, familyId: fam?.id || e.familyId, preferredStart: c.startDate || e.preferredStart });
+    e.history = [...e.history, histEvent(user, 'enrolled', { from: prev, to: 'enrolled', detail: `Enrolled — S14 enrolment completed (${c.cls}, starts ${c.startDate})` })];
+    if (!saveEnquiries(list)) return { ok: false, reason: 'storage' };
+    logAudit(user, 'enrol:enquiry', childId, `${e.child} from enquiry ${e.id}`);
+    return { ok: true, enquiry: e };
+  }
+  /* KPIs, from the stored records:
+     - New this week: created Monday–Sunday of this week (school's local time).
+     - Tours booked: in Tour booked with a tour date/time still to come.
+     - Applications / Offers out: currently in Applied / Offer sent.
+     - Conversion rate: of enquiries created 30–365 days ago (a mature cohort: newer ones haven't had time to decide),
+       the share now Enrolled. Shown as "—" until at least 5 enquiries are in that cohort.
+     - Expected starts: Offer sent or Enrolled with a start date from today up to the same day three months ahead. */
+  function admissionsKpis(list = getAdmissionEnquiries()) {
+    const now = new Date();
+    const mon = new Date(now); mon.setHours(0, 0, 0, 0); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+    const sun = new Date(mon); sun.setDate(sun.getDate() + 7);
+    const newWeek = list.filter(e => { const t = new Date(e.createdAt); return t >= mon && t < sun; }).length;
+    const toursList = list.filter(e => e.stage === 'tour');
+    const tours = toursList.filter(e => e.tourAt && new Date(e.tourAt) > now).length;
+    const cohortFrom = new Date(now.getTime() - 365 * 864e5);
+    const cohortTo = new Date(now.getTime() - 30 * 864e5);
+    const cohort = list.filter(e => { const t = new Date(e.createdAt); return t >= cohortFrom && t <= cohortTo; });
+    const enrolled = cohort.filter(e => e.stage === 'enrolled').length;
+    const end = new Date(now); end.setMonth(end.getMonth() + 3);
+    const endIso = isoDay(end);
+    const starts = list.filter(e => ['offer', 'enrolled'].includes(e.stage) && e.preferredStart && e.preferredStart >= today() && e.preferredStart <= endIso);
+    return { newWeek, tours, toursNoDate: toursList.length - tours, applications: list.filter(e => e.stage === 'applied').length, offers: list.filter(e => e.stage === 'offer').length, conversion: cohort.length >= 5 ? Math.round((enrolled / cohort.length) * 100) : null, cohort: cohort.length, cohortEnrolled: enrolled, starts: starts.length, startsTo: endIso };
+  }
+  // The dashboard quick action: same rules as the pipeline's Add enquiry.
+  async function addAdmissionEnquiry(user, data) {
+    const r = await createEnquiry(user, { child: data.child, parent: data.parent, phone: data.phone, email: data.email, programme: data.programme, preferredStart: data.preferredStart, followUp: data.followUp, ownerId: data.assignedTo || '', notes: data.notes, source: data.source || 'other' });
+    if (r.reason === 'duplicate') return { ok: false, reason: 'invalid', message: `This family may already be in admissions (${[...r.duplicates.enquiries.map(x => x.child), ...r.duplicates.families.map(x => x.name)].join(', ')}). Add it from the Admissions page to review the match.` };
+    return r;
   }
 
   /* Fees: one term invoice per child, and the payments recorded against it. Amounts in rupees. */
@@ -5952,7 +6214,7 @@
     };
     const missing = { error: 'This record has been removed or is no longer available.' };
     switch (n.recordType) {
-      case 'enquiry': return getAdmissionEnquiries().some(e => e.id === n.recordId) ? go('admissions', { status: 'all', focus: n.recordId }) : missing;
+      case 'enquiry': return getAdmissionEnquiries().some(e => e.id === n.recordId) ? go('admissions', { applicant: n.recordId }) : missing;
       case 'invoice': return getInvoices().some(i => i.id === n.recordId) ? go('fees', { status: 'all', focus: n.recordId }) : missing;
       case 'incident': return getIncidents().some(i => i.id === n.recordId) ? go('safeguarding', { status: 'all', focus: n.recordId }) : missing;
       case 'meeting': return ptmData().bookings.some(b => b.id === n.recordId) ? go('meetings', { tab: 'bookings', booking: n.recordId }) : missing;
@@ -6329,6 +6591,21 @@
     ratioStatus,
     ENQUIRY_STATUSES,
     getAdmissionEnquiries,
+    ENQUIRY_STAGES,
+    ENQUIRY_SOURCES,
+    LOST_REASONS,
+    admissionsOwners,
+    ageAt,
+    daysInStage,
+    enquiryDuplicates,
+    createEnquiry,
+    updateEnquiry,
+    setEnquiryFollowUp,
+    moveEnquiry,
+    startEnquiryEnrolment,
+    enquiryPrefill,
+    completeEnquiryEnrolment,
+    admissionsKpis,
     isOpenEnquiry,
     followUpDue,
     addAdmissionEnquiry,

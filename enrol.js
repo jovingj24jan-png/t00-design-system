@@ -99,7 +99,12 @@
     const edit = Boolean(childId);
     // An edit with a saved draft offers to resume it; a draft link resumes straight away.
     const editDraft = edit && !draft ? store.getDrafts().find(d => d.childId === childId) : null;
-    let state = draft ? draft.data : edit ? fromChild(childId) : blank();
+    // From the admissions pipeline (?enquiry=<id>): start prefilled and keep the link in the draft. The enquiry only
+    // becomes Enrolled after the child is saved below.
+    const pre = !draft && !edit && params.get('enquiry') ? store.enquiryPrefill(user, params.get('enquiry')) : null;
+    const fromPrefill = p => { const b = blank(); return { ...b, fromEnquiry: p.enquiryId, child: { ...b.child, ...p.child }, guardians: [{ ...b.guardians[0], name: p.guardian.name, phone: p.guardian.phone, email: p.guardian.email }], classSchedule: { ...b.classSchedule, cls: p.cls, startDate: p.startDate } }; };
+    let state = draft ? draft.data : edit ? fromChild(childId) : pre ? fromPrefill(pre) : blank();
+    const linkedEnquiry = !edit ? state.fromEnquiry || null : null;
     let step = draft ? Math.min(draft.step, STEPS.length - 1) : 0;
     let errors = {};
     let dirty = false;
@@ -120,6 +125,7 @@
           <h1 class="kids-head__title" id="page-title" tabindex="-1">${edit ? `Edit ${esc(name())}` : 'Enrol child'}</h1>
           <p class="kids-head__sub" data-saved aria-live="polite">${draft ? `Draft saved ${esc(when(draft.updatedAt))}` : ''}</p>
         </header>
+        ${linkedEnquiry ? `<p class="ls-banner">${icon('info', 'icon--sm')}<span>Prefilled from admissions enquiry <a href="${routes.page('admissions', { applicant: linkedEnquiry })}">${esc(linkedEnquiry)}</a>. The enquiry is marked Enrolled only when you finish and save this enrolment. If this family already has a child here, link the existing family in step 2.</span></p>` : ''}
         <div class="wiz-resume" data-resume hidden></div>
         <div class="wiz-body">
           <nav class="wiz-steps" aria-label="Enrolment steps"><ol data-steps></ol></nav>
@@ -547,6 +553,7 @@
       btn.innerHTML = label;
       if (r.ok) {
         dirty = false;
+        if (linkedEnquiry && r.created) store.completeEnquiryEnrolment(user, linkedEnquiry, r.child.id);
         try { sessionStorage.setItem(FLASH_KEY, JSON.stringify(r.created ? { title: `${store.childName(r.child)} enrolled`, text: `${r.child.cls} · starts ${day(r.child.startDate)}.` } : { title: 'Changes saved successfully', text: `${store.childName(r.child)}’s record is up to date.` })); } catch { /* toast optional */ }
         location.href = routes.record(r.child.id);
         return;

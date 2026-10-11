@@ -112,6 +112,7 @@
           ${field('phone', 'Phone', input('phone', 'type="tel" autocomplete="tel" inputmode="tel" required placeholder="+91 98400 00000"'), { required: true })}
           ${field('email', 'Email', input('email', 'type="email" autocomplete="email" placeholder="name@example.com"'))}
           ${field('programme', 'Class of interest', select('programme', option('', 'Choose a class', true) + store.CLASS_LEVELS.map(l => option(l, l)).join(''), 'required'), { required: true })}
+          ${field('preferredStart', 'Preferred start', input('preferredStart', `type="date" min="${store.today()}" required`), { required: true })}
           ${field('followUp', 'Follow up on', input('followUp', `type="date" value="${store.today()}"`))}
           ${field('assignedTo', 'Assign follow-up to', select('assignedTo', option('', 'Me', true) + store.users.filter(u => u.id !== user.id && store.canAccess(u, 'admissions')).map(u => option(u.id, `${u.name} · ${u.role}`)).join('')), { hint: 'They’ll get a mention in their notifications.' })}
           <div class="span-all">${field('notes', 'Notes', textarea('notes', 'maxlength="500" placeholder="What did the family ask about?"'))}</div>
@@ -124,6 +125,7 @@
         if (v('phone').replace(/\D/g, '').length < 10) errors.phone = 'Enter a phone number with at least 10 digits.';
         if (v('email') && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v('email'))) errors.email = 'Enter an email address like name@example.com, or leave it empty.';
         if (!v('programme')) errors.programme = 'Choose the class the family is interested in.';
+        if (!v('preferredStart')) errors.preferredStart = 'Choose the preferred start date.';
         return errors;
       },
       submit: (user, form) => store.addAdmissionEnquiry(user, Object.fromEntries(new FormData(form))),
@@ -362,7 +364,7 @@
       clearLoading(submitBtn);
       // On failure everything the user entered stays in the form.
       if (!r.ok) {
-        sendError.innerHTML = `${icon('info')}${esc(FAIL[r.reason] || FAIL.storage)}`;
+        sendError.innerHTML = `${icon('info')}${esc(r.message || (r.errors && Object.values(r.errors)[0]) || FAIL[r.reason] || FAIL.storage)}`;
         sendError.hidden = false;
         submitBtn.focus();
         return;
