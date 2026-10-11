@@ -389,7 +389,7 @@
     const EDITORS = {
       identity() {
         const c = child();
-        const teachers = store.educators.map(e => [e.name, `${e.name} · ${e.cls}`]);
+        const teachers = store.educators.map(e => [e.name, `${e.name} · ${e.cls || (e.relief ? 'Relief staff' : 'No class')}`]);
         kids.dialog({
           label: 'Child profile / Child details', title: 'Edit child details', desc: 'Class changes use Move class, so registers and ratios stay correct.',
           body: `<div class="kids-form__grid">

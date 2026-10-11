@@ -263,3 +263,52 @@ the archive transaction).
 ## Test hook
 
 `?fail=1` makes the first load fail so the error state can be checked.
+
+# S17 Class detail — `app.html?page=class&id=<classId>[&tab=roster|staff|today|schedule|room]` (`classdetail.js`)
+
+A teacher's home base for one class. Opened from a class card (name or **Open class**). Teachers can open only
+their own classes (otherwise "This isn't one of your classes"); leaders can open any active class. The sidebar
+keeps **Classes** highlighted. The selected tab is kept in the URL.
+
+**Header:** name, level, ages, Mixed age, room, the S17 capacity block and today's ratio chip (shared with the
+Classes page via `NexoraClasses.ratioChip` / `capacityBlock`), **Take attendance** → S19
+`app.html?page=attendance&cls=<class>` (S19 registers are today-only), and **Edit class** for leaders.
+
+| Tab | Source | Notes |
+| --- | --- | --- |
+| Roster | `enrolledIn(class)` + today's S19 register | Rings: green present/late, grey not recorded / register not taken, red absent, dashed = starts later. An unrecorded mark is never shown as absent. Alert dots reuse the S12 icons; type names are in each child's accessible label. Mobile: exactly 4 per row. |
+| Staff | class `staffIds` (first = Lead teacher, others Assistant), `nexora-staff-shifts`, staff attendance, cover | Shows shift and duty today, who is covered, and all upcoming cover with **Cancel cover** (record kept as `cancelled`). |
+| Today | register, diary, announcements, cover | Attendance reconciles with active children. Diary completion per diary field (Meals, Rest, Notes): expected = one entry per present child; unavailable until the register is taken. Events = today's announcements for the class/all, children starting today, cover. No school calendar exists yet. |
+| Schedule | `nexora-class-routines:<school>` | Weekday routine sorted by start time, "Now" marker from the real clock (refreshed each minute). Weekends/closed days and classes without a routine get their own states. Read-only: no routine editor exists yet. |
+| Room & resources | class registry | Room and class (enrolment) capacity. **S23 rooms & resources is not built**, so no materials are listed and nothing is estimated. |
+
+## Child quick view
+
+Right drawer (full width on phones). Order: **Alerts** (only those the role may see — medical/allergy/dietary
+need the Medical section, custody needs Custody; hidden ones are counted, never shown), identity and age,
+today's attendance (from the register only), authorised pickup (Emergency section) with emergency contacts
+listed separately, today's saved diary entries, then **Open full profile** (`record.html?id=`) and **Move child**.
+
+## Move child — `store.transferChild(user, childId, targetClass, date)`
+
+Leaders only. Target must be another active class; seats = capacity − enrolled − moves already scheduled in;
+a full class can't be chosen and is re-checked at confirm. Two steps (review, then confirm). Today moves the
+child now (same record and ID; history entry; key teacher hands over); a later date stores `pendingMove` and the
+move is applied by `getChildren()` on that date. Attendance, diary and learning stay where they were recorded.
+One scheduled move per child at a time.
+
+## Cover — `store.substituteOptions` / `assignSubstitute` / `cancelSubstitute`
+
+`nexora-substitutes:<school>` `{ classId, date, replacingId, substituteId, start, end, status }`. Leaders only.
+The shift covered is the replaced person's shift that day. Eligible = working hours span the shift, not away
+today, not being covered themselves, not teaching their own class, and not covering elsewhere at the same time —
+in this demo that means relief staff (Ms. Revathi 08:00–17:00, Mr. Joseph 08:30–13:30). Dates: today to 60 days,
+school days only. One cover per person per day. Cover for today changes the ratio: the substitute counts in the
+covered class (if marked present) and the person covered doesn't.
+
+## Production note
+
+Transfers, cover and seat checks run in the store so every caller goes through them, but concurrent edits
+(two people filling the last seat) need server-side enforcement.
+
+Test hook: `?fail=1` shows the error state with Retry.

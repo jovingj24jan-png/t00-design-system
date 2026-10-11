@@ -69,20 +69,22 @@
     return `1:${Math.round((r.children / r.educators) * 10) / 10}`;
   };
 
+  // Today's ratio chip and the line that explains it (shared with the class detail page).
+  function ratioChip(r) {
+    if (r.status === 'ok') return {
+      chip: `<span class="cls-ratio cls-ratio--ok">${icon('check-circle', 'icon--sm')}<b>${esc(observed(r))}</b><span class="cls-ratio__word">Met</span></span>`,
+      note: `${plural(r.educators, 'adult')} with ${plural(r.children, 'child', 'children')}`
+    };
+    if (r.status === 'breach') return {
+      chip: `<span class="cls-ratio cls-ratio--breach">${icon('alert-triangle', 'icon--sm')}<b>${esc(observed(r))}</b><span class="cls-ratio__word">Not met</span></span>`,
+      note: `Needs ${plural(r.required - r.educators, 'more adult', 'more adults')} for ${plural(r.children, 'child', 'children')}`
+    };
+    return { chip: `<span class="cls-ratio cls-ratio--na">${icon('info', 'icon--sm')}<b>Ratio unavailable</b></span>`, note: r.reason };
+  }
+
   function todayBlock(c) {
-    const r = c.ratioToday;
     const rule = `${c.ratio.adults}:${c.ratio.children}`;
-    let chip, note = '';
-    if (r.status === 'ok') {
-      chip = `<span class="cls-ratio cls-ratio--ok">${icon('check-circle', 'icon--sm')}<b>${esc(observed(r))}</b><span class="cls-ratio__word">Met</span></span>`;
-      note = `${plural(r.educators, 'adult')} with ${plural(r.children, 'child', 'children')}`;
-    } else if (r.status === 'breach') {
-      chip = `<span class="cls-ratio cls-ratio--breach">${icon('alert-triangle', 'icon--sm')}<b>${esc(observed(r))}</b><span class="cls-ratio__word">Not met</span></span>`;
-      note = `Needs ${plural(r.required - r.educators, 'more adult', 'more adults')} for ${plural(r.children, 'child', 'children')}`;
-    } else {
-      chip = `<span class="cls-ratio cls-ratio--na">${icon('info', 'icon--sm')}<b>Ratio unavailable</b></span>`;
-      note = r.reason;
-    }
+    const { chip, note } = ratioChip(c.ratioToday);
     return `<div class="cls-today">
       <div class="cls-today__row">
         <span class="cls-label">Today’s ratio</span>
@@ -99,7 +101,7 @@
     return `<article class="cls-card cls-card--${esc(c.colour)}" aria-labelledby="cls-${esc(c.id)}">
       <header class="cls-card__head">
         <div class="cls-card__id">
-          <h2 class="cls-card__name" id="cls-${esc(c.id)}">${esc(c.name)}</h2>
+          <h2 class="cls-card__name" id="cls-${esc(c.id)}"><a href="${routes.page('class', { id: c.id })}">${esc(c.name)}</a></h2>
           <p class="cls-card__meta"><span>${esc(c.level)}</span><span>${esc(ages(c))}</span>${c.mixedAge ? '<span class="cls-tag">Mixed age</span>' : ''}</p>
         </div>
         ${manage ? `<div class="menu-wrap"><button class="btn btn--icon-ghost" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for ${esc(c.name)}" data-menu="${esc(c.id)}">${icon('more-v')}</button>
@@ -114,7 +116,7 @@
       ${staffBlock(c, manage)}
       ${capacityBlock(c)}
       ${todayBlock(c)}
-      <a class="cls-card__link" href="${routes.page('children', { cls: c.name })}">View children${icon('arrow-right', 'icon--sm')}</a>
+      <a class="cls-card__link" href="${routes.page('class', { id: c.id })}">Open class${icon('arrow-right', 'icon--sm')}<span class="sr-only"> ${esc(c.name)}</span></a>
     </article>`;
   }
 
@@ -457,5 +459,5 @@
     return false;
   }
 
-  window.NexoraClasses = { render };
+  window.NexoraClasses = { render, ratioChip, capacityBlock, classDialog };
 })();

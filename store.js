@@ -202,6 +202,7 @@
     roster: { name: 'Class rosters', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Who is in each class, with capacity and schedules.' },
     compose: { name: 'Message families', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Write to selected families. Prototype: messages are saved, not delivered.' },
     classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Manage classrooms, capacity and today’s staffing.' },
+    class: { name: 'Class', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'One class: roster, staff, today, routine and room.' },
     settings: { name: 'Settings', icon: 'grid', roles: ['Director', 'Admin', 'Super Admin'], summary: 'School details, academic year, school hours and preferences.' },
     notifications: { name: 'Notifications', icon: 'bell', roles: roles.slice(), summary: 'Updates and requests sent to you.' },
     'notification-settings': { name: 'Notification settings', icon: 'bell', roles: roles.slice(), summary: 'Choose which modules send you notifications.' }
@@ -562,6 +563,15 @@
     const guardians = read(guardiansKey(schoolId), []);
     let changed = false;
     list.forEach((c, i) => { if (normaliseChild(c, i, guardians)) changed = true; });
+    // Scheduled class moves (S17 Move child) take effect on their date.
+    list.forEach(c => {
+      const m = c.pendingMove;
+      if (!m || m.date > today()) return;
+      if (['active', 'starting'].includes(c.status) && classByName(m.cls)?.status === 'active') applyMove({ name: m.by }, c, m.cls, ` (scheduled for ${m.date})`);
+      else c.history = [...c.history, { at: new Date().toISOString(), by: 'System', action: 'move-cancelled', detail: `Scheduled move to ${m.cls} didn’t happen: the class or child is no longer active` }];
+      delete c.pendingMove;
+      changed = true;
+    });
     if (changed) {
       try { localStorage.setItem(guardiansKey(schoolId), JSON.stringify(guardians)); localStorage.setItem(childrenKey(schoolId), JSON.stringify(list)); } catch { /* storage blocked: shape stays in memory */ }
     }
@@ -583,6 +593,13 @@
   function saveChildren(list, schoolId = school.id) { return write(childrenKey(schoolId), list); }
   const stamp = (user, action, detail) => ({ at: new Date().toISOString(), by: user.name, action, detail });
 
+  function applyMove(user, c, cls, detail = '') {
+    c.history = [...c.history, stamp(user, 'moved', `Moved from ${c.cls} to ${cls}${detail}`)];
+    // A key teacher from the old class hands over to the new class's lead educator.
+    if (!c.keyTeacher || staffOf(c.cls).some(e => e.name === c.keyTeacher)) c.keyTeacher = staffOf(cls)[0]?.name || '';
+    c.cls = cls;
+  }
+
   // Moves one or more children together: if any child can't move, nothing is saved.
   function moveChildren(user, ids, cls) {
     if (!canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
@@ -595,10 +612,7 @@
     let moved = 0;
     targets.forEach(c => {
       if (c.cls === cls) return;
-      c.history = [...c.history, stamp(user, 'moved', `Moved from ${c.cls} to ${cls}`)];
-      // A key teacher from the old class hands over to the new class's lead educator.
-      if (!c.keyTeacher || staffOf(c.cls).some(e => e.name === c.keyTeacher)) c.keyTeacher = staffOf(cls)[0]?.name || '';
-      c.cls = cls;
+      applyMove(user, c, cls);
       moved += 1;
     });
     if (!moved) return settle({ ok: false, reason: 'same', errors: { cls: `Already in ${cls}. Choose a different class.` } });
@@ -1895,7 +1909,10 @@
     { id: 'ed-kavitha', name: 'Ms. Kavitha', home: 'UKG B' },
     { id: 'ed-sunita', name: 'Ms. Sunita', home: 'LKG A' },
     { id: 'ed-priya', name: 'Ms. Priya', home: 'Nursery' },
-    { id: 'ed-anjali', name: 'Ms. Anjali', home: 'Nursery' }
+    { id: 'ed-anjali', name: 'Ms. Anjali', home: 'Nursery' },
+    // Relief staff: no class of their own; they cover absences (S17 class detail → Assign substitute).
+    { id: 'ed-revathi', name: 'Ms. Revathi', home: null, relief: true },
+    { id: 'ed-joseph', name: 'Mr. Joseph', home: null, relief: true }
   ];
   educators.forEach(e => Object.defineProperty(e, 'cls', { get: () => classesOfStaff(e.id)[0] || '', enumerable: false }));
 
@@ -1948,8 +1965,13 @@
   // Staff assigned to a class, lead first.
   const staffOf = name => { const c = classByName(name); return c ? c.staffIds.map(id => educators.find(e => e.id === id)).filter(Boolean) : []; };
   const classesOfStaff = staffId => activeClasses().filter(c => c.staffIds.includes(staffId)).map(c => c.name);
-  // An adult can only be in one room: a member of staff counts towards the ratio of their first active class only.
-  const countedClassOf = staffId => activeClasses().find(c => c.staffIds.includes(staffId))?.name || null;
+  // An adult can only be in one room: a member of staff counts towards the ratio of their first active class
+  // only — unless they are covering another class today, where they count instead.
+  const countedClassOf = staffId => {
+    const cover = substitutesOn(today()).find(s => s.substituteId === staffId);
+    if (cover) return classById(cover.classId)?.name || null;
+    return activeClasses().find(c => c.staffIds.includes(staffId))?.name || null;
+  };
 
 
   // Classes a user's data is limited to: a Teacher sees only the classes they're assigned to.
@@ -2022,13 +2044,16 @@
     const rule = { ...base, limit, ratio: { adults, children: per } };
     const entry = register[cls];
     if (!entry) return { ...rule, status: 'unavailable', reason: 'Register not taken yet' };
-    const assigned = staffOf(cls);
-    if (!assigned.length) return { ...rule, status: 'unavailable', reason: 'No staff assigned' };
-    if (assigned.some(e => !staff[e.id])) return { ...rule, status: 'unavailable', reason: 'Staff attendance not recorded' };
+    // Today's team: assigned staff who aren't being covered, plus anyone covering this class today.
+    const covers = substitutesOn(today()).filter(s => s.classId === c.id);
+    const covered = new Set(covers.map(s => s.replacingId));
+    const team = [...staffOf(cls).filter(e => !covered.has(e.id)), ...covers.map(s => educators.find(e => e.id === s.substituteId)).filter(Boolean)];
+    if (!team.length) return { ...rule, status: 'unavailable', reason: 'No staff assigned' };
+    if (team.some(e => !staff[e.id])) return { ...rule, status: 'unavailable', reason: 'Staff attendance not recorded' };
     const children = Object.values(entry.marks).filter(m => m !== 'absent').length;
-    const onDuty = assigned.filter(e => staff[e.id] === 'present' && countedClassOf(e.id) === cls).length;
+    const onDuty = team.filter(e => staff[e.id] === 'present' && countedClassOf(e.id) === cls).length;
     const required = Math.ceil(children / limit);
-    return { ...rule, children, educators: onDuty, assigned: assigned.length, required, status: onDuty >= required ? 'ok' : 'breach' };
+    return { ...rule, children, educators: onDuty, assigned: team.length, required, status: onDuty >= required ? 'ok' : 'breach' };
   }
   function ratioStatus(user) {
     const ctx = { register: getRegister(), staff: getStaffAttendance() };
@@ -2140,6 +2165,166 @@
     if (!write(classRegistryKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
     logAudit(user, 'archive:class', c.id, c.name);
     return settle({ ok: true, cls: c });
+  }
+
+  /* ---------------------------------------------------------------- S17 class detail: shifts, cover, routine, transfers
+     Shifts `nexora-staff-shifts:<school>` { [educatorId]: { start, end, days } } — demo roster configuration.
+     A relief educator's shift is the hours they're available to cover.
+     Cover `nexora-substitutes:<school>` [{ id, classId, date, replacingId, substituteId, start, end,
+       status: 'active'|'cancelled', createdAt, createdBy, cancelledAt?, cancelledBy? }] — never deleted.
+     Routines `nexora-class-routines:<school>` { [classId]: { days, blocks: [{ start, end, title, description, location }] } }.
+     All rules are checked here at save time; production needs the same checks on the server. */
+
+  const shiftsKey = id => `nexora-staff-shifts:${id}`;
+  const subsKey = id => `nexora-substitutes:${id}`;
+  const routinesKey = id => `nexora-class-routines:${id}`;
+  const SCHOOL_WEEK = ['mon', 'tue', 'wed', 'thu', 'fri'];
+  const SEED_SHIFTS = {
+    'ed-lakshmi': ['08:30', '15:30'], 'ed-deepa': ['08:30', '13:00'], 'ed-arjun': ['08:30', '15:30'], 'ed-kavitha': ['08:30', '15:30'],
+    'ed-sunita': ['08:30', '15:30'], 'ed-priya': ['08:00', '15:00'], 'ed-anjali': ['12:00', '17:00'], 'ed-revathi': ['08:00', '17:00'], 'ed-joseph': ['08:30', '13:30']
+  };
+  function getStaffShifts() {
+    const saved = seeded(shiftsKey(school.id), () => Object.fromEntries(Object.entries(SEED_SHIFTS).map(([id, [start, end]]) => [id, { start, end, days: SCHOOL_WEEK }])));
+    // Educators added after the shifts were first saved (the relief staff) join with their demo shift.
+    educators.forEach(e => { if (!saved[e.id] && SEED_SHIFTS[e.id]) saved[e.id] = { start: SEED_SHIFTS[e.id][0], end: SEED_SHIFTS[e.id][1], days: SCHOOL_WEEK }; });
+    return saved;
+  }
+  const weekdayOf = date => WEEKDAYS[(new Date(`${date}T00:00:00`).getDay() + 6) % 7];
+  const shiftOf = (staffId, date) => { const s = getStaffShifts()[staffId]; return s && s.days.includes(weekdayOf(date)) ? { start: s.start, end: s.end } : null; };
+  const toMinutes = t => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+  const overlaps = (a, b) => toMinutes(a.start) < toMinutes(b.end) && toMinutes(b.start) < toMinutes(a.end);
+  const staffRoleIn = (cls, staffId) => (cls.staffIds[0] === staffId ? 'Lead teacher' : 'Assistant');
+
+  const getSubstitutes = () => read(subsKey(school.id), []);
+  const substitutesOn = date => getSubstitutes().filter(s => s.status === 'active' && s.date === date);
+
+  // Who can cover `replacingId` in a class on a date. Available = working hours span the shift, not away
+  // that day, and not committed to their own class or another cover during it. Returns every educator
+  // outside the class with eligible + reason, so the UI can list the eligible ones and explain the rest.
+  function substituteOptions(classId, date, replacingId) {
+    const cls = classById(classId);
+    const window = cls && replacingId ? shiftOf(replacingId, date) : null;
+    if (!cls || !window) return { window: null, options: [] };
+    const att = date === today() ? getStaffAttendance() : {};
+    const covers = substitutesOn(date);
+    const options = educators.filter(e => e.id !== replacingId && !cls.staffIds.includes(e.id)).map(e => {
+      const base = { id: e.id, name: e.name, relief: Boolean(e.relief), shift: shiftOf(e.id, date) };
+      const no = reason => ({ ...base, eligible: false, reason });
+      if (att[e.id] === 'absent') return no('Away today');
+      if (covers.some(s => s.replacingId === e.id)) return no('Being covered that day');
+      if (!base.shift) return no('Not working that day');
+      const home = activeClasses().find(c => c.staffIds.includes(e.id));
+      if (home) return no(`Teaching ${home.name} ${base.shift.start}–${base.shift.end}`);
+      if (toMinutes(base.shift.start) > toMinutes(window.start) || toMinutes(base.shift.end) < toMinutes(window.end)) return no(`Works ${base.shift.start}–${base.shift.end} only`);
+      const clash = covers.find(s => s.substituteId === e.id && overlaps(s, window));
+      if (clash) return no(`Already covering ${classById(clash.classId)?.name || 'another class'}`);
+      return { ...base, eligible: true, reason: date === today() && !att[e.id] ? 'Not signed in yet today' : '' };
+    });
+    return { window, options };
+  }
+
+  function assignSubstitute(user, input) {
+    if (!canManageClasses(user)) return settle({ ok: false, reason: 'forbidden' });
+    const cls = classById(input.classId);
+    if (!cls || cls.status !== 'active') return settle({ ok: false, reason: 'missing' });
+    const date = clean(input.date);
+    const errors = {};
+    if (!isDate(date)) errors.date = 'Choose the date of the cover.';
+    else if (date < today()) errors.date = 'Cover can’t be arranged for a past date.';
+    else if (date > daysFromToday(60)) errors.date = 'Choose a date within the next 60 days.';
+    else if (!schoolDays().includes(weekdayOf(date))) errors.date = 'The school is closed that day.';
+    if (!cls.staffIds.includes(input.replacingId)) errors.replacingId = 'Choose someone assigned to this class.';
+    else if (!errors.date && !shiftOf(input.replacingId, date)) errors.replacingId = 'They aren’t rostered on that day, so there’s nothing to cover.';
+    else if (!errors.date) {
+      const existing = substitutesOn(date).find(s => s.classId === cls.id && s.replacingId === input.replacingId);
+      if (existing) errors.replacingId = `Already covered by ${educators.find(e => e.id === existing.substituteId)?.name || 'someone'} that day.`;
+    }
+    if (!input.substituteId) errors.substituteId = 'Choose who will cover.';
+    else if (!Object.keys(errors).length) {
+      const pick = substituteOptions(cls.id, date, input.replacingId).options.find(o => o.id === input.substituteId);
+      if (!pick) errors.substituteId = 'Choose someone from the list.';
+      else if (!pick.eligible) errors.substituteId = `${pick.name} isn’t available: ${pick.reason}.`;
+    }
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const shift = shiftOf(input.replacingId, date);
+    const sub = { id: newId('sub'), classId: cls.id, date, replacingId: input.replacingId, substituteId: input.substituteId, start: shift.start, end: shift.end, status: 'active', createdAt: new Date().toISOString(), createdBy: user.name };
+    if (!write(subsKey(school.id), [...getSubstitutes(), sub])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'assign:substitute', cls.id, `${cls.name} ${date}`);
+    if (date === today()) events.ratio(cls.name);
+    return settle({ ok: true, substitute: sub });
+  }
+
+  function cancelSubstitute(user, subId) {
+    if (!canManageClasses(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getSubstitutes();
+    const s = list.find(x => x.id === subId);
+    if (!s || s.status !== 'active') return settle({ ok: false, reason: 'missing' });
+    Object.assign(s, { status: 'cancelled', cancelledAt: new Date().toISOString(), cancelledBy: user.name });
+    if (!write(subsKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'cancel:substitute', s.classId, s.date);
+    if (s.date === today()) { const c = classById(s.classId); if (c) events.ratio(c.name); }
+    return settle({ ok: true });
+  }
+
+  const ROUTINE_SEED = {
+    base: [['08:30', '09:00', 'Arrival & greeting', 'Families hand over at the door; children hang bags and choose a first work.', ''], ['09:00', '11:30', 'Montessori work cycle', 'Uninterrupted three-hour work period with individual presentations.', ''], ['11:30', '12:00', 'Outdoor play', 'Garden, sandpit and gross-motor work.', 'Garden'], ['12:00', '12:45', 'Lunch', 'Children set the table and serve themselves.', ''], ['12:45', '14:30', 'Afternoon work & stories', 'Quiet work, read-aloud and group songs.', ''], ['14:30', '15:00', 'Snack & departure', 'Snack, tidy-up and collection by authorised adults.', '']],
+    Nursery: [['08:00', '08:45', 'Arrival & settling in', 'Gentle handover; a familiar adult greets each child.', ''], ['08:45', '10:15', 'Montessori work cycle', 'Short work cycle with practical life and sensorial materials.', ''], ['10:15', '10:30', 'Snack', 'Fruit and milk at the snack table.', ''], ['10:30', '11:15', 'Outdoor play', '', 'Garden'], ['11:15', '12:00', 'Lunch', '', ''], ['12:00', '13:30', 'Nap / rest', 'Children rest on their own mats; sleep times go in the diary.', 'Rest corner'], ['13:30', '14:30', 'Afternoon activities', 'Music, movement and stories.', ''], ['14:30', '15:00', 'Departure', 'Collection by authorised adults only.', '']]
+  };
+  function getRoutines() {
+    return seeded(routinesKey(school.id), () => {
+      const out = {};
+      getClassRegistry().filter(c => /^cl-\d+$/.test(c.id)).forEach(c => {
+        out[c.id] = { days: SCHOOL_WEEK, blocks: (ROUTINE_SEED[c.level] || ROUTINE_SEED.base).map(([start, end, title, description, location]) => ({ start, end, title, description, location })) };
+      });
+      return out;
+    });
+  }
+  // { configured, schoolDay, blocks (sorted by start) } for one class on one date.
+  function classRoutine(classId, date = today()) {
+    const r = getRoutines()[classId];
+    if (!r || !r.blocks?.length) return { configured: false, schoolDay: schoolDays().includes(weekdayOf(date)), blocks: [] };
+    const on = r.days.includes(weekdayOf(date));
+    return { configured: true, schoolDay: on, blocks: on ? [...r.blocks].sort((a, b) => toMinutes(a.start) - toMinutes(b.start)) : [] };
+  }
+
+  // Seats left = capacity − enrolled (active + starting soon) − moves already scheduled into the class. null = capacity not set.
+  function seatsLeft(name) {
+    const c = classByName(name);
+    if (!c || !Number.isInteger(c.capacity) || c.capacity <= 0) return null;
+    const incoming = getChildren().filter(k => k.pendingMove?.cls === name && ['active', 'starting'].includes(k.status)).length;
+    return c.capacity - enrolledIn(name).length - incoming;
+  }
+
+  // Move one child from their class to another, today or from a future date (applied when that date arrives).
+  // The record is kept (same ID); attendance, diary and learning stay where they are; history records the move.
+  function transferChild(user, childId, target, date) {
+    if (!canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getChildren();
+    const c = list.find(x => x.id === childId);
+    if (!c || !classScope(user).includes(c.cls)) return settle({ ok: false, reason: 'missing' });
+    if (!['active', 'starting'].includes(c.status)) return settle({ ok: false, reason: 'closed' });
+    const errors = {};
+    const to = classByName(target);
+    if (!to || to.status !== 'active') errors.target = 'Choose a class to move to.';
+    else if (to.name === c.cls) errors.target = `${childName(c)} is already in ${c.cls}.`;
+    else if (c.pendingMove) errors.target = `A move to ${c.pendingMove.cls} on ${c.pendingMove.date} is already scheduled.`;
+    if (!isDate(clean(date))) errors.date = 'Choose the date the move takes effect.';
+    else if (date < today()) errors.date = 'The move can’t take effect in the past.';
+    else if (date > daysFromToday(365)) errors.date = 'Choose a date within the next year.';
+    if (!errors.target) {
+      const seats = seatsLeft(to.name);
+      if (seats !== null && seats <= 0) return settle({ ok: false, reason: 'full', errors: { target: `${to.name} is full (${to.capacity} places). Choose another class or add the child to the waitlist.` } });
+    }
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const from = c.cls;
+    if (date === today()) applyMove(user, c, to.name);
+    else {
+      c.pendingMove = { cls: to.name, date, by: user.name, at: new Date().toISOString() };
+      c.history = [...c.history, stamp(user, 'move-scheduled', `Move from ${from} to ${to.name} scheduled for ${date}`)];
+    }
+    if (!saveChildren(list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'move:child', c.id, `${from} → ${to.name} (${date})`);
+    return settle({ ok: true, child: c, from, to: to.name, date, immediate: date === today() });
   }
 
   /* Admission enquiries (Admissions module) */
@@ -2648,6 +2833,16 @@
     enrolledIn,
     saveClass,
     archiveClass,
+    staffRoleIn,
+    shiftOf,
+    getSubstitutes,
+    substitutesOn,
+    substituteOptions,
+    assignSubstitute,
+    cancelSubstitute,
+    classRoutine,
+    seatsLeft,
+    transferChild,
     studentById,
     educators,
     classScope,

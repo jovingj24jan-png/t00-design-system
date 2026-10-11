@@ -12,7 +12,8 @@
   const currentPageKey = () => {
     if (/\/plans\.html$/.test(location.pathname)) return 'plans';
     if (/\/dashboard\.html$/.test(location.pathname)) return 'dashboard';
-    return /\/(app|access-denied)\.html$/.test(location.pathname) ? new URLSearchParams(location.search).get('page') : null;
+    const key = /\/(app|access-denied)\.html$/.test(location.pathname) ? new URLSearchParams(location.search).get('page') : null;
+    return key === 'class' ? 'classes' : key;
   };
 
   const ICONS = `
