@@ -1,5 +1,5 @@
 /* S14 enrol / edit child (app.html?page=enrol[&id=<childId>][&draft=<draftId>]) — a five-step wizard
-   over the shared store — plus the pages it feeds: S09 waitlist and S18 class rosters (S15 is families.js).
+   over the shared store — plus the pages it feeds: S18 class rosters (the S09 waitlist page is waitlist.js) (S15 is families.js).
    NexoraEnrol.render(key, main, user) → true when handled. The final save goes through
    store.enrolChild(), which re-validates everything (duplicates, capacity, pickup conflicts). */
 (() => {
@@ -749,7 +749,7 @@
     async function waitlist() {
       collect();
       const g = state.guardians.find(x => x.primary) || state.guardians[0] || {};
-      const r = await store.addToWaitlist(user, { firstName: state.child.firstName, lastName: state.child.lastName, dob: state.child.dob, cls: state.classSchedule.cls, startDate: state.classSchedule.startDate, guardianName: g.name, guardianPhone: g.phone });
+      const r = await store.addToWaitlist(user, { firstName: state.child.firstName, lastName: state.child.lastName, dob: state.child.dob, cls: state.classSchedule.cls, startDate: state.classSchedule.startDate, guardianName: g.name, guardianPhone: g.phone, enquiryId: state.fromEnquiry || '' });
       if (!r.ok) {
         const missing = r.errors ? Object.values(r.errors).join(' ') : 'This couldn’t be saved.';
         window.NexoraToast?.show('Not added to the waitlist', missing, 'info');
@@ -759,7 +759,7 @@
       dirty = false;
       if (draftId) store.deleteDraft(user, draftId);
       try { sessionStorage.setItem(FLASH_KEY, JSON.stringify({ title: `Added to the ${r.entry.cls} waitlist`, text: `${r.entry.firstName} ${r.entry.lastName} is number ${r.position}. Not enrolled.` })); } catch { /* toast optional */ }
-      location.href = routes.page('waitlist', { focus: r.entry.id });
+      location.href = routes.page('waitlist', { cls: store.classByName(r.entry.cls)?.id || '', focus: r.entry.id });
     }
 
     // Edit with a saved draft: offer to resume it.
@@ -775,31 +775,6 @@
 
     render();
     $('#page-title').focus();
-    return true;
-  }
-
-  /* ------------------------------------------------------------------ S09 Waitlist */
-
-  function waitlistPage(main, user) {
-    const focus = params.get('focus');
-    const draw = () => {
-      const list = store.getWaitlist().filter(w => w.status === 'waiting');
-      const byClass = store.rosterClasses.map(c => ({ ...store.classInfo(c.name), entries: list.filter(w => w.cls === c.name) })).filter(c => c.entries.length);
-      main.innerHTML = `<div class="kids">
-        <header class="kids-head"><div class="kids-head__text"><h1 class="kids-head__title" id="page-title" tabindex="-1">Waitlist <span class="kids-head__count">(${list.length})</span></h1><p class="kids-head__sub">Children waiting for a seat. A waitlisted child is not enrolled.</p></div></header>
-        ${byClass.length ? byClass.map(c => `<section class="cp-card" aria-labelledby="wl-${esc(c.name.replace(/\s/g, ''))}">
-          <header class="cp-card__head"><h2 class="cp-card__title" id="wl-${esc(c.name.replace(/\s/g, ''))}">${esc(c.name)}</h2><span class="cp-muted">${c.capacity == null ? '' : `${c.occupancy} of ${c.capacity} seats${c.full ? ' · full' : ` · ${c.remaining} free`}`}</span></header>
-          <ol class="wl-list">${c.entries.map((w, i) => `<li class="wl-row${w.id === focus ? ' is-focus' : ''}" id="wl-${esc(w.id)}"><span class="wl-pos">${i + 1}</span><div><p><b>${esc(w.firstName)} ${esc(w.lastName)}</b> · ${esc(store.ageParts(w.dob).years)}y ${esc(store.ageParts(w.dob).months)}m</p><p class="cp-muted">Wants to start ${esc(day(w.startDate))}${w.guardianName ? ` · ${esc(w.guardianName)} ${esc(w.guardianPhone)}` : ''} · added ${esc(day(w.createdAt))} by ${esc(w.addedBy)}</p></div></li>`).join('')}</ol>
-        </section>`).join('') : '<div class="kids-empty"><h2 class="kids-empty__title">Nobody is waiting</h2><p>Children added from a full class during enrolment appear here.</p></div>'}
-      </div>`;
-    };
-    document.title = 'Waitlist · Nexora';
-    main.classList.add('kids-page');
-    draw();
-    try { const f = JSON.parse(sessionStorage.getItem(FLASH_KEY)); sessionStorage.removeItem(FLASH_KEY); if (f) window.NexoraToast?.show(f.title, f.text); } catch { /* none */ }
-    (focus && main.querySelector(`#wl-${CSS.escape(focus)}`))?.scrollIntoView({ block: 'center' });
-    store.subscribe(({ key }) => { if (!key || /^nexora-(waitlist|children)/.test(key)) draw(); });
-    void user;
     return true;
   }
 
@@ -828,7 +803,6 @@
 
   function render(key, main, user) {
     if (key === 'enrol') return wizard(main, user);
-    if (key === 'waitlist') return waitlistPage(main, user);
     if (key === 'roster') return rosterPage(main, user);
     return false;
   }

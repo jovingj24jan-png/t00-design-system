@@ -36,7 +36,7 @@ App pages all share one shell (sidebar, header, notifications) at `app.html?page
 | `classroom-tracker` · `observations` · `gallery` | Classroom modules | | `admissions&applicant=<id>` | Applicant details (S07) |
 | `children` | Children (S12) | | `tours` | School Tours |
 | `enrol` (`&id=`, `&enquiry=`) | Enrol / edit child (S14) | | `fees` · `statement&family=` | Fees · family statement |
-| `waitlist` | Waitlist | | `reports` · `payroll` · `safeguarding` | Management modules |
+| `waitlist` (`&cls=`, `&focus=`) | Waitlist (S09) — see `docs/waitlist.md` | | `reports` · `payroll` · `safeguarding` | Management modules |
 | `families` · `family&id=` | Families (S15) · one family | | `resources` | Rooms & Resources |
 | `compose` | Message families | | `settings` | Settings |
 

@@ -29,7 +29,8 @@
     busy: 'Still saving the last change — please wait a moment.',
     'enrol-via-s14': 'Enrolment is completed in the enrolment form.',
     'offer-via-send': 'Use Send offer — the stage changes when the offer is sent.',
-    storage: 'This couldn’t be saved on this device. Nothing was changed. Please try again.'
+    storage: 'This couldn’t be saved on this device. Nothing was changed. Please try again.',
+    'no-seat': 'No place is free to offer in this class right now, so the offer wasn’t sent. The child stays on the waitlist.'
   };
   const failText = r => (r.errors && Object.values(r.errors)[0]) || FAIL[r.reason] || FAIL.storage;
   const chip = (tone, text, ic = '') => `<span class="badge badge--plain an-chip an-chip--${tone}">${ic ? icon(ic) : ''}${esc(text)}</span>`;
@@ -137,7 +138,8 @@
 
     // Send offer: edit the starter letter → preview with every variable resolved (missing ones marked) → send.
     // There's no email service, so a send is recorded as a labelled demo; only then does the stage move to Offer sent.
-    function offerDialog(e, failSend = { on: params.get('sendfail') === '1' }) {
+    // `opts.context` adds a summary above the letter (the waitlist shows class, family and seats there).
+    function offerDialog(e, failSend = { on: params.get('sendfail') === '1' }, opts = {}) {
       if (!store.canOffer(e)) { toast('Offer not available', e.stage === 'enrolled' ? 'This child is already enrolled.' : 'Reopen the enquiry before sending an offer.', 'info'); return; }
       const newCid = () => `cl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
       let clientId = newCid();
@@ -145,7 +147,7 @@
       const v0 = store.offerValues(e);
       const d = kids.dialog({
         label: 'Admissions / Offer', title: 'Send offer', desc: `${esc(e.child)} · step 1 of 3: edit the letter`,
-        body: `<div class="ad-offer"><div data-s1>
+        body: `<div class="ad-offer">${opts.context || ''}<div data-s1>
             ${kids.field('kd-recipient', 'Send to', `<input class="input" id="kd-recipient" name="recipient" type="email" required value="${esc(e.email || '')}" placeholder="family@example.com">`, { required: true })}
             ${kids.field('kd-template', 'Offer letter', `<textarea class="input ad-offer__text" id="kd-template" name="template" rows="11" maxlength="6000">${esc(store.OFFER_TEMPLATE)}</textarea>`, { hint: 'Variables: {{child_name}}, {{start_date}}, {{fees}}. This is an editable starter template, not approved legal wording.' })}
             <div class="cls-form__row">${kids.field('kd-ostart', 'Start date in the letter', `<input class="input" id="kd-ostart" name="ostart" maxlength="60" value="${esc(v0.start_date)}" placeholder="Missing — add the start date">`)}${kids.field('kd-ofees', 'Fees in the letter', `<input class="input" id="kd-ofees" name="ofees" maxlength="120" value="${esc(v0.fees)}" placeholder="Missing — not in the fee table">`, { hint: v0.fees ? 'From the school’s fee table.' : `No fee is set for ${e.programme}. Enter the agreed fee.` })}</div>
@@ -185,7 +187,7 @@
             desc.innerHTML = `${esc(e.child)} · step 2 of 3: preview`;
             return { ok: false, message: r.reason === 'send-failed' ? `The offer couldn’t be sent. Nothing changed — ${e.child} is still in ${store.ENQUIRY_STAGES[e.stage]}. Try again.` : failText(r) };
           }
-          toast('Offer recorded as sent', `Demo — not delivered (no email service).${r.moved ? ' Stage: Offer sent.' : ''}`, 'mail', { duration: 7000 });
+          toast('Offer recorded as sent', `Demo — not delivered (no email service).${r.moved ? ' Stage: Offer sent.' : ''}${r.waitlist ? ` ${e.child} has left the ${r.waitlist.cls} waitlist.` : ''}`, 'mail', { duration: 7000 });
           onDone();
           return { ok: true };
         }
@@ -759,5 +761,5 @@
     setTimeout(draw, 200);
   }
 
-  window.NexoraAdmissions = { render };
+  window.NexoraAdmissions = { render, actions };
 })();

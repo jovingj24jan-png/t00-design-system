@@ -65,7 +65,7 @@
 
   /* ------------------------------------------------------------------ Dialog helper (same pattern as NexoraWorkflows) */
 
-  function dialog({ label, title, desc, body, submit, danger = false, onSubmit }) {
+  function dialog({ label, title, desc, body, submit, danger = false, onSubmit, onClose }) {
     const opener = document.activeElement;
     const el = document.createElement('dialog');
     el.className = 'modal';
@@ -95,7 +95,7 @@
     const close = () => {
       if (busy || el.classList.contains('is-closing')) return;
       el.classList.add('is-closing');
-      const done = () => { el.close(); el.remove(); if (opener && document.contains(opener)) opener.focus(); };
+      const done = () => { el.close(); el.remove(); if (opener && document.contains(opener)) opener.focus(); onClose?.(); };
       reduceMotion.matches ? done() : setTimeout(done, 170);
     };
     const showErrors = (errors = {}) => {

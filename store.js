@@ -194,7 +194,7 @@
     // School pages that every plan includes. S17 and S58 read the same records the S05 setup saves.
     children: { name: 'Children', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Every child in the school: find anyone in seconds and see safety alerts at a glance.' },
     enrol: { name: 'Enrol child', icon: 'user-plus', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Add a child to the school, or edit an existing child’s details.' },
-    waitlist: { name: 'Waitlist', icon: 'clock', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Children waiting for a seat in a full class.' },
+    waitlist: { name: 'Waitlist', icon: 'clock', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Ordered waitlists per class, seat availability, offers and removals.' },
     families: { name: 'Families', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Families as a unit: households, guardians, children and parent-app access.' },
     statement: { name: 'Family statement', icon: 'wallet', roles: ['Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Invoices and payments for one family, with a running balance.' },
     tours: { name: 'School Tours', icon: 'calendar-check', requiredPlan: 'growth', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Tour slots, bookings linked to enquiries, and attendance.', description: 'Schedule school tours, keep guides from double-booking, link every visit to an enquiry and record who attended.', features: ['Recurring tour slots with capacity', 'Bookings linked to admissions enquiries', 'Attendance and no-show follow-ups', 'Guide clash checks'] },
@@ -1169,8 +1169,97 @@
       .map(c => ({ id: c.id, name: childName(c), cls: c.cls, status: c.status }));
   }
 
-  /* Waitlist (S09). */
-  const getWaitlist = () => read(waitlistKey(school.id), []);
+  /* Waitlist (S09, waitlist page in waitlist.js) `nexora-waitlist:<school>` — one entry per child and requested class:
+       { id, firstName, lastName, dob, cls, startDate, guardianName, guardianPhone, notes,
+         status: waiting|offered|enrolled|removed, position (1…n among the class's waiting entries), enquiryId|null,
+         addedBy, createdAt, updatedAt, offeredAt, removed: { reason, detail, at, by, byId, position }|null,
+         history: [{ id, at, by, byId, type: added|reorder|notes|applicant|offer|removed|enrolled, from, to, reason, detail }] }
+     The order is managed by staff and never re-sorted by priority flags; every move needs a reason and is logged.
+     Flags are worked out from the records (a guardian of an enrolled child, a staff member's phone, a former pupil),
+     never typed in. Seats come from S17 (seatsLeft); a waitlist offer holds its seat while it is outstanding, so the
+     places free to offer = seats left − offers outstanding. Entries are never deleted: removal keeps the record.
+     All checks run in this browser only — see docs/waitlist.md for what a server must enforce. */
+  const WAITLIST_STATUSES = { waiting: 'Waiting', offered: 'Offer sent', enrolled: 'Enrolled', removed: 'Removed' };
+  const WL_REORDER_REASONS = { start_date: 'Family requested a different start date', updated: 'Application information updated', director: 'Director-approved priority adjustment', correction: 'Administrative correction', other: 'Other' };
+  const WL_REMOVE_REASONS = { withdrew: 'Family withdrew', elsewhere: 'Accepted a place elsewhere', not_interested: 'No longer interested', duplicate: 'Duplicate entry', incorrect: 'Incorrect application', other: 'Other' };
+  const WL_FLAGS = { sibling: 'Sibling', staff: 'Staff child', returning: 'Returning' };
+  const wlVacanciesKey = id => `nexora-waitlist-vacancies:${id}`;
+  const wlName = w => `${w.firstName} ${w.lastName}`.trim();
+  const byPosition = (a, b) => (a.position ?? 1e9) - (b.position ?? 1e9) || String(a.createdAt).localeCompare(String(b.createdAt));
+  const firstOfMonth = n => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + n); return isoDay(d); };
+  const yearsAgo = (y, m = 0) => { const d = new Date(); d.setFullYear(d.getFullYear() - y); d.setMonth(d.getMonth() - m); return isoDay(d); };
+
+  // Demo entries: Nursery is full (so nobody can be offered a place yet) and Montessori A has free seats.
+  function seedWaitlist() {
+    const enq = getAdmissionEnquiries();
+    const kids = getChildren();
+    const nurseryKid = kids.find(c => c.cls === 'Nursery' && c.status === 'active' && c.guardianLinks?.length);
+    const sibGuardian = nurseryKid ? guardianById(nurseryKid.guardianLinks[0].guardianId) : null;
+    const former = kids.find(c => c.status === 'withdrawn');
+    const formerGuardian = former?.guardianLinks?.length ? guardianById(former.guardianLinks[0].guardianId) : null;
+    const staff = users.find(u => u.role === 'Teacher');
+    const mk = (cls, position, daysAgo, v) => ({ id: `wl-${cls.replace(/\W/g, '').toLowerCase()}-${position}`, cls, position, status: 'waiting', enquiryId: null, notes: '', addedBy: 'Ms. Fernandes', createdAt: atToday(10, 0, -daysAgo), updatedAt: null, history: [{ id: newId('wh'), at: atToday(10, 0, -daysAgo), by: 'Ms. Fernandes', byId: 'u-admin', type: 'added', to: position, detail: `Added to the ${cls} waitlist` }], ...v });
+    const fromEnquiry = id => { const e = enq.find(x => x.id === id); if (!e) return null; const p = e.child.split(' '); return { firstName: p.slice(0, -1).join(' '), lastName: p[p.length - 1], dob: e.dob, startDate: e.preferredStart, guardianName: e.parent, guardianPhone: e.phone, enquiryId: e.id }; };
+    const list = [];
+    const a = fromEnquiry('ae1');
+    if (a) list.push(mk('Nursery', 1, 41, { ...a, notes: 'Family can start any weekday.' }));
+    if (staff) list.push(mk('Nursery', list.length + 1, 33, { firstName: 'Tara', lastName: 'Krishnan', dob: yearsAgo(2, 3), startDate: firstOfMonth(2), guardianName: staff.name, guardianPhone: staff.phone }));
+    if (sibGuardian) list.push(mk('Nursery', list.length + 1, 26, { firstName: 'Dev', lastName: nurseryKid.lastName, dob: yearsAgo(2, 1), startDate: firstOfMonth(3), guardianName: sibGuardian.name, guardianPhone: sibGuardian.phone, notes: 'Mornings only.' }));
+    list.push(mk('Nursery', list.length + 1, 12, { firstName: 'Ishita', lastName: 'Bose', dob: yearsAgo(2, 6), startDate: firstOfMonth(2), guardianName: 'Ritu Bose', guardianPhone: '+91 98452 12121' }));
+    const b = fromEnquiry('ae3');
+    if (b) list.push(mk('Montessori A', 1, 20, b));
+    if (former) list.push(mk('Montessori A', list.filter(w => w.cls === 'Montessori A').length + 1, 9, { firstName: former.firstName, lastName: former.lastName, dob: former.dob, startDate: firstOfMonth(1), guardianName: formerGuardian?.name || 'Family', guardianPhone: formerGuardian?.phone || '', notes: 'Returning after a year abroad.' }));
+    return list;
+  }
+  // Entries saved before ordering existed get positions by the date they were added, once.
+  function getWaitlist() {
+    const list = seeded(waitlistKey(school.id), seedWaitlist);
+    let changed = false;
+    const groups = {};
+    list.forEach(w => {
+      if (!Array.isArray(w.history)) { w.history = []; changed = true; }
+      if (!('enquiryId' in w)) { w.enquiryId = null; changed = true; }
+      if (w.status === 'waiting') (groups[w.cls] ||= []).push(w);
+      else if (w.position != null) { w.position = null; changed = true; }
+    });
+    Object.values(groups).forEach(g => g.sort(byPosition).forEach((w, i) => { if (w.position !== i + 1) { w.position = i + 1; changed = true; } }));
+    if (changed) { try { localStorage.setItem(waitlistKey(school.id), JSON.stringify(list)); } catch { /* in memory */ } }
+    return list;
+  }
+  const waitlistFor = name => getWaitlist().filter(w => w.cls === name && w.status === 'waiting').sort(byPosition);
+  const renumber = (list, cls) => list.filter(w => w.cls === cls && w.status === 'waiting').sort(byPosition).forEach((w, i) => { w.position = i + 1; });
+  const wlEvent = (user, type, extra = {}) => ({ id: newId('wh'), at: new Date().toISOString(), by: user?.name || 'System', byId: user?.id || '', type, ...extra });
+
+  // Priority flags, only where a record confirms them. Each comes with the reason it applies.
+  function waitlistFlags(w) {
+    const out = [];
+    const live = c => ['active', 'starting'].includes(c.status);
+    const e = w.enquiryId ? getAdmissionEnquiries().find(x => x.id === w.enquiryId) : null;
+    const phone = normPhone(w.guardianPhone);
+    const sibs = new Map((e ? enquirySiblings(e).filter(live) : []).map(c => [c.id, c.name]));
+    if (phone) getChildren().filter(c => live(c) && c.guardianLinks?.some(l => normPhone(guardianById(l.guardianId)?.phone) === phone)).forEach(c => sibs.set(c.id, childName(c)));
+    if (sibs.size) out.push({ key: 'sibling', label: WL_FLAGS.sibling, detail: `Sibling of ${[...sibs.values()].join(', ')}` });
+    const staffer = phone ? users.find(u => u.schoolId === school.id && normPhone(u.phone) === phone) : null;
+    if (staffer) out.push({ key: 'staff', label: WL_FLAGS.staff, detail: `Parent is staff: ${staffer.name}` });
+    const prev = getChildren().find(c => ['withdrawn', 'graduated'].includes(c.status) && norm(c.firstName) === norm(w.firstName) && norm(c.lastName) === norm(w.lastName) && c.dob === w.dob);
+    if (prev) out.push({ key: 'returning', label: WL_FLAGS.returning, detail: `Previously in ${prev.cls} (${CHILD_STATUSES[prev.status].toLowerCase()})` });
+    return out;
+  }
+  const wlEnquiry = w => (w.enquiryId ? getAdmissionEnquiries().find(x => x.id === w.enquiryId) || null : null);
+
+  // Seat summary for one class, the S17 way: capacity − enrolled (active + starting) − moves scheduled in.
+  function waitlistSummary(name) {
+    const c = classByName(name);
+    if (!c) return null;
+    const capacity = Number.isInteger(c.capacity) && c.capacity > 0 ? c.capacity : null;
+    const enrolled = enrolledIn(name).length;
+    const left = seatsLeft(name);
+    const list = getWaitlist();
+    const held = list.filter(w => w.cls === name && w.status === 'offered' && wlEnquiry(w)?.stage === 'offer').length;
+    const free = left == null ? null : Math.max(0, left);
+    return { id: c.id, name, level: c.level, capacity, enrolled, incoming: left == null ? 0 : Math.max(0, capacity - enrolled - left), free, held, available: free == null ? null : Math.max(0, free - held), waiting: list.filter(w => w.cls === name && w.status === 'waiting').length, overCapacity: left != null && left < 0 };
+  }
+
   function addToWaitlist(user, input) {
     if (!canManageChildren(user)) return settle({ ok: false, reason: 'forbidden' });
     const v = { firstName: clean(input.firstName), lastName: clean(input.lastName), dob: clean(input.dob), cls: clean(input.cls), startDate: clean(input.startDate), guardianName: clean(input.guardianName), guardianPhone: clean(input.guardianPhone), notes: clean(input.notes) };
@@ -1180,13 +1269,142 @@
     if (classByName(v.cls)?.status !== 'active') errors.cls = 'Choose the class requested.';
     if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
     const list = getWaitlist();
+    const enquiryId = clean(input.enquiryId) && getAdmissionEnquiries().some(e => e.id === clean(input.enquiryId)) ? clean(input.enquiryId) : null;
     // One open entry per child and class: re-adding updates it instead of duplicating.
     let entry = list.find(w => w.status === 'waiting' && w.cls === v.cls && norm(w.firstName) === norm(v.firstName) && norm(w.lastName) === norm(v.lastName) && w.dob === v.dob);
-    if (entry) Object.assign(entry, v, { updatedAt: new Date().toISOString() });
-    else { entry = { id: newId('wl'), ...v, status: 'waiting', addedBy: user.name, createdAt: new Date().toISOString() }; list.push(entry); }
+    if (entry) Object.assign(entry, v, { enquiryId: enquiryId || entry.enquiryId, updatedAt: new Date().toISOString() });
+    else {
+      const position = list.filter(w => w.cls === v.cls && w.status === 'waiting').length + 1;
+      entry = { id: newId('wl'), ...v, status: 'waiting', position, enquiryId, addedBy: user.name, createdAt: new Date().toISOString(), updatedAt: null, history: [wlEvent(user, 'added', { to: position, detail: `Added to the ${v.cls} waitlist at number ${position}` })] };
+      list.push(entry);
+    }
     if (!write(waitlistKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
     logAudit(user, 'add:waitlist', entry.id, `${v.firstName} ${v.lastName} · ${v.cls}`);
-    return settle({ ok: true, entry, position: list.filter(w => w.status === 'waiting' && w.cls === v.cls).indexOf(entry) + 1 });
+    return settle({ ok: true, entry, position: entry.position });
+  }
+
+  const withWaitlist = (user, id) => {
+    if (!canManageChildren(user)) return { error: 'forbidden' };
+    const list = getWaitlist();
+    const w = list.find(x => x.id === id);
+    if (!w) return { error: 'missing' };
+    if (w.status !== 'waiting') return { error: 'closed', w };
+    return { list, w };
+  };
+  // `order` is the list the person was looking at: if anyone changed it since, nothing is saved.
+  // `fail` is a test hook for the failure path.
+  function reorderWaitlist(user, id, to, { reason, detail = '', order = null, fail = false } = {}) {
+    const r = withWaitlist(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    const group = r.list.filter(x => x.cls === r.w.cls && x.status === 'waiting').sort(byPosition);
+    if (order && order.join() !== group.map(x => x.id).join()) return settle({ ok: false, reason: 'stale' });
+    const errors = {};
+    const target = Number(to);
+    const note = clean(detail).slice(0, 300);
+    if (!WL_REORDER_REASONS[reason]) errors.reason = 'Choose a reason for the change.';
+    else if (reason === 'other' && !note) errors.detail = 'Explain the reason.';
+    if (!Number.isInteger(target) || target < 1 || target > group.length) errors.position = `Choose a position from 1 to ${group.length}.`;
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const from = r.w.position;
+    if (target === from) return settle({ ok: true, unchanged: true, entry: r.w });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    const ids = group.map(x => x.id);
+    ids.splice(from - 1, 1);
+    ids.splice(target - 1, 0, id);
+    ids.forEach((x, i) => { r.list.find(y => y.id === x).position = i + 1; });
+    const why = `${WL_REORDER_REASONS[reason]}${note ? `: ${note}` : ''}`;
+    r.w.history = [...r.w.history, wlEvent(user, 'reorder', { from, to: target, reason, note, detail: `Moved from number ${from} to ${target} · ${why}` })];
+    r.w.updatedAt = new Date().toISOString();
+    if (!write(waitlistKey(school.id), r.list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'reorder:waitlist', r.w.id, `${wlName(r.w)} · ${r.w.cls} (class ${classByName(r.w.cls)?.id || '—'}${r.w.enquiryId ? ` · applicant ${r.w.enquiryId}` : ''}) · ${from} → ${target} · ${why}`);
+    setTimeout(processWaitlist, 0);
+    return settle({ ok: true, entry: r.w, from, to: target });
+  }
+  function removeFromWaitlist(user, id, { reason, detail = '', fail = false } = {}) {
+    const r = withWaitlist(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    const note = clean(detail).slice(0, 300);
+    const errors = {};
+    if (!WL_REMOVE_REASONS[reason]) errors.reason = 'Choose a reason for removing this child.';
+    else if (reason === 'other' && !note) errors.detail = 'Explain the reason.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    const from = r.w.position;
+    const now = new Date().toISOString();
+    const why = `${WL_REMOVE_REASONS[reason]}${note ? `: ${note}` : ''}`;
+    Object.assign(r.w, { status: 'removed', position: null, updatedAt: now, removed: { reason, detail: note, at: now, by: user.name, byId: user.id, position: from } });
+    r.w.history = [...r.w.history, wlEvent(user, 'removed', { from, reason, note, detail: `Removed from the waitlist (was number ${from}) · ${why}` })];
+    renumber(r.list, r.w.cls);
+    if (!write(waitlistKey(school.id), r.list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'remove:waitlist', r.w.id, `${wlName(r.w)} · ${r.w.cls} (class ${classByName(r.w.cls)?.id || '—'}) · was number ${from} · ${why}`);
+    setTimeout(processWaitlist, 0);
+    return settle({ ok: true, entry: r.w, from });
+  }
+  function updateWaitlistNotes(user, id, notes) {
+    const r = withWaitlist(user, id);
+    if (r.error) return settle({ ok: false, reason: r.error });
+    const v = String(notes || '').trim().slice(0, 500);
+    if (v === (r.w.notes || '')) return settle({ ok: true, unchanged: true, entry: r.w });
+    r.w.notes = v;
+    r.w.updatedAt = new Date().toISOString();
+    r.w.history = [...r.w.history, wlEvent(user, 'notes', { detail: v ? 'Notes updated' : 'Notes cleared' })];
+    return settle(write(waitlistKey(school.id), r.list) ? { ok: true, entry: r.w } : { ok: false, reason: 'storage' });
+  }
+  // An offer belongs to an applicant (S06/S07). Entries added in S14 without one get an enquiry the first time they're
+  // offered — or are linked to the existing enquiry for the same child, never a duplicate.
+  async function ensureWaitlistApplicant(user, id) {
+    const r = withWaitlist(user, id);
+    if (r.error) return { ok: false, reason: r.error };
+    if (!can(user, 'admissions')) return { ok: false, reason: 'forbidden' };
+    const existing = wlEnquiry(r.w);
+    if (existing) return { ok: true, enquiry: existing };
+    const level = classByName(r.w.cls)?.level || '';
+    const fields = { child: wlName(r.w), parent: r.w.guardianName, phone: r.w.guardianPhone, dob: r.w.dob, programme: CLASS_LEVELS.includes(level) ? level : '', preferredStart: r.w.startDate && r.w.startDate >= today() ? r.w.startDate : today(), source: 'other', notes: `From the ${r.w.cls} waitlist` };
+    let made = await createEnquiry(user, fields, { confirmSibling: true, returning: waitlistFlags(r.w).some(x => x.key === 'returning') });
+    let enquiry = made.enquiry;
+    if (!made.ok && made.reason === 'duplicate') {
+      const same = made.duplicates.enquiries.find(x => x.sameChild);
+      enquiry = same ? getAdmissionEnquiries().find(e => e.id === same.id) : null;
+      if (!enquiry) return { ok: false, reason: 'duplicate', message: 'This child already has a family record. Open the family, then add the enquiry from Admissions.' };
+    } else if (!made.ok) return { ok: false, reason: made.reason, errors: made.errors };
+    const list = getWaitlist();
+    const w = list.find(x => x.id === id);
+    w.enquiryId = enquiry.id;
+    w.history = [...w.history, wlEvent(user, 'applicant', { detail: `Linked to admissions enquiry ${enquiry.id}` })];
+    if (!write(waitlistKey(school.id), list)) return { ok: false, reason: 'storage' };
+    return { ok: true, enquiry, created: made.ok };
+  }
+
+  // Vacancy suggestions (ticker): when a class has a place to offer and children waiting, the admissions owner of the
+  // first child and the Directors get one notification. A vacancy is remembered until it closes, so refreshing the
+  // page never repeats it; if the first child changes, the earlier suggestion is resolved and a new one is sent.
+  function resolveVacancyNotes(vacancyId, keepEntryId = null) {
+    const list = allNotifications();
+    let changed = false;
+    list.forEach(n => { if (String(n.dedupeKey || '').startsWith(`vacancy:${vacancyId}:`) && n.dedupeKey !== `vacancy:${vacancyId}:${keepEntryId}` && !n.read) { n.read = true; n.readAt = new Date().toISOString(); n.resolved = true; changed = true; } });
+    if (changed) write(NOTIFICATIONS_KEY, list);
+  }
+  function processWaitlist() {
+    if (!read(waitlistKey(school.id), null)) return 0;
+    const vac = read(wlVacanciesKey(school.id), {});
+    let changed = false;
+    let n = 0;
+    activeClasses().forEach(c => {
+      const s = waitlistSummary(c.name);
+      const top = waitlistFor(c.name)[0];
+      const rec = vac[c.id];
+      if (!s || !s.available || !top) { if (rec) { resolveVacancyNotes(rec.id); delete vac[c.id]; changed = true; } return; }
+      const v = rec || (vac[c.id] = { id: newId('vac'), openedAt: new Date().toISOString(), entryId: null });
+      if (!rec) changed = true;
+      if (v.entryId === top.id) return;
+      if (v.entryId) resolveVacancyNotes(v.id, top.id);
+      v.entryId = top.id;
+      changed = true;
+      const owner = wlEnquiry(top)?.ownerId;
+      n += notifyUsers({ module: 'waitlist', kind: 'vacancy', title: `A place is available in ${c.name}`, body: `Review the next waitlisted child: ${wlName(top)} (number ${top.position}${top.startDate ? ` · wants to start ${dLabel(top.startDate)}` : ''}). ${s.available} place${s.available === 1 ? '' : 's'} to offer.`, recordType: 'waitlist', recordId: top.id, dedupeKey: `vacancy:${v.id}:${top.id}`, actorId: 'system' }, { toRoles: ['Director'], toUserIds: owner ? [owner] : [] });
+    });
+    if (changed) { try { localStorage.setItem(wlVacanciesKey(school.id), JSON.stringify(vac)); } catch { /* retried next tick */ } }
+    return n;
   }
 
   /* Drafts: never children records, so they never count as enrolled. One draft per child being edited. */
@@ -4571,14 +4789,16 @@
 
   // Duplicate rules: the same child (name) at the same contact is always blocked — open the existing record instead.
   // A different child at a known contact (a sibling) needs explicit confirmation; it's then linked to that family.
-  function createEnquiry(user, input = {}, { confirmSibling = false, clientId = '' } = {}) {
+  // `returning`: a former pupil re-applying (from the waitlist) — their withdrawn or graduated record isn't a duplicate.
+  function createEnquiry(user, input = {}, { confirmSibling = false, clientId = '', returning = false } = {}) {
     if (user !== WEBSITE_ACTOR && !can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
     const list = getAdmissionEnquiries();
     if (clientId) { const again = list.find(e => e.clientId === clientId); if (again) return settle({ ok: true, enquiry: again, repeated: true }); }
     const { v, errors } = enquiryValues(input);
     if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
     const dup = enquiryDuplicates(v);
-    const blocking = dup.enquiries.find(e => e.sameChild) || dup.families.find(f => f.sameChild);
+    const current = f => listFamilies().find(x => x.id === f.id)?.children.some(c => sameName(c.name, v.child) && ['active', 'starting'].includes(c.status));
+    const blocking = dup.enquiries.find(e => e.sameChild) || dup.families.find(f => f.sameChild && (!returning || current(f)));
     if (blocking) return settle({ ok: false, reason: 'duplicate', blocking: true, duplicates: dup });
     if ((dup.enquiries.length || dup.families.length) && !confirmSibling) return settle({ ok: false, reason: 'duplicate', blocking: false, duplicates: dup });
     const now = new Date().toISOString();
@@ -4736,6 +4956,15 @@
     e.history = [...e.history, histEvent(user, 'enrolled', { from: prev, to: 'enrolled', detail: `Enrolled — S14 enrolment completed (${c.cls}, starts ${c.startDate})${fam ? ` · family: ${fam.name}` : ''}` })];
     // Uploaded applicant documents are copied to the child's Documents once (unverified, like any new upload).
     const writes = [{ key: admissionsKey(school.id), value: list }];
+    const wl = getWaitlist();
+    const wlEntry = wl.find(w => w.enquiryId === id && ['waiting', 'offered'].includes(w.status));
+    if (wlEntry) {
+      const wasWaiting = wlEntry.status === 'waiting';
+      wlEntry.history = [...wlEntry.history, wlEvent(user, 'enrolled', { detail: `Enrolled in ${c.cls}` })];
+      Object.assign(wlEntry, { status: 'enrolled', position: null, updatedAt: now });
+      if (wasWaiting) renumber(wl, wlEntry.cls);
+      writes.push({ key: waitlistKey(school.id), value: wl });
+    }
     if (e.docsCopiedTo !== childId && Object.keys(e.documents || {}).length) {
       const files = read(admissionFilesKey(school.id), []);
       const now2 = new Date().toISOString();
@@ -5007,6 +5236,11 @@
     if (out.unknown.length) errors.template = `Unknown variable: ${out.unknown.map(k => `{{${k}}}`).join(', ')}. Use {{child_name}}, {{start_date}} or {{fees}}.`;
     if (!String(template || '').trim()) errors.template = 'The letter is empty.';
     if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    // A waitlisted child is offered a place only while one is free to offer, checked again at the moment of sending.
+    const wl = getWaitlist();
+    const wlEntry = wl.find(w => w.enquiryId === id && w.status === 'waiting');
+    const seat = wlEntry ? waitlistSummary(wlEntry.cls) : null;
+    if (seat && seat.available !== null && seat.available <= 0) return settle({ ok: false, reason: 'no-seat', cls: wlEntry.cls });
     const now = new Date().toISOString();
     if (fail) {
       r.e.offers = [...(r.e.offers || []), { id: newId('of'), status: 'failed', template: String(template).slice(0, 6000), body: out.text, recipient: to, values: v, missing: [], delivery: 'failed', at: now, by: user.name }];
@@ -5018,9 +5252,20 @@
     r.e.offers = [...(r.e.offers || []), { id: newId('of'), status: 'sent', template: String(template).slice(0, 6000), body: out.text, recipient: to, values: v, missing: [], delivery: 'demo — not delivered (no email service)', at: now, by: user.name }];
     pushEvent(r.e, user, 'offer', { action: 'sent', to, detail: `Offer recorded as sent to ${to} — demo, not delivered (no email service)` }, clientId);
     if (prev !== 'offer') { Object.assign(r.e, { stage: 'offer', status: STAGE_STATUS.offer, stageAt: now }); pushEvent(r.e, user, 'stage', { from: prev, to: 'offer', detail: 'After the offer was sent' }); }
-    if (!saveEnquiries(r.list)) return settle({ ok: false, reason: 'storage' });
-    logAudit(user, 'offer:enquiry', '', `${r.e.child} → ${to}`);
-    return settle({ ok: true, enquiry: r.e, moved: prev !== 'offer' });
+    // The waitlist entry leaves the active list in the same save, keeping its record and history.
+    const writes = [{ key: admissionsKey(school.id), value: r.list }];
+    if (wlEntry) {
+      const from = wlEntry.position;
+      Object.assign(wlEntry, { status: 'offered', position: null, offeredAt: now, updatedAt: now });
+      wlEntry.history = [...wlEntry.history, wlEvent(user, 'offer', { from, detail: `Offer sent to ${to} (was number ${from}) — demo, not delivered` })];
+      renumber(wl, wlEntry.cls);
+      writes.push({ key: waitlistKey(school.id), value: wl });
+      pushEvent(r.e, user, 'note', { detail: `Left the ${wlEntry.cls} waitlist (was number ${from}) after the offer was sent` });
+    }
+    if (!commit(writes)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'offer:enquiry', wlEntry?.id || '', `${r.e.child} → ${to}${wlEntry ? ` · from the ${wlEntry.cls} waitlist` : ''}`);
+    if (wlEntry) setTimeout(processWaitlist, 0);
+    return settle({ ok: true, enquiry: r.e, moved: prev !== 'offer', waitlist: wlEntry || null });
   }
 
   /* School tours (tours.js at ?page=tours) — every booking belongs to an admissions enquiry.
@@ -6800,6 +7045,7 @@
       case 'incident': return getIncidents().some(i => i.id === n.recordId) ? go('safeguarding', { status: 'all', focus: n.recordId }) : missing;
       case 'meeting': return ptmData().bookings.some(b => b.id === n.recordId) ? go('meetings', { tab: 'bookings', booking: n.recordId }) : missing;
       case 'conference': return ptmData().records.some(r => r.id === n.recordId) ? go('meetings', { tab: 'records', record: n.recordId }) : missing;
+      case 'waitlist': { const w = getWaitlist().find(x => x.id === n.recordId); return w && w.status === 'waiting' ? go('waitlist', { cls: classByName(w.cls)?.id || '', focus: w.id }) : w ? { error: `${wlName(w)} is no longer waiting (${WAITLIST_STATUSES[w.status].toLowerCase()}).` } : missing; }
       case 'form': return getForms().some(f => f.id === n.recordId) ? go('forms', { results: n.recordId }) : missing;
       case 'announcement': return getAnnouncements().some(a => a.id === n.recordId) ? go('communication', { focus: n.recordId }) : missing;
       case 'class': return classByName(n.recordId) ? go('attendance', { cls: n.recordId, view: n.kind === 'ratio' ? 'ratio' : '' }) : missing;
@@ -6931,6 +7177,18 @@
     findDuplicates,
     getWaitlist,
     addToWaitlist,
+    WAITLIST_STATUSES,
+    WL_REORDER_REASONS,
+    WL_REMOVE_REASONS,
+    WL_FLAGS,
+    waitlistFor,
+    waitlistFlags,
+    waitlistSummary,
+    reorderWaitlist,
+    removeFromWaitlist,
+    updateWaitlistNotes,
+    ensureWaitlistApplicant,
+    processWaitlist,
     getDrafts,
     saveDraft,
     deleteDraft,

@@ -15,7 +15,7 @@
     attendance: ['calendar-check', 'success'], admissions: ['user-plus', 'info'], fees: ['wallet', 'accent'],
     safeguarding: ['shield-check', 'error'], communication: ['megaphone', 'primary'], 'classroom-tracker': ['grid', 'neutral'],
     observations: ['eye', 'neutral'], gallery: ['image', 'neutral'], reports: ['chart', 'neutral'], payroll: ['users', 'neutral'],
-    system: ['bell', 'neutral']
+    waitlist: ['clock', 'info'], system: ['bell', 'neutral']
   };
   const styleFor = n => (n.kind === 'broadcast' ? ['siren', 'error'] : MODULE_STYLE[n.module || 'system'] || MODULE_STYLE.system);
   const badgeText = n => (n > 99 ? '99+' : String(n));
