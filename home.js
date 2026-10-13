@@ -170,7 +170,7 @@
       let r;
       try {
         // ?fail=visit shows the error state in the demo.
-        r = new URLSearchParams(location.search).get('fail') === 'visit' ? await store.settle({ ok: false }) : await store.websiteEnquiry(v, { clientId });
+        r = new URLSearchParams(location.search).get('fail') === 'visit' ? await store.settle({ ok: false }) : await store.websiteEnquiry({ ...v, campaignTag: new URLSearchParams(location.search).get('campaign') || '' }, { clientId });
       } catch { r = { ok: false }; }
       sending = false;
       send.disabled = false;

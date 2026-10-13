@@ -474,10 +474,8 @@ Status     Active
 Created    07 Oct 2026
 Actions    View
 
-NO horizontal scrolling.
-
+NO horizontal scrolling
 ---
-
 # 18. FILTERS
 
 Create a realistic filter system.

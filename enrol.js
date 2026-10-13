@@ -137,7 +137,7 @@
           <h1 class="kids-head__title" id="page-title" tabindex="-1">${edit ? `Edit ${esc(name())}` : 'Enrol child'}</h1>
           <p class="kids-head__sub" data-saved aria-live="polite">${draft ? `Draft saved ${esc(when(draft.updatedAt))}` : ''}</p>
         </header>
-        ${linkedEnquiry ? `<p class="ls-banner">${icon('info', 'icon--sm')}<span>Prefilled from admissions enquiry <a href="${routes.page('admissions', { applicant: linkedEnquiry })}">${esc(linkedEnquiry)}</a>. The enquiry is marked Enrolled only when you finish and save this enrolment. ${pre?.family ? `The existing ${esc(pre.family.name)} is linked in step 2.` : 'If this family already has a child here, link the existing family in step 2.'}${pre?.documents?.length ? ` Uploaded documents (${esc(pre.documents.map(x => x.label).join(', '))}) are copied to the child’s record when you finish.` : ''}</span></p>` : ''}
+        ${linkedEnquiry ? `<p class="ls-banner">${icon('info', 'icon--sm')}<span>Prefilled from admissions enquiry <a href="${routes.page('admissions', { applicant: linkedEnquiry })}">${esc(linkedEnquiry)}</a>. The enquiry is marked Enrolled only when you finish and save this enrolment. ${pre?.family ? `The existing ${esc(pre.family.name)} is linked in step 2.` : 'If this family already has a child here, link the existing family in step 2.'}${pre?.documents?.length ? ` Uploaded documents (${esc(pre.documents.map(x => x.label).join(', '))}) are copied to the child’s record when you finish.` : ''}${pre?.forms?.length ? ` Details come from the website form ${esc(pre.forms.join(', '))}.` : ''}</span></p>${pre?.conflicts?.length ? `<p class="ls-banner ls-banner--warn" role="status">${icon('alert-triangle', 'icon--sm')}<span>The enquiry gave a different ${esc(pre.conflicts.join(', '))} from the linked family record. The family record is kept — check the guardians in step 2 and update them there if the new details are right.</span></p>` : ''}` : ''}
         <div class="wiz-resume" data-resume hidden></div>
         <div class="wiz-body">
           <nav class="wiz-steps" aria-label="Enrolment steps"><ol data-steps></ol></nav>
@@ -565,8 +565,9 @@
       btn.innerHTML = label;
       if (r.ok) {
         dirty = false;
-        if (linkedEnquiry && r.created) store.completeEnquiryEnrolment(user, linkedEnquiry, r.child.id);
-        try { sessionStorage.setItem(FLASH_KEY, JSON.stringify(r.created ? { title: `${store.childName(r.child)} enrolled`, text: `${r.child.cls} · starts ${day(r.child.startDate)}.` } : { title: 'Changes saved successfully', text: `${store.childName(r.child)}’s record is up to date.` })); } catch { /* toast optional */ }
+        const done = linkedEnquiry && r.created ? store.completeEnquiryEnrolment(user, linkedEnquiry, r.child.id) : null;
+        const extra = !done ? '' : !done.ok ? ' The admissions record couldn’t be marked Enrolled — open it in Admissions to check.' : done.earned?.length ? ` Referral reward earned: ${done.earned.map(x => `${x.family} (${x.reward})`).join(', ')}.` : '';
+        try { sessionStorage.setItem(FLASH_KEY, JSON.stringify(r.created ? { title: `${store.childName(r.child)} enrolled`, text: `${r.child.cls} · starts ${day(r.child.startDate)}.${extra}` } : { title: 'Changes saved successfully', text: `${store.childName(r.child)}’s record is up to date.` })); } catch { /* toast optional */ }
         location.href = routes.record(r.child.id);
         return;
       }

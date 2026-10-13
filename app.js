@@ -49,8 +49,10 @@
   else if (window.NexoraInbox?.render(key, main, user)) { /* Messages inbox (?family= stays with families.js) */ }
   else if (window.NexoraTours?.render(key, main, user)) { /* School tours */ }
   else if (window.NexoraAdmissions?.render(key, main, user)) { /* Admissions pipeline + S07 applicant details */ }
+  else if (window.NexoraMarketing?.render(key, main, user)) { /* Marketing & Referrals */ }
   else if (window.NexoraMeetings?.render(key, main, user)) { /* Parent–teacher meetings & conference records */ }
   else if (window.NexoraForms?.render(key, main, user)) { /* Forms, permissions & acknowledgements */ }
+  else if (window.NexoraFormBuilder?.render(key, main, user)) { /* Form Builder: application & consent forms by link */ }
   else if (window.NexoraAnnouncements?.render(key, main, user)) { /* Announcements & emergency broadcasts */ }
   else if (key === 'settings') renderSettings();
   else if (window.NexoraFamilies?.render(key, main, user)) { /* S15 families, S16 family detail */ }

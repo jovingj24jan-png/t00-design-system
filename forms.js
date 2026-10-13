@@ -231,42 +231,8 @@
   }
 
   // Finger, stylus and mouse signature pad; "typed" draws a typed name instead. Ink on a paper surface.
-  function signaturePad(wrap, onChange) {
-    const canvas = wrap.querySelector('canvas');
-    const ctx = canvas.getContext('2d');
-    let strokes = [];
-    let typedName = '';
-    let drawing = null;
-    const ink = () => getComputedStyle(wrap).getPropertyValue('--sig-ink').trim() || getComputedStyle(wrap).color;
-    function fit() {
-      const r = canvas.getBoundingClientRect();
-      if (!r.width) return;
-      const dpr = window.devicePixelRatio || 1;
-      if (canvas.width !== Math.round(r.width * dpr)) { canvas.width = Math.round(r.width * dpr); canvas.height = Math.round(r.height * dpr); redraw(); }
-    }
-    function redraw() {
-      const dpr = window.devicePixelRatio || 1;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = ink(); ctx.fillStyle = ink(); ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      if (typedName) { ctx.font = 'italic 34px Georgia, serif'; ctx.textBaseline = 'middle'; ctx.fillText(typedName, 18, canvas.height / dpr / 2, canvas.width / dpr - 36); }
-      strokes.forEach(s => { ctx.beginPath(); s.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); if (s.length === 1) ctx.lineTo(s[0][0] + 0.1, s[0][1]); ctx.stroke(); });
-      wrap.classList.toggle('is-signed', Boolean(typedName || strokes.length));
-    }
-    const pt = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-    canvas.addEventListener('pointerdown', e => { fit(); try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic or lost pointer */ } drawing = [pt(e)]; strokes.push(drawing); redraw(); e.preventDefault(); });
-    canvas.addEventListener('pointermove', e => { if (!drawing) return; drawing.push(pt(e)); redraw(); });
-    const end = () => { if (drawing) { drawing = null; onChange(); } };
-    canvas.addEventListener('pointerup', end);
-    canvas.addEventListener('pointercancel', end);
-    requestAnimationFrame(fit);
-    return {
-      fit, isEmpty: () => !strokes.length && !typedName.trim(),
-      clear() { strokes = []; typedName = ''; redraw(); onChange(); },
-      typed(name) { typedName = name.slice(0, 60); strokes = []; redraw(); onChange(); },
-      toDataURL() { fit(); return canvas.toDataURL('image/png'); }
-    };
-  }
+  // The signature pad lives in formkit.js, shared with the Form Builder.
+  const signaturePad = (wrap, onChange) => window.NexoraFormKit.signaturePad(wrap, onChange);
 
   function previewDialog(f, opener = document.activeElement) {
     const el = document.createElement('dialog');

@@ -33,6 +33,7 @@
     'no-seat': 'No place is free to offer in this class right now, so the offer wasn’t sent. The child stays on the waitlist.'
   };
   const failText = r => (r.errors && Object.values(r.errors)[0]) || FAIL[r.reason] || FAIL.storage;
+  const campaignOptions = sel => `<option value="">No campaign</option>${store.getCampaigns().map(c => `<option value="${esc(c.id)}"${sel === c.id ? ' selected' : ''}>${esc(c.name)} · ${esc(c.tag)}</option>`).join('')}`;
   const chip = (tone, text, ic = '') => `<span class="badge badge--plain an-chip an-chip--${tone}">${ic ? icon(ic) : ''}${esc(text)}</span>`;
   const state = (iconName, title, text, action = '', tone = '') => `<div class="kids-empty an-state"${tone === 'error' ? ' role="alert"' : ''}><span class="state-icon${tone ? ` state-icon--${tone}` : ''}" aria-hidden="true">${icon(iconName)}</span><h2 class="kids-empty__title">${title}</h2><p>${text}</p>${action}</div>`;
   const ownerName = id => store.users.find(u => u.id === id)?.name || '';
@@ -216,12 +217,13 @@
           <div class="cls-form__row">${kids.field('kd-child', 'Child’s name', `<input class="input" id="kd-child" name="child" maxlength="80" required placeholder="First and last name" value="${esc(v.child || '')}">`, { required: true })}${kids.field('kd-dob', 'Child’s date of birth', `<input class="input" id="kd-dob" name="dob" type="date" max="${store.today()}" value="${esc(v.dob || '')}">`, { hint: 'Needed to show age at start, and for enrolment.' })}</div>
           <div class="cls-form__row">${kids.field('kd-programme', 'Programme', `<select class="input" id="kd-programme" name="programme" required><option value="">Choose…</option>${store.CLASS_LEVELS.map(l => `<option${v.programme === l ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`, { required: true })}${kids.field('kd-preferredStart', 'Preferred start', `<input class="input" id="kd-preferredStart" name="preferredStart" type="date" required min="${e && e.preferredStart < store.today() ? e.preferredStart : store.today()}" value="${esc(v.preferredStart || '')}">`, { required: true })}</div>
           <div class="cls-form__row">${kids.field('kd-source', 'Source', `<select class="input" id="kd-source" name="source"><option value="">Choose…</option>${Object.entries(store.ENQUIRY_SOURCES).map(([k, l]) => `<option value="${k}"${v.source === k ? ' selected' : ''}>${l}</option>`).join('')}</select>`)}${kids.field('kd-ownerId', 'Admissions owner', `<select class="input" id="kd-ownerId" name="ownerId"><option value="">Unassigned</option>${owners.map(o => `<option value="${esc(o.id)}"${v.ownerId === o.id ? ' selected' : ''}>${esc(o.name)} · ${esc(o.role)}</option>`).join('')}</select>`)}</div>
+          ${kids.field('kd-campaignId', 'Campaign', `<select class="input" id="kd-campaignId" name="campaignId">${campaignOptions(v.campaignId)}</select>`, { hint: 'Optional. Counts this enquiry towards a campaign; the source stays as chosen.' })}
           ${e ? '' : kids.field('kd-followUp', 'Next follow-up', `<input class="input" id="kd-followUp" name="followUp" type="date" value="${esc(store.today())}">`)}
           ${kids.field('kd-notes', 'Notes', `<textarea class="input" id="kd-notes" name="notes" rows="3" maxlength="1000" placeholder="What did the family ask about?">${esc(v.notes || '')}</textarea>`)}
           <div class="ad-dup" data-dup hidden></div></div>`,
         submit: e ? 'Save changes' : 'Add enquiry',
         async onSubmit(form) {
-          const input = Object.fromEntries(['parent', 'phone', 'email', 'child', 'dob', 'programme', 'preferredStart', 'source', 'ownerId', 'notes', 'followUp'].filter(k => form.elements[k]).map(k => [k, form.elements[k].value]));
+          const input = Object.fromEntries(['parent', 'phone', 'email', 'child', 'dob', 'programme', 'preferredStart', 'source', 'campaignId', 'ownerId', 'notes', 'followUp'].filter(k => form.elements[k]).map(k => [k, form.elements[k].value]));
           const r = e ? await store.updateEnquiry(me(), e.id, { ...input, updatedAt: e.updatedAt }) : await store.createEnquiry(me(), input, { confirmSibling, clientId });
           if (r.reason === 'duplicate') { showDup(form, r); return { keepOpen: true, submitLabel: r.blocking ? (e ? 'Save changes' : 'Add enquiry') : 'Create separate enquiry' }; }
           if (!r.ok) return r.errors ? { ok: false, errors: r.errors } : { ok: false, message: failText(r) };
@@ -251,7 +253,7 @@
   function pipeline(main, user) {
     let view = params.get('view') === 'list' ? 'list' : 'kanban';
     let mStage = STAGES.includes(params.get('stage')) ? params.get('stage') : 'enquiry';
-    const f = { q: '', programme: '', source: '', start: '', owner: '' };
+    const f = { q: '', programme: '', source: store.ENQUIRY_SOURCES[params.get('source')] ? params.get('source') : '', start: '', owner: '', campaign: store.campaignById(params.get('campaign')) ? params.get('campaign') : '' };
     const sort = { key: 'created', dir: -1 };
     let loaded = false;
     let failOnce = params.get('fail') === '1';
@@ -265,9 +267,10 @@
       <div class="ad-toolbar" role="search" aria-label="Find and filter enquiries">
         <div class="an-search">${icon('search', 'icon--sm')}<label class="sr-only" for="ad-q">Search enquiries</label><input class="input" id="ad-q" type="search" placeholder="Child, parent, phone or email" autocomplete="off" data-f="q"></div>
         <label class="sr-only" for="ad-prog">Programme</label><select class="input" id="ad-prog" data-f="programme"><option value="">All programmes</option>${store.CLASS_LEVELS.map(l => `<option>${esc(l)}</option>`).join('')}</select>
-        <label class="sr-only" for="ad-src">Source</label><select class="input" id="ad-src" data-f="source"><option value="">All sources</option>${Object.entries(store.ENQUIRY_SOURCES).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
+        <label class="sr-only" for="ad-src">Source</label><select class="input" id="ad-src" data-f="source"><option value="">All sources</option>${Object.entries(store.ENQUIRY_SOURCES).map(([k, l]) => `<option value="${k}"${f.source === k ? ' selected' : ''}>${l}</option>`).join('')}</select>
         <label class="sr-only" for="ad-start">Preferred start</label><select class="input" id="ad-start" data-f="start" data-startsel></select>
         <label class="sr-only" for="ad-owner">Owner</label><select class="input" id="ad-owner" data-f="owner"><option value="">All owners</option>${owners.map(o => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}<option value="none">Unassigned</option></select>
+        ${f.campaign ? `<span class="badge badge--plain an-chip an-chip--cat" data-campchip>${icon('megaphone')}Campaign: ${esc(store.campaignById(f.campaign).name)}</span>` : ''}
         <button class="btn btn--tertiary btn--sm" type="button" data-reset hidden>Reset filters</button>
         <span class="ad-toolbar__sp"></span>
         <div class="segmented ad-view" role="group" aria-label="View">${[['kanban', 'Kanban', 'grid'], ['list', 'List', 'list']].map(([k, l, ic]) => `<button type="button" aria-pressed="${view === k}" data-view="${k}">${icon(ic, 'icon--sm')}${l}</button>`).join('')}</div>
@@ -297,7 +300,7 @@
       const qd = f.q.replace(/\D/g, '');
       return all.filter(e => (!ql || `${e.child} ${e.parent} ${e.email}`.toLowerCase().includes(ql) || (qd.length >= 3 && String(e.phone).replace(/\D/g, '').includes(qd)))
         && (!f.programme || e.programme === f.programme) && (!f.source || e.source === f.source) && (!f.start || (e.preferredStart || '').startsWith(f.start))
-        && (!f.owner || (f.owner === 'none' ? !e.ownerId : e.ownerId === f.owner)));
+        && (!f.owner || (f.owner === 'none' ? !e.ownerId : e.ownerId === f.owner)) && (!f.campaign || e.campaignId === f.campaign));
     };
     const menuHtml = e => `<div class="menu-wrap"><button class="btn btn--icon-ghost btn--sm" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for ${esc(e.child)}" data-menu="${esc(e.id)}">${icon('more-v')}</button>
       <div class="menu" role="menu" hidden><button type="button" role="menuitem" data-open="${esc(e.id)}">${icon('eye', 'icon--sm')}Open details</button><hr>${STAGES.filter(s => s !== e.stage).map(s => `<button type="button" role="menuitem" data-move="${s}" data-id="${esc(e.id)}"${s === 'lost' ? ' class="is-danger"' : ''}${e.stage === 'enrolled' ? ' disabled' : ''}>${icon(s === 'lost' ? 'x' : s === 'enrolled' ? 'user-plus' : 'arrow-right', 'icon--sm')}${s === 'enrolled' ? 'Continue to enrolment…' : `Move to ${store.ENQUIRY_STAGES[s]}`}</button>`).join('')}</div></div>`;
@@ -355,7 +358,7 @@
       const t = e.target;
       if (t.closest('[data-add]')) { act.enquiryForm(); return; }
       if (t.closest('[data-retry]')) { load(); return; }
-      if (t.closest('[data-reset]')) { Object.keys(f).forEach(k => { f[k] = ''; }); main.querySelectorAll('[data-f]').forEach(i => { i.value = ''; }); paint(); $('#ad-q').focus(); return; }
+      if (t.closest('[data-reset]')) { Object.keys(f).forEach(k => { f[k] = ''; }); main.querySelectorAll('[data-f]').forEach(i => { i.value = ''; }); $('[data-campchip]')?.remove(); paint(); $('#ad-q').focus(); return; }
       const vb = t.closest('[data-view]');
       if (vb) { view = vb.dataset.view; syncUrl(); paint(); main.querySelector(`[data-view="${view}"]`).focus(); return; }
       const sb = t.closest('[data-sort]');
@@ -422,7 +425,7 @@
     const act = actions(user, () => draw());
     const me = () => store.currentUser();
     const back = `<a class="btn btn--secondary" href="${routes.page('admissions')}">${icon('arrow-left', 'icon--sm')}Back to pipeline</a>`;
-    const TYPE_ICON = { created: 'user-plus', owner: 'user', stage: 'arrow-right', lost: 'x', followup: 'calendar-check', edit: 'pencil', 'enrol-started': 'file', enrolled: 'check-circle', note: 'note', call: 'phone', email: 'mail', task: 'list', document: 'upload', offer: 'file', sibling: 'users', tour: 'calendar-check' };
+    const TYPE_ICON = { created: 'user-plus', owner: 'user', stage: 'arrow-right', lost: 'x', followup: 'calendar-check', edit: 'pencil', 'enrol-started': 'file', enrolled: 'check-circle', note: 'note', call: 'phone', email: 'mail', task: 'list', document: 'upload', offer: 'file', sibling: 'users', tour: 'calendar-check', form: 'file' };
     const TRACK = ['enquiry', 'tour', 'applied', 'offer', 'enrolled'];
     const owners = store.admissionsOwners();
     const canEnrol = store.canManageChildren(user);
@@ -454,7 +457,7 @@
       return '';
     };
     const TL_GROUPS = [['', 'All'], ['comms', 'Calls, emails & notes'], ['stage', 'Stage changes'], ['other', 'Tasks & documents']];
-    const inGroup = x => !tlFilter || (tlFilter === 'comms' ? ['note', 'call', 'email'].includes(x.type) : tlFilter === 'stage' ? ['stage', 'lost', 'enrolled', 'created', 'offer', 'enrol-started'].includes(x.type) : ['task', 'document', 'followup', 'sibling', 'owner', 'edit'].includes(x.type));
+    const inGroup = x => !tlFilter || (tlFilter === 'comms' ? ['note', 'call', 'email'].includes(x.type) : tlFilter === 'stage' ? ['stage', 'lost', 'enrolled', 'created', 'offer', 'enrol-started'].includes(x.type) : ['task', 'document', 'followup', 'sibling', 'owner', 'edit', 'form'].includes(x.type));
 
     function draw() {
       const e = find();
@@ -466,6 +469,7 @@
       const sibs = store.enquirySiblings(e);
       const dup = store.enquiryDuplicates(e, e.id);
       const docsN = Object.keys(e.documents || {}).length;
+      const webForms = store.builderSubmissionsFor(e);
       const offerOk = store.canOffer(e);
       const enrolOk = canEnrol && !['enrolled', 'lost'].includes(e.stage);
       const focusId = document.activeElement?.id;
@@ -507,7 +511,7 @@
           <div class="s7-col s7-col--side">
             <section class="panel s7-card" data-group="details" aria-labelledby="s7-fam-h"><div class="s7-card__head"><h2 class="cd-h2" id="s7-fam-h">Family details</h2><button class="btn btn--tertiary btn--sm" type="button" data-editfam>${icon('pencil', 'icon--sm')}Edit</button></div>
               <dl class="token-sheet ad-dl"><div><dt>Parent / guardian</dt><dd>${esc(e.parent)}</dd></div><div><dt>Phone</dt><dd><a href="tel:${esc(String(e.phone).replace(/[^\d+]/g, ''))}">${esc(e.phone)}</a></dd></div><div><dt>Email</dt><dd>${e.email ? `<a href="mailto:${esc(e.email)}">${esc(e.email)}</a>` : '<span class="cp-muted">Not given</span>'}</dd></div>
-                <div><dt>Prefers</dt><dd>${e.contactMethod ? esc(store.CONTACT_METHODS[e.contactMethod]) : '<span class="cp-muted">Not given</span>'}</dd></div><div><dt>Language</dt><dd>${e.language ? esc(e.language) : '<span class="cp-muted">Not given</span>'}</dd></div><div><dt>Address</dt><dd>${e.address ? esc(e.address) : '<span class="cp-muted">Not given</span>'}</dd></div><div><dt>Owner</dt><dd>${o ? esc(o.name) : '<span class="cp-muted">Unassigned</span>'}</dd></div><div><dt>Source</dt><dd>${esc(store.ENQUIRY_SOURCES[e.source] || 'Other')}</dd></div></dl>
+                <div><dt>Prefers</dt><dd>${e.contactMethod ? esc(store.CONTACT_METHODS[e.contactMethod]) : '<span class="cp-muted">Not given</span>'}</dd></div><div><dt>Language</dt><dd>${e.language ? esc(e.language) : '<span class="cp-muted">Not given</span>'}</dd></div><div><dt>Address</dt><dd>${e.address ? esc(e.address) : '<span class="cp-muted">Not given</span>'}</dd></div><div><dt>Owner</dt><dd>${o ? esc(o.name) : '<span class="cp-muted">Unassigned</span>'}</dd></div><div><dt>Campaign</dt><dd>${e.campaignId ? esc(store.campaignById(e.campaignId)?.name || 'Campaign no longer on record') : '<span class="cp-muted">None</span>'}</dd></div><div><dt>Source</dt><dd>${esc(store.ENQUIRY_SOURCES[e.source] || 'Other')}${webForms.length ? ` · ${esc(webForms[0].formName)}, ${esc(when(webForms[0].at))}` : ''}</dd></div></dl>
             </section>
             <section class="panel s7-card" data-group="details" aria-labelledby="s7-child-h"><div class="s7-card__head"><h2 class="cd-h2" id="s7-child-h">Child details</h2><button class="btn btn--tertiary btn--sm" type="button" data-editchild>${icon('pencil', 'icon--sm')}Edit</button></div>
               <dl class="token-sheet ad-dl"><div><dt>Name</dt><dd>${e.childId ? `<a href="${routes.record(e.childId)}">${esc(e.child)}</a>` : esc(e.child)}</dd></div><div><dt>Date of birth</dt><dd>${e.dob ? esc(fmt(e.dob)) : '<span class="cp-muted">Not given</span>'}</dd></div>
@@ -521,6 +525,10 @@
                 <div class="s7-doc__acts"><input class="sr-only" type="file" id="s7-f-${k}" accept="${store.APPLICANT_DOC_TYPES[k].join(',')}" data-file="${k}"><label class="btn btn--${d ? 'tertiary' : 'secondary'} btn--sm" for="s7-f-${k}">${icon('upload', 'icon--sm')}${d ? 'Replace' : 'Upload'}<span class="sr-only"> ${esc(l)}</span></label>${d ? `<button class="btn btn--tertiary btn--sm" type="button" data-view="${esc(d.fileId)}">${icon('eye', 'icon--sm')}View<span class="sr-only"> ${esc(l)}</span></button><button class="btn btn--icon-ghost btn--sm" type="button" aria-label="Remove ${esc(l)}" data-rmdoc="${k}">${icon('trash', 'icon--sm')}</button>` : ''}</div></li>`; }).join('')}</ul>
               <p class="cd-note">Stored on this device for the prototype — not secure production storage. Copied to the child’s record on enrolment.</p>
             </section>
+            ${webForms.length ? `<section class="panel s7-card" data-group="details" aria-labelledby="s7-form-h"><div class="s7-card__head"><h2 class="cd-h2" id="s7-form-h">Website form</h2><span class="cp-muted">${webForms.length === 1 ? '1 submission' : `${webForms.length} submissions`}</span></div>
+              ${webForms.map((x, i) => `<details class="s7-form"${i === webForms.length - 1 ? ' open' : ''}><summary><b>${esc(x.formName)}</b> <span class="cp-muted">· version ${esc(x.version)} · submitted ${esc(when(x.at))}</span></summary>
+                ${x.submission ? `<dl class="token-sheet ad-dl s7-form__answers">${x.submission.snapshot.filter(a => a.type !== 'section').map(a => `<div><dt>${esc(a.label)}</dt><dd>${a.type === 'consent' ? `<span class="s7-form__stmt">${esc(a.statement || '')}</span>${a.value ? '<b>Agreed</b>' : '<span class="cp-muted">Not required to agree</span>'}` : a.value ? esc(a.value) : '<span class="cp-muted">Not answered</span>'}${a.mapTo ? ` <span class="bfb-map">${esc(store.BF_MAP[a.mapTo]?.label || '')}</span>` : ''}</dd></div>`).join('')}</dl>` : '<p class="cp-muted">The original answers aren’t stored on this device.</p>'}</details>`).join('')}
+              <p class="cd-note">Kept exactly as submitted, even if the form changes later. Mapped answers filled the details above${e.stage === 'enrolled' ? '' : ' and prefill enrolment'}.</p></section>` : ''}
             <section class="panel s7-card" data-group="details" aria-labelledby="s7-sib-h"><div class="s7-card__head"><h2 class="cd-h2" id="s7-sib-h">Siblings</h2><button class="btn btn--tertiary btn--sm" type="button" data-linksib>${icon('plus', 'icon--sm')}Link existing child</button></div>
               ${sibs.length ? `<ul class="s7-sibs">${sibs.map(s => { const a = store.ageAt(s.dob, store.today()); return `<li>${av(s.name)}<div><a href="${routes.record(s.id)}">${esc(s.name)}</a><small>${esc(s.cls)}${a ? ` · ${a.years}y ${a.months}m` : ''}${s.viaFamily ? ' · same family' : ''}</small></div>${chip(s.status === 'active' ? 'success' : 'neutral', store.CHILD_STATUSES[s.status] || s.status)}${!s.viaFamily ? `<button class="btn btn--icon-ghost btn--sm" type="button" aria-label="Remove link to ${esc(s.name)}" data-unsib="${esc(s.id)}">${icon('x', 'icon--sm')}</button>` : ''}</li>`; }).join('')}</ul>` : `<div class="s7-empty"><p class="kids-empty__title">No siblings linked yet</p><p class="cp-muted">Link a brother or sister already at the school. Nothing is matched by name automatically.</p><button class="btn btn--secondary btn--sm" type="button" data-linksib>Link existing child</button></div>`}
             </section>
@@ -619,14 +627,15 @@
             <div class="cls-form__row">${kids.field('kd-phone', 'Phone', `<input class="input" id="kd-phone" name="phone" type="tel" inputmode="tel" maxlength="24" required value="${esc(e.phone)}">`, { required: true })}${kids.field('kd-email', 'Email', `<input class="input" id="kd-email" name="email" type="email" maxlength="120" value="${esc(e.email || '')}">`)}</div>
             <div class="cls-form__row">${kids.field('kd-contactMethod', 'Preferred contact', `<select class="input" id="kd-contactMethod" name="contactMethod"><option value="">Not given</option>${Object.entries(store.CONTACT_METHODS).map(([k, l]) => `<option value="${k}"${e.contactMethod === k ? ' selected' : ''}>${l}</option>`).join('')}</select>`)}${kids.field('kd-language', 'Preferred language', `<input class="input" id="kd-language" name="language" maxlength="60" value="${esc(e.language || '')}">`)}</div>
             ${kids.field('kd-address', 'Address', `<textarea class="input" id="kd-address" name="address" rows="2" maxlength="300">${esc(e.address || '')}</textarea>`)}
-            ${kids.field('kd-ownerId', 'Admissions owner', `<select class="input" id="kd-ownerId" name="ownerId"><option value="">Unassigned</option>${owners.map(x => `<option value="${esc(x.id)}"${e.ownerId === x.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`)}</div>`
+            ${kids.field('kd-ownerId', 'Admissions owner', `<select class="input" id="kd-ownerId" name="ownerId"><option value="">Unassigned</option>${owners.map(x => `<option value="${esc(x.id)}"${e.ownerId === x.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`)}
+            ${kids.field('kd-campaignId', 'Campaign', `<select class="input" id="kd-campaignId" name="campaignId">${campaignOptions(e.campaignId)}</select>`, { hint: 'Optional. The enquiry’s source isn’t changed.' })}</div>`
           : `<div class="cls-form">${kids.field('kd-child', 'Child’s full name', `<input class="input" id="kd-child" name="child" maxlength="80" required value="${esc(e.child)}">`, { required: true })}
             <div class="cls-form__row">${kids.field('kd-dob', 'Date of birth', `<input class="input" id="kd-dob" name="dob" type="date" max="${store.today()}" value="${esc(e.dob || '')}">`)}${kids.field('kd-programme', 'Programme', `<select class="input" id="kd-programme" name="programme" required>${store.CLASS_LEVELS.map(l => `<option${e.programme === l ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`, { required: true })}</div>
             <div class="cls-form__row">${kids.field('kd-preferredStart', 'Preferred start', `<input class="input" id="kd-preferredStart" name="preferredStart" type="date" required value="${esc(e.preferredStart || '')}">`, { required: true })}${kids.field('kd-previousSchool', 'Previous school', `<input class="input" id="kd-previousSchool" name="previousSchool" maxlength="120" value="${esc(e.previousSchool || '')}">`)}</div>
             ${kids.field('kd-childNotes', 'Notes about the child', `<textarea class="input" id="kd-childNotes" name="childNotes" rows="3" maxlength="1000">${esc(e.childNotes || '')}</textarea>`)}</div>`,
         submit: 'Save changes',
         async onSubmit(form) {
-          const keys = fam ? ['parent', 'phone', 'email', 'contactMethod', 'language', 'address', 'ownerId'] : ['child', 'dob', 'programme', 'preferredStart', 'previousSchool', 'childNotes'];
+          const keys = fam ? ['parent', 'phone', 'email', 'contactMethod', 'language', 'address', 'ownerId', 'campaignId'] : ['child', 'dob', 'programme', 'preferredStart', 'previousSchool', 'childNotes'];
           const r = await store.updateEnquiry(me(), id, { ...Object.fromEntries(keys.map(k => [k, form.elements[k].value])), updatedAt: find()?.updatedAt });
           if (r.reason === 'duplicate') return { ok: false, message: 'Another open enquiry already uses this phone or email for the same child.' };
           if (!r.ok) return r.errors ? { ok: false, errors: r.errors } : { ok: false, message: failText(r) };

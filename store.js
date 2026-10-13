@@ -197,6 +197,8 @@
     waitlist: { name: 'Waitlist', icon: 'clock', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Ordered waitlists per class, seat availability, offers and removals.' },
     families: { name: 'Families', icon: 'users', roles: ['Teacher', 'Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Families as a unit: households, guardians, children and parent-app access.' },
     statement: { name: 'Family statement', icon: 'wallet', roles: ['Director', 'Accountant', 'Admin', 'Super Admin'], summary: 'Invoices and payments for one family, with a running balance.' },
+    'form-builder': { name: 'Form Builder', icon: 'file', requiredPlan: 'growth', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Application, consent and custom forms shared by link.', description: 'Build application and consent forms without a developer, share them by link, and file applications straight into the admissions pipeline.', features: ['Drag-and-drop form builder', 'Answers mapped to child and family details', 'Desktop and phone preview with real validation', 'Applications arrive as “Website form” enquiries'] },
+    marketing: { name: 'Marketing & Referrals', icon: 'megaphone', requiredPlan: 'growth', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Which channels bring enquiries and enrolments, campaigns, and family referral rewards.', description: 'See which admissions channels bring enquiries and enrolled children, track campaigns, and recognise families who recommend your school.', features: ['Enquiries and conversion by source, from the admissions pipeline', 'Campaigns with their own source tag and enrolment counts', 'Family referrals linked to applicants', 'Rewards earned automatically when a referred child enrols'] },
     tours: { name: 'School Tours', icon: 'calendar-check', requiredPlan: 'growth', roles: ['Director', 'Admin', 'Super Admin'], summary: 'Tour slots, bookings linked to enquiries, and attendance.', description: 'Schedule school tours, keep guides from double-booking, link every visit to an enquiry and record who attended.', features: ['Recurring tour slots with capacity', 'Bookings linked to admissions enquiries', 'Attendance and no-show follow-ups', 'Guide clash checks'] },
     meetings: { name: 'Parent–Teacher Meetings', icon: 'calendar-check', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Teacher availability, family bookings and conference records with agreed actions.' },
     forms: { name: 'Forms & Permissions', icon: 'list', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Surveys, permission slips and acknowledgements, with signatures, reminders and results.' },
@@ -4670,7 +4672,7 @@
      Every check runs in this store; a server would also need to enforce duplicates and stage changes atomically. */
   const ENQUIRY_STATUSES = { new: 'New', contacted: 'Contacted', visit: 'Visit booked', enrolled: 'Enrolled', closed: 'Closed' };
   const ENQUIRY_STAGES = { enquiry: 'Enquiry', tour: 'Tour booked', applied: 'Applied', offer: 'Offer sent', enrolled: 'Enrolled', lost: 'Lost' };
-  const ENQUIRY_SOURCES = { website: 'Website', walkin: 'Walk-in', referral: 'Referral', social: 'Social', event: 'Event', other: 'Other' };
+  const ENQUIRY_SOURCES = { website: 'Website', webform: 'Website form', walkin: 'Walk-in', referral: 'Referral', social: 'Social', event: 'Event', other: 'Other' };
   const LOST_REASONS = { other_school: 'Chose another school', fees: 'Fees', location: 'Location', no_response: 'No response', other: 'Other' };
   const STAGE_STATUS = { enquiry: 'new', tour: 'visit', applied: 'contacted', offer: 'contacted', enrolled: 'enrolled', lost: 'closed' };
   const admissionsKey = id => `nexora-admission-enquiries:${id}`;
@@ -4764,7 +4766,8 @@
       source: ENQUIRY_SOURCES[input.source] ? input.source : 'other', notes: String(input.notes || '').trim().slice(0, 1000),
       ownerId: clean(input.ownerId), followUp: clean(input.followUp),
       contactMethod: CONTACT_METHODS[input.contactMethod] ? input.contactMethod : '', language: clean(input.language).slice(0, 60), address: String(input.address || '').trim().slice(0, 300),
-      previousSchool: clean(input.previousSchool).slice(0, 120), childNotes: String(input.childNotes || '').trim().slice(0, 1000)
+      previousSchool: clean(input.previousSchool).slice(0, 120), childNotes: String(input.childNotes || '').trim().slice(0, 1000),
+      campaignId: campaignFor(input)
     };
     if (!v.parent) errors.parent = 'Enter the parent or guardian’s name.';
     if (!v.child) errors.child = 'Enter the child’s name.';
@@ -4791,7 +4794,7 @@
   // A different child at a known contact (a sibling) needs explicit confirmation; it's then linked to that family.
   // `returning`: a former pupil re-applying (from the waitlist) — their withdrawn or graduated record isn't a duplicate.
   function createEnquiry(user, input = {}, { confirmSibling = false, clientId = '', returning = false } = {}) {
-    if (user !== WEBSITE_ACTOR && !can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
+    if (user !== WEBSITE_ACTOR && user !== FORM_ACTOR && !can(user, 'admissions')) return settle({ ok: false, reason: 'forbidden' });
     const list = getAdmissionEnquiries();
     if (clientId) { const again = list.find(e => e.clientId === clientId); if (again) return settle({ ok: true, enquiry: again, repeated: true }); }
     const { v, errors } = enquiryValues(input);
@@ -4804,7 +4807,7 @@
     const now = new Date().toISOString();
     const ownerId = v.ownerId || (admissionsOwners().some(o => o.id === user.id) ? user.id : admissionsOwners()[0]?.id || '');
     const e = { id: newId('ae'), ...v, ownerId, phoneNorm: normPhone(v.phone), emailNorm: normEmail(v.email), stage: 'enquiry', status: 'new', stageAt: now, tourAt: null, lost: null, familyId: dup.families[0]?.id || null, childId: null, createdAt: now, createdBy: user.name, createdById: user.id, updatedAt: now, clientId: clientId || newId('cl'),
-      history: [histEvent(user, 'created', { to: 'enquiry', detail: `Enquiry created · source: ${ENQUIRY_SOURCES[v.source]}${dup.families[0] ? ` · linked to the ${dup.families[0].name}` : dup.enquiries[0] ? ` · sibling of ${dup.enquiries[0].child}` : ''}` })] };
+      history: [histEvent(user, 'created', { to: 'enquiry', detail: `Enquiry created · source: ${ENQUIRY_SOURCES[v.source]}${v.campaignId ? ` · campaign: ${campaignById(v.campaignId)?.name}` : ''}${dup.families[0] ? ` · linked to the ${dup.families[0].name}` : dup.enquiries[0] ? ` · sibling of ${dup.enquiries[0].child}` : ''}` })] };
     if (ownerId) e.history.push(histEvent(user, 'owner', { detail: `Owner assigned: ${users.find(u => u.id === ownerId)?.name || 'Admissions team'}` }));
     if (v.followUp) e.history.push(histEvent(user, 'followup', { detail: `Follow-up set for ${dLabel(v.followUp)}` }));
     if (!saveEnquiries([e, ...list])) return settle({ ok: false, reason: 'storage' });
@@ -4817,7 +4820,7 @@
   // child is added to that enquiry's timeline instead. No account is needed; in this prototype it's this browser only.
   const WEBSITE_ACTOR = Object.freeze({ id: 'website', name: 'School website', role: 'System', schoolId: school.id });
   async function websiteEnquiry(input = {}, { clientId = '' } = {}) {
-    const fields = { parent: input.parent, phone: input.phone, email: input.email, child: input.child, dob: input.dob, programme: input.programme, preferredStart: input.preferredStart, notes: String(input.message || '').trim().slice(0, 1000), source: 'website', followUp: today() };
+    const fields = { parent: input.parent, phone: input.phone, email: input.email, child: input.child, dob: input.dob, programme: input.programme, preferredStart: input.preferredStart, notes: String(input.message || '').trim().slice(0, 1000), source: 'website', followUp: today(), campaignTag: input.campaignTag };
     const { v, errors } = enquiryValues(fields);
     if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
     const list = getAdmissionEnquiries();
@@ -4855,6 +4858,7 @@
     if (v.preferredStart !== e.preferredStart) events_.push(histEvent(user, 'edit', { detail: `Preferred start changed: ${e.preferredStart || '—'} → ${v.preferredStart}` }));
     const other = ['child', 'parent', 'phone', 'email', 'dob', 'programme', 'source', 'notes', 'contactMethod', 'language', 'address', 'previousSchool', 'childNotes'].filter(k => (v[k] || '') !== (e[k] || ''));
     if (other.length) events_.push(histEvent(user, 'edit', { detail: `Details updated: ${other.join(', ')}` }));
+    if (v.campaignId !== (e.campaignId || '')) events_.push(histEvent(user, 'edit', { detail: v.campaignId ? `Campaign set: ${campaignById(v.campaignId)?.name}${e.campaignId ? ` (was ${campaignById(e.campaignId)?.name || 'an unknown campaign'})` : ''}` : `Campaign removed (was ${campaignById(e.campaignId)?.name || 'an unknown campaign'})` }));
     if (!events_.length) return settle({ ok: true, enquiry: e, unchanged: true });
     Object.assign(e, v, { phoneNorm: normPhone(v.phone), emailNorm: normEmail(v.email), updatedAt: new Date().toISOString() });
     e.history = [...e.history, ...events_];
@@ -4940,7 +4944,15 @@
     const fam = e.familyId ? listFamilies().find(f => f.id === e.familyId) : null;
     const relationOf = gid => getChildren().map(c => c.guardianLinks?.find(l => l.guardianId === gid)).find(Boolean)?.relation || '';
     const family = fam ? { id: fam.id, name: fam.name, householdIds: fam.householdIds.slice(), guardians: fam.guardians.map(g => ({ id: g.id, name: g.name, phone: g.phone || '', email: g.email || '', relation: relationOf(g.id), household: Math.max(1, fam.households.findIndex(h => h.guardianIds.includes(g.id)) + 1), primary: fam.primary?.id === g.id })) } : null;
-    return { enquiryId: e.id, child: { firstName: parts.slice(0, -1).join(' ') || parts[0], lastName: parts.length > 1 ? parts[parts.length - 1] : '', dob: e.dob || '' }, guardian: { name: e.parent, phone: e.phone, email: e.email }, cls: cls?.name || '', startDate: e.preferredStart && e.preferredStart >= today() ? e.preferredStart : today(), familyId: e.familyId, family, documents: Object.entries(e.documents || {}).map(([k, d]) => ({ label: APPLICANT_DOCS[k], name: d.name })) };
+    // A linked family's record wins in S14; where the enquiry (e.g. a website form) says something different, say so.
+    const conflicts = [];
+    if (family) {
+      if (e.email && !family.guardians.some(g => normEmail(g.email) === normEmail(e.email))) conflicts.push(`email ${e.email}`);
+      if (e.phone && !family.guardians.some(g => normPhone(g.phone) === normPhone(e.phone))) conflicts.push(`phone ${e.phone}`);
+      if (e.parent && !family.guardians.some(g => sameName(g.name, e.parent))) conflicts.push(`guardian name ${e.parent}`);
+    }
+    const forms = (e.formSubmissions || []).map(l => `${l.formName} (${dLabel(l.at.slice(0, 10))})`);
+    return { enquiryId: e.id, child: { firstName: parts.slice(0, -1).join(' ') || parts[0], lastName: parts.length > 1 ? parts[parts.length - 1] : '', dob: e.dob || '', ...(e.gender ? { gender: e.gender } : {}) }, guardian: { name: e.parent, phone: e.phone, email: e.email }, conflicts, forms, cls: cls?.name || '', startDate: e.preferredStart && e.preferredStart >= today() ? e.preferredStart : today(), familyId: e.familyId, family, documents: Object.entries(e.documents || {}).map(([k, d]) => ({ label: APPLICANT_DOCS[k], name: d.name })) };
   }
   // Called by S14 after the child is saved: the only way an enquiry becomes Enrolled. Safe to call twice.
   function completeEnquiryEnrolment(user, id, childId) {
@@ -4953,9 +4965,14 @@
     const now = new Date().toISOString();
     const prev = e.stage;
     Object.assign(e, { stage: 'enrolled', status: 'enrolled', stageAt: now, updatedAt: now, childId, familyId: fam?.id || e.familyId, preferredStart: c.startDate || e.preferredStart });
-    e.history = [...e.history, histEvent(user, 'enrolled', { from: prev, to: 'enrolled', detail: `Enrolled — S14 enrolment completed (${c.cls}, starts ${c.startDate})${fam ? ` · family: ${fam.name}` : ''}` })];
+    const enrolledEvent = histEvent(user, 'enrolled', { from: prev, to: 'enrolled', detail: `Enrolled — S14 enrolment completed (${c.cls}, starts ${c.startDate})${fam ? ` · family: ${fam.name}` : ''}` });
+    e.history = [...e.history, enrolledEvent];
     // Uploaded applicant documents are copied to the child's Documents once (unverified, like any new upload).
     const writes = [{ key: admissionsKey(school.id), value: list }];
+    // Referral rewards for this applicant are earned in the same commit as the enrolment, so one never happens without the other.
+    const refs = getReferrals();
+    const earned = earnReferrals(refs, e, user, { childId, eventId: enrolledEvent.id, at: now });
+    if (earned.length) writes.push({ key: referralsKey(school.id), value: refs });
     const wl = getWaitlist();
     const wlEntry = wl.find(w => w.enquiryId === id && ['waiting', 'offered'].includes(w.status));
     if (wlEntry) {
@@ -4973,7 +4990,8 @@
     }
     if (!commit(writes)) return { ok: false, reason: 'storage' };
     logAudit(user, 'enrol:enquiry', childId, `${e.child} from enquiry ${e.id}`);
-    return { ok: true, enquiry: e };
+    earned.forEach(r => { logAudit(user, 'earn:referral', childId, `${r.id}: ${r.reward} for ${familyLabel(r.familyId)}`); notifyReferralEarned(r); });
+    return { ok: true, enquiry: e, earned: earned.map(r => ({ id: r.id, family: familyLabel(r.familyId), reward: r.reward })) };
   }
   /* KPIs, from the stored records:
      - New this week: created Monday–Sunday of this week (school's local time).
@@ -5268,6 +5286,365 @@
     return settle({ ok: true, enquiry: r.e, moved: prev !== 'offer', waitlist: wlEntry || null });
   }
 
+  /* Form Builder — shareable application, consent and custom forms (formbuilder.js at ?page=form-builder; the public page
+     is form.html?f=<id>). Separate from family forms (forms.js), which go to enrolled families with a due date.
+     `nexora-builder-forms:<school>` { id, name, description, type: application|consent|custom, submitLabel,
+       status: draft|live, fields: [Field] (the working copy staff edit), version (number of times published),
+       published: { version, name, description, type, submitLabel, fields, at, by } | null — the only thing respondents see,
+       createdAt, createdBy, createdById, updatedAt, publishedAt, demo }
+     Field { id (stable — never the position), type, label, help, placeholder, required, defaultValue, mapTo (a BF_MAP key),
+       options: [{ id, label }], minSelect, maxLength, dateRule: any|past|future, minDate, maxDate, accept: ['image'|'pdf'],
+       maxKB, statement, requireAccept }. Section headers organise the form and never hold an answer.
+     `nexora-builder-submissions:<school>` { id, formId, formName, formType, version, answers: { fieldId: value },
+       snapshot: [{ id, type, label, value, statement }] (as the respondent saw it), mapped: { mapKey: value },
+       consents: [{ fieldId, statement, version, accepted, at }], clientId, submittedAt, enquiryId, outcome }
+     `nexora-builder-files:<school>` uploads and signature images (≤ 1 MB, checked by content).
+     Application forms file a "Website form" enquiry into S06 using the same rules as staff enquiries. Prototype: a
+     published link works in this browser only — everything is stored in this browser's localStorage. */
+  const builderFormsKey = id => `nexora-builder-forms:${id}`;
+  const builderSubsKey = id => `nexora-builder-submissions:${id}`;
+  const builderFilesKey = id => `nexora-builder-files:${id}`;
+  const BF_TYPES = { application: 'Application', consent: 'Consent', custom: 'Custom' };
+  const BF_STATUSES = { draft: 'Draft', live: 'Live' };
+  const BF_FIELDS = { section: 'Section header', text: 'Text', longtext: 'Long text', email: 'Email', phone: 'Phone', date: 'Date', dropdown: 'Dropdown', multiselect: 'Multi-select', checkbox: 'Checkbox', file: 'File upload', signature: 'Signature', consent: 'Consent statement' };
+  const BF_GROUPS = [['Layout', ['section']], ['Answers', ['text', 'longtext', 'email', 'phone', 'date']], ['Choices', ['dropdown', 'multiselect', 'checkbox']], ['Documents & consent', ['file', 'signature', 'consent']]];
+  // Where an answer can go: the S06 enquiry fields that S07 shows and S14 uses to prefill the child and family.
+  const BF_MAP = {
+    'child.name': { label: 'Child name', group: 'Child', types: ['text'], enquiry: 'child' },
+    'child.dob': { label: 'Child date of birth', group: 'Child', types: ['date'], enquiry: 'dob' },
+    'child.gender': { label: 'Child gender', group: 'Child', types: ['dropdown'], enquiry: 'gender' },
+    'child.programme': { label: 'Requested programme', group: 'Child', types: ['dropdown'], enquiry: 'programme' },
+    'child.start': { label: 'Preferred start date', group: 'Child', types: ['date'], enquiry: 'preferredStart' },
+    'child.previousSchool': { label: 'Previous school', group: 'Child', types: ['text'], enquiry: 'previousSchool' },
+    'child.notes': { label: 'Notes about the child', group: 'Child', types: ['longtext', 'text'], enquiry: 'childNotes' },
+    'guardian.name': { label: 'Parent or guardian name', group: 'Parent or guardian', types: ['text'], enquiry: 'parent' },
+    'guardian.email': { label: 'Parent or guardian email', group: 'Parent or guardian', types: ['email'], enquiry: 'email' },
+    'guardian.phone': { label: 'Parent or guardian phone', group: 'Parent or guardian', types: ['phone'], enquiry: 'phone' },
+    'guardian.language': { label: 'Home language', group: 'Parent or guardian', types: ['text', 'dropdown'], enquiry: 'language' },
+    'family.address': { label: 'Family address', group: 'Family', types: ['longtext', 'text'], enquiry: 'address' }
+  };
+  // An application must collect what S06 needs to create an enquiry.
+  const BF_APPLICATION_REQUIRED = ['child.name', 'guardian.name', 'guardian.phone', 'child.programme', 'child.start'];
+  const BF_GENDERS = GENDERS.filter(([k]) => k).map(([k, l]) => ({ value: k, label: l }));
+  const BF_FILE_TYPES = { image: ['image/jpeg', 'image/png', 'image/webp'], pdf: ['application/pdf'] };
+  const FORM_ACTOR = Object.freeze({ id: 'website-form', name: 'Website form', role: 'System', schoolId: school.id });
+  const canManageBuilderForms = user => can(user, 'form-builder');
+  const bfAnswerable = f => f.type !== 'section';
+  const bfChoice = t => t === 'dropdown' || t === 'multiselect';
+
+  function newBuilderField(type) {
+    const f = { id: newId('bf'), type, label: '', help: '', placeholder: '', required: false, defaultValue: '', mapTo: '' };
+    if (type === 'section') f.label = 'New section';
+    if (type === 'text') f.maxLength = 200;
+    if (type === 'longtext') f.maxLength = 2000;
+    if (type === 'date') Object.assign(f, { dateRule: 'any', minDate: '', maxDate: '' });
+    if (bfChoice(type)) f.options = [{ id: newId('bo'), label: 'Option 1' }, { id: newId('bo'), label: 'Option 2' }];
+    if (type === 'dropdown') f.placeholder = 'Choose…';
+    if (type === 'multiselect') f.minSelect = 1;
+    if (type === 'checkbox') f.label = 'I agree';
+    if (type === 'file') Object.assign(f, { accept: ['image', 'pdf'], maxKB: 1024 });
+    if (type === 'signature') Object.assign(f, { label: 'Signature', required: true, statement: 'I confirm the information in this form is correct.' });
+    if (type === 'consent') Object.assign(f, { label: 'Consent', statement: '', requireAccept: true, required: true });
+    return f;
+  }
+  // Canonical options for mapped choice fields, so the stored answer always matches the destination's values.
+  const bfMappedOptions = key => (key === 'child.programme' ? CLASS_LEVELS : key === 'child.gender' ? BF_GENDERS.map(g => g.label) : null);
+
+  function bfField(q) {
+    if (!BF_FIELDS[q?.type]) return null;
+    const out = { id: clean(q.id) || newId('bf'), type: q.type, label: String(q.label || '').slice(0, 200), help: String(q.help || '').slice(0, 500), placeholder: String(q.placeholder || '').slice(0, 120), required: q.type !== 'section' && Boolean(q.required), defaultValue: String(q.defaultValue || '').slice(0, 200), mapTo: BF_MAP[q.mapTo] ? q.mapTo : '' };
+    if (q.type === 'text' || q.type === 'longtext') out.maxLength = Math.min(q.type === 'text' ? 300 : 5000, Math.max(1, Number(q.maxLength) || (q.type === 'text' ? 200 : 2000)));
+    if (q.type === 'date') Object.assign(out, { dateRule: ['past', 'future'].includes(q.dateRule) ? q.dateRule : 'any', minDate: isDate(q.minDate) ? q.minDate : '', maxDate: isDate(q.maxDate) ? q.maxDate : '' });
+    if (bfChoice(q.type)) out.options = (q.options || []).slice(0, 30).map(o => ({ id: clean(o.id) || newId('bo'), label: String(o.label || '').slice(0, 120) }));
+    if (q.type === 'multiselect') out.minSelect = Math.max(1, Math.min(30, Number(q.minSelect) || 1));
+    if (q.type === 'file') { out.accept = ['image', 'pdf'].filter(k => (q.accept || []).includes(k)); if (!out.accept.length) out.accept = ['image', 'pdf']; out.maxKB = Math.min(1024, Math.max(100, Number(q.maxKB) || 1024)); }
+    if (q.type === 'signature' || q.type === 'consent') out.statement = String(q.statement || '').slice(0, 3000);
+    if (q.type === 'consent') { out.requireAccept = q.requireAccept !== false; out.required = out.requireAccept; }
+    if (q.type === 'section' || q.type === 'signature' || q.type === 'consent' || q.type === 'checkbox' || q.type === 'file') out.mapTo = '';
+    if (out.mapTo && !BF_MAP[out.mapTo].types.includes(out.type)) out.mapTo = '';
+    return out;
+  }
+  const bfValues = input => ({
+    name: String(input.name ?? '').trim().slice(0, 120), description: String(input.description || '').slice(0, 2000),
+    type: BF_TYPES[input.type] ? input.type : 'custom', submitLabel: String(input.submitLabel || '').trim().slice(0, 40),
+    fields: (Array.isArray(input.fields) ? input.fields : []).slice(0, 80).map(bfField).filter(Boolean)
+  });
+
+  // Problems that stop a form being published: { errors: { name, fields }, issues: [{ fid, n, msg }] }.
+  function builderFormIssues(form) {
+    const errors = {};
+    const issues = [];
+    const fields = form.fields || [];
+    if (!clean(form.name) || clean(form.name) === 'Untitled form') errors.name = 'Give the form a name.';
+    if (!fields.some(bfAnswerable)) errors.fields = 'Add at least one field people can answer.';
+    const mapped = {};
+    fields.forEach((f, i) => {
+      const add = msg => issues.push({ fid: f.id, n: i + 1, msg });
+      if (!clean(f.label)) add(f.type === 'section' ? 'Give the section a title.' : 'Write a label.');
+      if (bfChoice(f.type)) {
+        const labels = f.options.map(o => clean(o.label).toLowerCase());
+        if (labels.some(l => !l)) add('An option is empty.');
+        else if (labels.length < 2) add('Give at least two options.');
+        else if (new Set(labels).size !== labels.length) add('Two options have the same text.');
+        if (f.type === 'multiselect' && f.minSelect > f.options.length) add(`At least ${f.minSelect} must be chosen, but there are only ${f.options.length} options.`);
+      }
+      if ((f.type === 'consent' || f.type === 'signature') && !clean(f.statement)) add(f.type === 'consent' ? 'Write the consent statement.' : 'Write the statement being signed.');
+      if (f.type === 'date' && f.minDate && f.maxDate && f.minDate > f.maxDate) add('The earliest date is after the latest date.');
+      if (f.mapTo) {
+        const m = BF_MAP[f.mapTo];
+        if (!m.types.includes(f.type)) add(`A ${BF_FIELDS[f.type].toLowerCase()} field can’t fill “${m.label}”.`);
+        if (mapped[f.mapTo]) add(`“${m.label}” is already filled by field ${mapped[f.mapTo]}.`); else mapped[f.mapTo] = i + 1;
+        const canon = bfMappedOptions(f.mapTo);
+        if (canon && f.options.some(o => !canon.some(c => c.toLowerCase() === clean(o.label).toLowerCase()))) add(`Options must match the school’s list: ${canon.join(', ')}.`);
+      }
+    });
+    if (form.type === 'application') {
+      BF_APPLICATION_REQUIRED.forEach(k => {
+        const f = fields.find(x => x.mapTo === k);
+        if (!f) issues.push({ fid: '', n: 0, msg: `An application needs a field mapped to “${BF_MAP[k].label}”.` });
+        else if (!f.required) issues.push({ fid: f.id, n: fields.indexOf(f) + 1, msg: `“${BF_MAP[k].label}” is needed for the admissions enquiry, so this field must be required.` });
+      });
+    }
+    if (issues.length) errors.fields = errors.fields || `${issues.length} ${issues.length === 1 ? 'problem needs' : 'problems need'} fixing.`;
+    return { errors, issues };
+  }
+
+  // The same checks for the preview, the public form and the store. Answers: text → string, dropdown → option id,
+  // multi-select → [option id], checkbox / consent → true, file → [fileId], signature → { fileId }.
+  function validateBuilderAnswers(fields, answers = {}, { files = null } = {}) {
+    const errors = {};
+    const clean_ = {};
+    const today_ = today();
+    fields.filter(bfAnswerable).forEach(f => {
+      const v = answers[f.id];
+      const err = m => { errors[f.id] = m; };
+      const empty = v == null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length) || v === false;
+      if (f.type === 'consent' && !f.requireAccept) return;
+      if (empty) { if (f.required) err(f.type === 'checkbox' || f.type === 'consent' ? 'Tick this box to continue.' : f.type === 'multiselect' ? `Choose at least ${f.minSelect || 1}.` : f.type === 'file' ? 'Upload a file.' : f.type === 'signature' ? 'Sign here to continue.' : f.type === 'dropdown' ? 'Choose an option.' : 'This field is required.'); return; }
+      if (f.type === 'text' || f.type === 'longtext') { const s = String(v).trim(); if (s.length > f.maxLength) return err(`Use ${f.maxLength} characters or fewer.`); clean_[f.id] = s; return; }
+      if (f.type === 'email') { const s = String(v).trim(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s)) return err('Enter an email address like name@example.com.'); clean_[f.id] = s; return; }
+      if (f.type === 'phone') { const s = String(v).trim(); const d = s.replace(/\D/g, ''); if (!/^\+?[\d\s().-]+$/.test(s) || d.length < 7 || d.length > 15) return err('Enter a phone number using digits (7 to 15), with an optional + and spaces.'); clean_[f.id] = s; return; }
+      if (f.type === 'date') {
+        const s = String(v);
+        if (!isDate(s)) return err('Enter a valid date.');
+        if (f.dateRule === 'past' && s > today_) return err('Choose today or a date in the past.');
+        if (f.dateRule === 'future' && s < today_) return err('Choose today or a later date.');
+        if (f.minDate && s < f.minDate) return err(`Choose ${f.minDate} or later.`);
+        if (f.maxDate && s > f.maxDate) return err(`Choose ${f.maxDate} or earlier.`);
+        if (f.mapTo === 'child.start' && s > daysFromToday(730)) return err('Choose a start within the next two years.');
+        if (f.mapTo === 'child.dob' && s < daysFromToday(-365 * 10)) return err('Check the date of birth — that’s more than 10 years ago.');
+        clean_[f.id] = s;
+        return;
+      }
+      if (f.type === 'dropdown') { if (!f.options.some(o => o.id === v)) return err('Choose an option from the list.'); clean_[f.id] = v; return; }
+      if (f.type === 'multiselect') { const arr = Array.isArray(v) ? [...new Set(v)].filter(x => f.options.some(o => o.id === x)) : []; if (arr.length < (f.minSelect || 1)) return err(`Choose at least ${f.minSelect || 1}.`); clean_[f.id] = arr; return; }
+      if (f.type === 'checkbox' || f.type === 'consent') { if (v !== true) return err('Tick this box to continue.'); clean_[f.id] = true; return; }
+      if (f.type === 'file') { const arr = Array.isArray(v) ? v : []; if (files && arr.some(id => !files.some(x => x.id === id && x.fieldId === f.id))) return err('Upload the file again.'); clean_[f.id] = arr; return; }
+      if (f.type === 'signature') { if (!v?.fileId || (files && !files.some(x => x.id === v.fileId && x.fieldId === f.id))) return err('Sign here to continue.'); clean_[f.id] = { fileId: v.fileId }; }
+    });
+    return { errors, answers: clean_ };
+  }
+  // What a submitted answer looks like as text (S07, CSV-like views). Never file contents.
+  function bfAnswerText(f, v) {
+    if (v == null || v === '' || (Array.isArray(v) && !v.length)) return '';
+    if (f.type === 'dropdown') return f.options.find(o => o.id === v)?.label || '';
+    if (f.type === 'multiselect') return v.map(id => f.options.find(o => o.id === id)?.label).filter(Boolean).join('; ');
+    if (f.type === 'checkbox' || f.type === 'consent') return v === true ? 'Yes' : '';
+    if (f.type === 'file') return `${v.length} file${v.length === 1 ? '' : 's'} uploaded`;
+    if (f.type === 'signature') return 'Signed';
+    return String(v);
+  }
+
+  function seedBuilderForms() {
+    const by = { createdBy: 'Mrs. Rao', createdById: 'u-director', demo: true };
+    const F = (id, type, label, extra = {}) => ({ ...newBuilderField(type), id, label, ...extra });
+    const prog = CLASS_LEVELS.map((l, i) => ({ id: `bo-prog-${i + 1}`, label: l }));
+    const appFields = [
+      F('bf-a1', 'section', 'About your child'),
+      F('bf-a2', 'text', 'Child’s full name', { required: true, mapTo: 'child.name', placeholder: 'First and last name' }),
+      F('bf-a3', 'date', 'Date of birth', { required: true, mapTo: 'child.dob', dateRule: 'past' }),
+      F('bf-a4', 'dropdown', 'Gender', { mapTo: 'child.gender', options: BF_GENDERS.map((g, i) => ({ id: `bo-g-${i + 1}`, label: g.label })) }),
+      F('bf-a5', 'dropdown', 'Programme', { required: true, mapTo: 'child.programme', options: prog }),
+      F('bf-a6', 'date', 'Preferred start date', { required: true, mapTo: 'child.start', dateRule: 'future' }),
+      F('bf-a7', 'longtext', 'Anything we should know about your child?', { mapTo: 'child.notes', help: 'Allergies, routines, what they love.' }),
+      F('bf-a8', 'section', 'Parent or guardian'),
+      F('bf-a9', 'text', 'Your full name', { required: true, mapTo: 'guardian.name' }),
+      F('bf-a10', 'email', 'Email', { required: true, mapTo: 'guardian.email' }),
+      F('bf-a11', 'phone', 'Phone', { required: true, mapTo: 'guardian.phone', placeholder: '+91 98400 00000' }),
+      F('bf-a12', 'longtext', 'Home address', { mapTo: 'family.address' }),
+      F('bf-a13', 'consent', 'Privacy', { statement: 'I agree that Northvale Academy may store these details to process this application. They are shared only with the admissions team.' })
+    ];
+    const consentFields = [
+      F('bf-c1', 'text', 'Child’s name', { required: true }),
+      F('bf-c2', 'consent', 'Photos in the school gallery', { statement: 'I consent to photos of my child being shared with families in the class gallery.' }),
+      F('bf-c3', 'multiselect', 'Where may we use photos?', { options: [{ id: 'bo-u1', label: 'Class gallery' }, { id: 'bo-u2', label: 'School newsletter' }, { id: 'bo-u3', label: 'School website' }], minSelect: 1 }),
+      F('bf-c4', 'signature', 'Parent or guardian signature', { statement: 'I confirm I am this child’s parent or guardian.' })
+    ];
+    const at = atToday(10, 0, -12);
+    const published = { version: 1, name: 'Admissions application 2026–27', description: 'Tell us about your child and family. Our admissions team will contact you within two working days.', type: 'application', submitLabel: 'Submit application', fields: JSON.parse(JSON.stringify(appFields)), at, by: 'Mrs. Rao' };
+    return [
+      { id: 'bf-application', name: published.name, description: published.description, type: 'application', submitLabel: 'Submit application', status: 'live', fields: appFields, version: 1, published, createdAt: atToday(9, 0, -14), updatedAt: at, publishedAt: at, ...by },
+      { id: 'bf-photo-consent', name: 'Photo & media consent', description: 'Choose how we may share photos of your child.', type: 'consent', submitLabel: 'Submit consent', status: 'draft', fields: consentFields, version: 0, published: null, createdAt: atToday(15, 0, -3), updatedAt: atToday(15, 30, -3), publishedAt: null, ...by }
+    ];
+  }
+  const getBuilderForms = () => seeded(builderFormsKey(school.id), seedBuilderForms);
+  const getBuilderSubmissions = () => read(builderSubsKey(school.id), []);
+  const builderFormLink = id => `form.html?f=${encodeURIComponent(id)}`;
+  // Saved changes not yet published: the working copy differs from what respondents see.
+  const bfPublishable = f => ({ name: f.name, description: f.description, type: f.type, submitLabel: f.submitLabel, fields: f.fields });
+  const builderUnpublished = f => Boolean(f.published) && JSON.stringify(bfPublishable(f)) !== JSON.stringify(bfPublishable(f.published));
+
+  function createBuilderForm(user, { type = 'custom', name = '' } = {}) {
+    if (!canManageBuilderForms(user)) return settle({ ok: false, reason: 'forbidden' });
+    const now = new Date().toISOString();
+    const f = { id: newId('bform'), name: clean(name).slice(0, 120) || 'Untitled form', description: '', type: BF_TYPES[type] ? type : 'custom', submitLabel: '', status: 'draft', fields: [], version: 0, published: null, createdAt: now, createdBy: user.name, createdById: user.id, updatedAt: now, publishedAt: null };
+    const list = getBuilderForms();
+    if (!write(builderFormsKey(school.id), [f, ...list])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'create:builder-form', '', f.name);
+    return settle({ ok: true, form: f });
+  }
+  // Autosave of the working copy. Respondents keep seeing the published version until it's published again.
+  function saveBuilderForm(user, id, input, { fail = false } = {}) {
+    if (!canManageBuilderForms(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getBuilderForms();
+    const f = list.find(x => x.id === id);
+    if (!f) return settle({ ok: false, reason: 'missing' });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    Object.assign(f, bfValues(input), { updatedAt: new Date().toISOString() });
+    if (!f.name) f.name = 'Untitled form';
+    return settle(write(builderFormsKey(school.id), list) ? { ok: true, form: f, unpublished: builderUnpublished(f) } : { ok: false, reason: 'storage' });
+  }
+  // A copy is always a new draft with new field and option ids.
+  function duplicateBuilderForm(user, id) {
+    if (!canManageBuilderForms(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getBuilderForms();
+    const src = list.find(x => x.id === id);
+    if (!src) return settle({ ok: false, reason: 'missing' });
+    const now = new Date().toISOString();
+    const fields = JSON.parse(JSON.stringify(src.fields)).map(q => ({ ...q, id: newId('bf'), options: q.options?.map(o => ({ ...o, id: newId('bo') })) }));
+    const f = { ...JSON.parse(JSON.stringify(src)), id: newId('bform'), name: `Copy of ${src.name}`.slice(0, 120), fields, status: 'draft', version: 0, published: null, publishedAt: null, createdAt: now, createdBy: user.name, createdById: user.id, updatedAt: now, demo: false };
+    if (!write(builderFormsKey(school.id), [f, ...list])) return settle({ ok: false, reason: 'storage' });
+    return settle({ ok: true, form: f });
+  }
+  // Live only after the write succeeds; on failure the previous status and published version stay as they were.
+  function publishBuilderForm(user, id, { fail = false } = {}) {
+    if (!canManageBuilderForms(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getBuilderForms();
+    const f = list.find(x => x.id === id);
+    if (!f) return settle({ ok: false, reason: 'missing' });
+    const iss = builderFormIssues(f);
+    if (Object.keys(iss.errors).length || iss.issues.length) return settle({ ok: false, reason: 'invalid', ...iss });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    const now = new Date().toISOString();
+    const next = { ...f, status: 'live', version: f.version + 1, publishedAt: now, updatedAt: now, published: { version: f.version + 1, ...JSON.parse(JSON.stringify(bfPublishable(f))), at: now, by: user.name } };
+    const out = list.map(x => (x.id === id ? next : x));
+    if (!write(builderFormsKey(school.id), out)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'publish:builder-form', '', `${next.name} · version ${next.version}`);
+    return settle({ ok: true, form: next, link: builderFormLink(id) });
+  }
+  // What a respondent may load: only the published version of a live form — never drafts or staff data.
+  function publicBuilderForm(id) {
+    const f = getBuilderForms().find(x => x.id === id);
+    if (!f || f.status !== 'live' || !f.published) return { ok: false, reason: 'unavailable' };
+    return { ok: true, form: { id: f.id, ...JSON.parse(JSON.stringify(f.published)) }, school: { name: school.name, logo: school.logo, email: school.email, phone: school.phone } };
+  }
+  function uploadBuilderFile(formId, fieldId, { name, mime, size, data } = {}) {
+    const p = publicBuilderForm(formId);
+    if (!p.ok) return settle({ ok: false, reason: 'unavailable' });
+    const f = p.form.fields.find(x => x.id === fieldId && (x.type === 'file' || x.type === 'signature'));
+    if (!f) return settle({ ok: false, reason: 'invalid' });
+    const types = f.type === 'signature' ? ['image/png'] : f.accept.flatMap(k => BF_FILE_TYPES[k]);
+    const body = String(data || '').split(',')[1] || '';
+    const sig = CHAT_FILE_SIGNATURES[mime];
+    const max = (f.maxKB || 1024) * 1024;
+    if (!types.includes(mime) || !sig || !String(data).startsWith(`data:${mime};base64,`) || !body.startsWith(sig)) return settle({ ok: false, reason: 'invalid', message: f.type === 'signature' ? 'The signature couldn’t be read. Clear it and sign again.' : `Choose ${f.accept.length === 2 ? 'an image or a PDF' : f.accept[0] === 'pdf' ? 'a PDF' : 'an image (JPEG, PNG or WebP)'}.` });
+    if (!(Number(size) > 0) || Number(size) > max || body.length > max * 1.4) return settle({ ok: false, reason: 'invalid', message: `Files must be ${f.maxKB >= 1024 ? '1 MB' : `${f.maxKB} KB`} or less.` });
+    const file = { id: newId('bff'), formId, fieldId, name: clean(name).slice(0, 120) || 'file', mime, size: Number(size), data, at: new Date().toISOString(), submissionId: null };
+    if (!write(builderFilesKey(school.id), [...read(builderFilesKey(school.id), []), file])) return settle({ ok: false, reason: 'storage', message: 'There isn’t room on this device for this file. Nothing was saved.' });
+    return settle({ ok: true, file: { id: file.id, name: file.name, size: file.size } });
+  }
+  const builderFile = (user, id) => (canManageBuilderForms(user) || can(user, 'admissions') ? read(builderFilesKey(school.id), []).find(f => f.id === id) || null : null);
+
+  // A public submission. Application forms also file an enquiry in S06 (source "Website form"), using the same rules
+  // as a staff enquiry: an existing enquiry for the same child is never overwritten — the submission is linked to it
+  // and noted on its timeline instead. Nothing tells the respondent whether a family is already known.
+  let submittingBuilder = false;
+  async function submitBuilderForm(formId, answers, { clientId = '', fail = false, campaignTag = '' } = {}) {
+    const p = publicBuilderForm(formId);
+    if (!p.ok) return settle({ ok: false, reason: 'unavailable' });
+    const form = p.form;
+    const subs = getBuilderSubmissions();
+    if (clientId && subs.some(s => s.clientId === clientId)) return settle({ ok: true, repeated: true });
+    if (submittingBuilder) return settle({ ok: false, reason: 'busy' });
+    const files = read(builderFilesKey(school.id), []).filter(x => x.formId === formId && !x.submissionId);
+    const v = validateBuilderAnswers(form.fields, answers, { files });
+    if (Object.keys(v.errors).length) return settle({ ok: false, reason: 'invalid', errors: v.errors });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    submittingBuilder = true;
+    try {
+      const now = new Date().toISOString();
+      const sub = { id: newId('bsub'), formId, formName: form.name, formType: form.type, version: form.version, answers: v.answers, clientId: clientId || newId('cl'), submittedAt: now, enquiryId: null, outcome: 'saved' };
+      sub.snapshot = form.fields.map(f => ({ id: f.id, type: f.type, label: f.label, value: bfAnswerText(f, v.answers[f.id]), statement: f.statement || undefined, mapTo: f.mapTo || undefined }));
+      sub.mapped = {};
+      form.fields.forEach(f => { if (f.mapTo && v.answers[f.id] != null) sub.mapped[f.mapTo] = bfAnswerText(f, v.answers[f.id]); });
+      sub.consents = form.fields.filter(f => f.type === 'consent').map(f => ({ fieldId: f.id, statement: f.statement, version: form.version, accepted: v.answers[f.id] === true, at: now }));
+      const usedFiles = Object.values(v.answers).flatMap(x => (Array.isArray(x) ? x : x?.fileId ? [x.fileId] : [])).filter(x => typeof x === 'string');
+      const fileList = read(builderFilesKey(school.id), []).map(x => (usedFiles.includes(x.id) ? { ...x, submissionId: sub.id } : x));
+      const writes = [{ key: builderSubsKey(school.id), value: [sub, ...subs] }, { key: builderFilesKey(school.id), value: fileList }];
+      if (form.type === 'application') {
+        const m = sub.mapped;
+        const gender = BF_GENDERS.find(g => g.label.toLowerCase() === String(m['child.gender'] || '').toLowerCase())?.value || '';
+        const input = { child: m['child.name'], dob: m['child.dob'], programme: CLASS_LEVELS.find(l => l.toLowerCase() === String(m['child.programme'] || '').toLowerCase()) || '', preferredStart: m['child.start'], parent: m['guardian.name'], phone: m['guardian.phone'], email: m['guardian.email'], address: m['family.address'], language: m['guardian.language'], previousSchool: m['child.previousSchool'], childNotes: m['child.notes'], source: 'webform', followUp: today(), notes: `Application form: ${form.name}`, campaignTag };
+        const ev = enquiryValues(input);
+        if (Object.keys(ev.errors).length) {
+          const back = {};
+          Object.entries(ev.errors).forEach(([k, msg]) => { const key = Object.keys(BF_MAP).find(x => BF_MAP[x].enquiry === k); const fld = form.fields.find(f => f.mapTo === key); if (fld) back[fld.id] = msg; });
+          return settle({ ok: false, reason: 'invalid', errors: back, message: Object.keys(back).length ? '' : 'This application couldn’t be filed. Please contact the school.' });
+        }
+        const list = getAdmissionEnquiries();
+        const dup = enquiryDuplicates(ev.v);
+        const same = list.find(e => dup.enquiries.some(d => d.id === e.id && d.sameChild));
+        const link = { submissionId: sub.id, formId, formName: form.name, version: form.version, at: now };
+        if (same) {
+          same.formSubmissions = [...(same.formSubmissions || []), link];
+          const diffs = ['child', 'dob', 'programme', 'preferredStart', 'parent', 'phone', 'email', 'address'].filter(k => ev.v[k] && same[k] && String(ev.v[k]).toLowerCase() !== String(same[k]).toLowerCase());
+          same.history = [...same.history, histEvent(FORM_ACTOR, 'form', { submissionId: sub.id, detail: `Application form submitted again (${form.name}). Existing details were kept${diffs.length ? ` — the form gave different ${diffs.join(', ')}` : ''}.` })];
+          same.updatedAt = now;
+          Object.assign(sub, { enquiryId: same.id, outcome: 'matched-enquiry' });
+          writes[0].value = [sub, ...subs];
+          writes.push({ key: admissionsKey(school.id), value: list });
+          if (!commit(writes)) return settle({ ok: false, reason: 'storage' });
+          notifyUsers({ module: 'admissions', kind: 'enquiry', title: `Application form again: ${same.child}`, body: `${form.name} · ${diffs.length ? 'some answers differ — review them' : 'same details'} · ref ${same.id}`, recordType: 'enquiry', recordId: same.id, dedupeKey: `bform-repeat:${sub.id}`, actorId: FORM_ACTOR.id }, { toUserIds: same.ownerId ? [same.ownerId] : admissionsOwners().map(o => o.id) });
+          return settle({ ok: true, submissionId: sub.id });
+        }
+        if (dup.families.some(f => f.sameChild)) {
+          Object.assign(sub, { outcome: 'matched-family' });
+          writes[0].value = [sub, ...subs];
+          if (!commit(writes)) return settle({ ok: false, reason: 'storage' });
+          notifyUsers({ module: 'admissions', kind: 'enquiry', title: `Application form: ${ev.v.child}`, body: `${form.name} · this child may already be at the school — check the family record before replying.`, recordType: null, recordId: null, dedupeKey: `bform-family:${sub.id}`, actorId: FORM_ACTOR.id }, { toUserIds: admissionsOwners().map(o => o.id) });
+          return settle({ ok: true, submissionId: sub.id });
+        }
+        const r = await createEnquiry(FORM_ACTOR, input, { confirmSibling: true, clientId: sub.clientId });
+        if (!r.ok) return settle({ ok: false, reason: r.reason === 'invalid' ? 'invalid' : 'storage', message: 'This application couldn’t be filed. Please try again.' });
+        const enq = getAdmissionEnquiries();
+        const e = enq.find(x => x.id === r.enquiry.id);
+        e.formSubmissions = [link];
+        if (gender) e.gender = gender;
+        e.history = [...e.history, histEvent(FORM_ACTOR, 'form', { submissionId: sub.id, detail: `Application form submitted: ${form.name} (version ${form.version})` })];
+        Object.assign(sub, { enquiryId: e.id, outcome: 'enquiry' });
+        writes[0].value = [sub, ...subs];
+        writes.push({ key: admissionsKey(school.id), value: enq });
+        if (!commit(writes)) { saveEnquiries(getAdmissionEnquiries().filter(x => x.id !== e.id)); return settle({ ok: false, reason: 'storage' }); }
+        return settle({ ok: true, submissionId: sub.id });
+      }
+      if (!commit(writes)) return settle({ ok: false, reason: 'storage' });
+      const owner = getBuilderForms().find(x => x.id === formId)?.createdById;
+      if (owner) notifyUsers({ module: 'form-builder', kind: 'form', title: `New response: ${form.name}`, body: `${BF_TYPES[form.type]} form · ${new Date(now).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, recordType: 'builder-form', recordId: formId, dedupeKey: `bform-sub:${sub.id}`, actorId: FORM_ACTOR.id }, { toUserIds: [owner] });
+      return settle({ ok: true, submissionId: sub.id });
+    } finally { submittingBuilder = false; }
+  }
+  const builderSubmissionsFor = enquiry => (enquiry?.formSubmissions || []).map(l => ({ ...l, submission: getBuilderSubmissions().find(s => s.id === l.submissionId) || null }));
+
   /* School tours (tours.js at ?page=tours) — every booking belongs to an admissions enquiry.
      Patterns `nexora-tour-patterns:<school>` { id, name, days[], start, end, duration, capacity, guideId, from, to, status }
      Slots `nexora-tour-slots:<school>` { id, patternId, date, start, end, capacity, guideId, status: active|cancelled }
@@ -5557,6 +5934,272 @@
   }
 
   /* Fees: one term invoice per child, and the payments recorded against it. Amounts in rupees. */
+  /* Marketing & Referrals (marketing.js at ?page=marketing)
+     Campaigns `nexora-campaigns:<school>` { id, name, start, end, tag, notes, createdAt, createdBy, createdById, updatedAt, history[] }
+       The tag is unique (lower-case words joined by "-"). An enquiry carries `campaignId` (stable), set in the S06/S07 forms
+       or from a `?campaign=<tag>` link on the homepage visit form or a published application form. Attribution is
+       first-touch and explicit: one campaign per enquiry at most, never inferred from dates, and `source` is never changed.
+     Referrals `nexora-referrals:<school>` { id, familyId, enquiryId, reward, notes, status: pending|earned|given, clientId,
+       createdAt, createdBy, createdById, earnedAt, earnedTrigger: { enquiryId, childId, eventId }, givenAt, givenBy,
+       givenById, creditNoteId, notify: { status: sent|failed, at, count }, history[] }
+     A reward becomes Earned inside completeEnquiryEnrolment(), in the same commit as the Enrolled stage. A referral
+     recorded after its child had already enrolled, or one missed by a failed write, is earned from that recorded
+     enrolment (createReferral / reconcileReferrals). Earned and Given never go back to Pending.
+     Analytics are recomputed from the S06 enquiry records on every call; nothing is cached. A server would need to
+     run the enrolment and reward update in one transaction and enforce the tag and duplicate rules itself. */
+  const campaignsKey = id => `nexora-campaigns:${id}`;
+  const referralsKey = id => `nexora-referrals:${id}`;
+  const CAMPAIGN_STATUSES = { scheduled: 'Scheduled', active: 'Active', completed: 'Completed' };
+  const REWARD_STATUSES = { pending: 'Pending', earned: 'Earned', given: 'Given' };
+  const MARKETING_PERIODS = { 30: 'Last 30 days', 90: 'Last 90 days', 365: 'Last 12 months', all: 'All time' };
+  const canManageMarketing = user => can(user, 'marketing');
+  const normCampaignTag = t => String(t || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  const mkEvent = (user, detail, by = '') => ({ id: newId('mh'), at: new Date().toISOString(), by: by || user?.name || 'System', byId: user?.id || '', detail });
+  const enrolledEventOf = e => [...(e.history || [])].reverse().find(h => h.to === 'enrolled') || null;
+
+  function seedCampaigns() {
+    const now = new Date().toISOString();
+    const meta = { createdBy: 'Mrs. Rao', createdById: 'u-director', createdAt: now, updatedAt: now, history: [], demo: true };
+    const list = [
+      { id: 'cmp-demo-1', name: 'Autumn open morning', start: daysFromToday(-35), end: daysFromToday(-14), tag: 'open-morning-autumn', notes: 'Flyers at the community centre and a sign-up sheet on the day.', ...meta },
+      { id: 'cmp-demo-2', name: 'Instagram — new term places', start: daysFromToday(-21), end: daysFromToday(30), tag: 'instagram-new-term', notes: '', ...meta }
+    ];
+    // Demo attribution, set on the enquiries the same way a tagged link would.
+    const enq = getAdmissionEnquiries();
+    const tagged = { ae5: 'cmp-demo-1', ae4: 'cmp-demo-2' };
+    let changed = false;
+    enq.forEach(e => { if (tagged[e.id] && e.demo && !e.campaignId) { e.campaignId = tagged[e.id]; changed = true; } });
+    if (changed) { try { localStorage.setItem(admissionsKey(school.id), JSON.stringify(enq)); } catch { /* in memory */ } }
+    return list;
+  }
+  const getCampaigns = () => seeded(campaignsKey(school.id), seedCampaigns);
+  const campaignById = id => (id ? getCampaigns().find(c => c.id === id) || null : null);
+  const campaignStatus = (c, on = today()) => (on < c.start ? 'scheduled' : on > c.end ? 'completed' : 'active');
+  // An explicit campaign ID wins; a tag (from a ?campaign= link) counts only when a campaign has exactly that tag.
+  function campaignFor(input) {
+    if (!input.campaignId && !input.campaignTag) return '';
+    const list = getCampaigns();
+    if (input.campaignId) return list.some(c => c.id === input.campaignId) ? input.campaignId : '';
+    const t = normCampaignTag(input.campaignTag);
+    return list.find(c => c.tag === t)?.id || '';
+  }
+
+  function campaignValues(input, list, id) {
+    const errors = {};
+    const v = { name: clean(input.name).replace(/\s+/g, ' ').slice(0, 80), start: clean(input.start), end: clean(input.end), tag: normCampaignTag(input.tag), notes: String(input.notes || '').trim().slice(0, 500) };
+    const isDay = d => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(new Date(`${d}T12:00:00`).getTime());
+    if (!v.name) errors.name = 'Give the campaign a name.';
+    else if (list.some(c => c.id !== id && sameName(c.name, v.name))) errors.name = 'Another campaign already has this name.';
+    if (!isDay(v.start)) errors.start = 'Choose the start date.';
+    if (!isDay(v.end)) errors.end = 'Choose the end date.';
+    else if (isDay(v.start) && v.end < v.start) errors.end = 'The end date can’t be before the start date.';
+    if (!clean(input.tag)) errors.tag = 'Enter a source tag, for example open-day-2026.';
+    else if (v.tag.length < 3) errors.tag = 'Use at least 3 letters or numbers.';
+    else {
+      const clash = list.find(c => c.id !== id && c.tag === v.tag);
+      if (clash) errors.tag = `“${clash.name}” already uses ${v.tag}. Each campaign needs its own tag so an enquiry is counted once.`;
+    }
+    return { v, errors };
+  }
+  function saveCampaign(user, input = {}, id = null, { fail = false } = {}) {
+    if (!canManageMarketing(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getCampaigns();
+    const c = id ? list.find(x => x.id === id) : null;
+    if (id && !c) return settle({ ok: false, reason: 'missing' });
+    if (c && input.updatedAt && input.updatedAt !== c.updatedAt) return settle({ ok: false, reason: 'stale' });
+    const { v, errors } = campaignValues(input, list, id);
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    const now = new Date().toISOString();
+    if (c) {
+      const changed = ['name', 'start', 'end', 'tag', 'notes'].filter(k => v[k] !== c[k]);
+      if (!changed.length) return settle({ ok: true, campaign: c, unchanged: true });
+      const detail = `Edited: ${changed.map(k => (k === 'notes' ? 'notes' : `${k} ${c[k] || '—'} → ${v[k]}`)).join(', ')}`;
+      Object.assign(c, v, { updatedAt: now });
+      c.history = [...(c.history || []), mkEvent(user, detail)];
+      if (!write(campaignsKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+      logAudit(user, 'edit:campaign', '', `${c.name}: ${detail}`);
+      return settle({ ok: true, campaign: c });
+    }
+    const created = { id: newId('cmp'), ...v, createdAt: now, createdBy: user.name, createdById: user.id, updatedAt: now, history: [mkEvent(user, `Campaign created · tag ${v.tag}`)] };
+    if (!write(campaignsKey(school.id), [created, ...list])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'create:campaign', '', `${created.name} (${created.tag})`);
+    return settle({ ok: true, campaign: created });
+  }
+  // Enquiries and completed enrolments per campaign, all time (a campaign's own dates bound it, not the report period).
+  function campaignStats(list = null) {
+    const out = {};
+    const campaigns = getCampaigns();
+    campaigns.forEach(c => { out[c.id] = { enquiries: 0, enrolled: 0 }; });
+    (list || getAdmissionEnquiries()).forEach(e => { const s = out[e.campaignId]; if (s) { s.enquiries += 1; if (e.stage === 'enrolled') s.enrolled += 1; } });
+    return out;
+  }
+
+  // Enquiries that booked a school tour at any point: the Tour booked stage, or a tour booking that wasn't cancelled.
+  function touredEnquiryIds(list) {
+    const ids = new Set(list.filter(e => e.tourId || (e.history || []).some(h => h.to === 'tour')).map(e => e.id));
+    toursData().bookings.forEach(b => { if (b.enquiryId && b.status !== 'cancelled') ids.add(b.enquiryId); });
+    return ids;
+  }
+  /* By source, for enquiries received in the period (by their created date, school's local day). Tours and Enrolled say
+     what has happened to those same enquiries so far, so each is counted once and conversion = enrolled ÷ enquiries.
+     Enrolled means the S14 enrolment completed (stage Enrolled) — an offer is not an enrolment. */
+  function marketingAnalytics({ period = '90' } = {}) {
+    const all = getAdmissionEnquiries();
+    const p = MARKETING_PERIODS[period] ? String(period) : '90';
+    const from = p === 'all' ? null : daysFromToday(1 - Number(p));
+    const list = from ? all.filter(e => isoDate(new Date(e.createdAt)) >= from) : all;
+    const toured = touredEnquiryIds(all);
+    const srcOf = e => (ENQUIRY_SOURCES[e.source] ? e.source : 'other');
+    const pct = (n, d) => (d ? (n / d) * 100 : null);
+    const rows = Object.entries(ENQUIRY_SOURCES).map(([key, label]) => {
+      const es = list.filter(e => srcOf(e) === key);
+      const enrolled = es.filter(e => e.stage === 'enrolled').length;
+      return { key, label, enquiries: es.length, tours: es.filter(e => toured.has(e.id)).length, enrolled, conversion: pct(enrolled, es.length) };
+    }).sort((a, b) => b.enquiries - a.enquiries || a.label.localeCompare(b.label));
+    const enrolled = list.filter(e => e.stage === 'enrolled').length;
+    return { period: p, from, to: today(), total: list.length, tours: list.filter(e => toured.has(e.id)).length, enrolled, conversion: pct(enrolled, list.length), rows };
+  }
+
+  function seedReferrals() {
+    const fams = getFamilyRecords().filter(f => f.status === 'active');
+    const enq = getAdmissionEnquiries();
+    const out = [];
+    const mk = (id, fam, e, extra = {}) => ({ id, familyId: fam.id, enquiryId: e.id, reward: 'One week fee credit', notes: '', status: 'pending', clientId: id, createdAt: e.createdAt, createdBy: 'Ms. Fernandes', createdById: 'u-admin', earnedAt: null, earnedTrigger: null, givenAt: null, givenBy: null, givenById: null, creditNoteId: null, notify: null,
+      history: [{ id: `${id}-h1`, at: e.createdAt, by: 'Ms. Fernandes', byId: 'u-admin', detail: `Referral recorded: ${fam.name} recommended ${e.child}` }], demo: true, ...extra });
+    const ae2 = enq.find(e => e.id === 'ae2' && e.demo);
+    const ae7 = enq.find(e => e.id === 'ae7' && e.demo && e.stage === 'enrolled');
+    if (ae2 && fams[0]) out.push(mk('ref-demo-1', fams[0], ae2));
+    if (ae7 && fams[1]) {
+      const r = mk('ref-demo-2', fams[1], ae7, { status: 'earned', earnedAt: ae7.stageAt, earnedTrigger: { enquiryId: ae7.id, childId: ae7.childId, eventId: enrolledEventOf(ae7)?.id || '' } });
+      r.history.push({ id: 'ref-demo-2-h2', at: ae7.stageAt, by: 'Automatic', byId: '', detail: `Reward earned: ${ae7.child} enrolled` });
+      out.push(r);
+    }
+    return out;
+  }
+  const getReferrals = () => seeded(referralsKey(school.id), seedReferrals);
+  // A merged family resolves to the family it now lives in, so a referral never points at a dead record.
+  function resolveFamilyRec(families, id) {
+    let f = families.find(x => x.id === id);
+    for (let i = 0; f && f.status === 'merged' && i < 5; i += 1) f = families.find(x => x.id === f.mergedInto);
+    return f && f.status === 'active' ? f : null;
+  }
+  const familyLabel = id => resolveFamilyRec(getFamilyRecords(), id)?.name || 'Family no longer on record';
+  function referralView(r, ctx = null) {
+    const c = ctx || { enquiries: getAdmissionEnquiries(), families: getFamilyRecords() };
+    const f = resolveFamilyRec(c.families, r.familyId);
+    const e = c.enquiries.find(x => x.id === r.enquiryId) || null;
+    return { ...r, family: f ? { id: f.id, name: f.name, merged: f.id !== r.familyId } : null, familyName: f?.name || 'Family no longer on record', enquiry: e, childName: e?.child || 'Applicant no longer on record', stage: e?.stage || null, childId: e?.childId || r.earnedTrigger?.childId || null };
+  }
+  function referralDuplicates({ familyId, enquiryId }, list = getReferrals(), families = getFamilyRecords()) {
+    const fid = resolveFamilyRec(families, familyId)?.id || familyId;
+    const mine = list.filter(r => r.enquiryId === enquiryId);
+    return { same: mine.find(r => (resolveFamilyRec(families, r.familyId)?.id || r.familyId) === fid) || null, others: mine.filter(r => (resolveFamilyRec(families, r.familyId)?.id || r.familyId) !== fid) };
+  }
+  // Pending → Earned for this applicant's referrals. Changes `list` in place; returns the referrals that changed.
+  function earnReferrals(list, e, user, { childId = null, eventId = '', at, note = '', only = null } = {}) {
+    const out = [];
+    list.forEach(r => {
+      if (r.enquiryId !== e.id || r.status !== 'pending' || (only && r.id !== only)) return;
+      Object.assign(r, { status: 'earned', earnedAt: at, earnedTrigger: { enquiryId: e.id, childId: childId || null, eventId } });
+      r.history = [...r.history, mkEvent(user, `Reward earned: ${e.child} enrolled${note}`, `Automatic — enrolment by ${user?.name || 'System'}`)];
+      out.push(r);
+    });
+    return out;
+  }
+  // One notification per earned reward for each school leader who can open Marketing (deduplicated by referral ID).
+  function notifyReferralEarned(r, { fail = false } = {}) {
+    const v = referralView(r);
+    const before = allNotifications();
+    const made = buildNotifications(before, { module: 'marketing', kind: 'referral', title: 'Family referral reward earned', body: `${v.familyName} has earned the “${r.reward}” reward because ${v.childName} has enrolled.`, recordType: 'referral', recordId: r.id, dedupeKey: `referral-earned:${r.id}`, actorId: '' }, { toRoles: rolesFor('marketing') });
+    const ok = !fail && (!made.length || write(NOTIFICATIONS_KEY, [...made, ...before]));
+    const list = getReferrals();
+    const x = list.find(y => y.id === r.id);
+    if (x) {
+      x.notify = { status: ok ? 'sent' : 'failed', at: new Date().toISOString(), count: (x.notify?.count || 0) + (ok ? made.length : 0) };
+      if (!ok) x.history = [...x.history, mkEvent(null, 'Administrator notification couldn’t be created')];
+      write(referralsKey(school.id), list);
+    }
+    return ok;
+  }
+  function retryReferralNotification(user, id, { fail = false } = {}) {
+    if (!canManageMarketing(user)) return settle({ ok: false, reason: 'forbidden' });
+    const r = getReferrals().find(x => x.id === id);
+    if (!r) return settle({ ok: false, reason: 'missing' });
+    if (r.status === 'pending' || r.notify?.status !== 'failed') return settle({ ok: true, unchanged: true });
+    return settle(notifyReferralEarned(r, { fail }) ? { ok: true } : { ok: false, reason: 'notify' });
+  }
+
+  function createReferral(user, input = {}, { confirmShared = false, clientId = '', fail = false, failNotify = false } = {}) {
+    if (!canManageMarketing(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getReferrals();
+    if (clientId) { const again = list.find(r => r.clientId === clientId); if (again) return settle({ ok: true, referral: again, repeated: true }); }
+    const families = getFamilyRecords();
+    const fam = families.find(f => f.id === input.familyId && f.status === 'active');
+    const e = getAdmissionEnquiries().find(x => x.id === input.enquiryId);
+    const reward = clean(input.reward).replace(/\s+/g, ' ').slice(0, 80);
+    const errors = {};
+    if (!fam) errors.familyId = 'Choose the family who recommended the school.';
+    if (!e) errors.enquiryId = 'Choose the referred child’s admissions record.';
+    if (!reward) errors.reward = 'Describe the reward, for example “One week fee credit”.';
+    if (fam && e && resolveFamilyRec(families, e.familyId)?.id === fam.id) errors.enquiryId = `${e.child} belongs to the ${fam.name} — a family can’t refer its own child.`;
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const dup = referralDuplicates({ familyId: fam.id, enquiryId: e.id }, list, families);
+    if (dup.same) return settle({ ok: false, reason: 'duplicate', blocking: true, existing: referralView(dup.same) });
+    if (dup.others.length && !confirmShared) return settle({ ok: false, reason: 'duplicate', blocking: false, others: dup.others.map(r => referralView(r)) });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    const now = new Date().toISOString();
+    const r = { id: newId('ref'), familyId: fam.id, enquiryId: e.id, reward, notes: String(input.notes || '').trim().slice(0, 500), status: 'pending', clientId: clientId || newId('cl'), createdAt: now, createdBy: user.name, createdById: user.id, earnedAt: null, earnedTrigger: null, givenAt: null, givenBy: null, givenById: null, creditNoteId: null, notify: null, history: [mkEvent(user, `Referral recorded: ${fam.name} recommended ${e.child}`)] };
+    list.unshift(r);
+    // Recorded after the child had already enrolled: that enrolment earns the reward, and the record says so.
+    const earned = e.stage === 'enrolled' ? earnReferrals(list, e, user, { childId: e.childId, eventId: enrolledEventOf(e)?.id || '', at: now, note: ` on ${dLabel(isoDate(new Date(e.stageAt)))} (before this referral was recorded)`, only: r.id }) : [];
+    if (!write(referralsKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'create:referral', e.childId || '', `${fam.name} → ${e.child} (${reward})`);
+    earned.forEach(x => { logAudit(user, 'earn:referral', e.childId || '', `${x.id}: ${x.reward} for ${fam.name}`); notifyReferralEarned(x, { fail: failNotify }); });
+    return settle({ ok: true, referral: referralView(getReferrals().find(x => x.id === r.id)), earned: earned.length > 0 });
+  }
+
+  let givingReferral = '';
+  function markReferralGiven(user, id, { fail = false } = {}) {
+    if (!canManageMarketing(user)) return settle({ ok: false, reason: 'forbidden' });
+    if (givingReferral === id) return settle({ ok: false, reason: 'busy' });
+    const list = getReferrals();
+    const r = list.find(x => x.id === id);
+    if (!r) return settle({ ok: false, reason: 'missing' });
+    if (r.status === 'given') return settle({ ok: false, reason: 'already-given', referral: referralView(r) });
+    if (r.status !== 'earned') return settle({ ok: false, reason: 'not-earned', referral: referralView(r) });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    givingReferral = id;
+    const now = new Date().toISOString();
+    Object.assign(r, { status: 'given', givenAt: now, givenBy: user.name, givenById: user.id });
+    r.history = [...r.history, mkEvent(user, `Reward marked as given: ${r.reward}`)];
+    const ok = write(referralsKey(school.id), list);
+    givingReferral = '';
+    if (!ok) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'give:referral', r.earnedTrigger?.childId || '', `${r.id}: ${r.reward} given to ${familyLabel(r.familyId)}`);
+    return settle({ ok: true, referral: referralView(r) });
+  }
+
+  // Pending rewards whose child is already Enrolled — only after a failed or missed reward step. The retry path.
+  function referralsToReconcile() {
+    const enq = getAdmissionEnquiries();
+    return getReferrals().filter(r => r.status === 'pending' && enq.find(e => e.id === r.enquiryId)?.stage === 'enrolled').map(r => referralView(r));
+  }
+  function reconcileReferrals(user, { fail = false, failNotify = false } = {}) {
+    if (!canManageMarketing(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getReferrals();
+    const now = new Date().toISOString();
+    const earned = getAdmissionEnquiries().filter(e => e.stage === 'enrolled' && list.some(r => r.enquiryId === e.id && r.status === 'pending'))
+      .flatMap(e => earnReferrals(list, e, user, { childId: e.childId, eventId: enrolledEventOf(e)?.id || '', at: now, note: ` on ${dLabel(isoDate(new Date(e.stageAt)))} (reward updated afterwards)` }));
+    if (!earned.length) return settle({ ok: true, earned: [] });
+    if (fail || !write(referralsKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    earned.forEach(r => { logAudit(user, 'earn:referral', r.earnedTrigger.childId || '', `${r.id}: ${r.reward} for ${familyLabel(r.familyId)} (reconciled)`); notifyReferralEarned(r, { fail: failNotify }); });
+    return settle({ ok: true, earned: earned.map(r => r.id) });
+  }
+
+  // S38 credit notes: the school system has invoices and payments but no credit-note service, so none is created here.
+  const referralBilling = user => ({ available: false, canSeeFees: can(user, 'fees'), reason: 'Fee credit notes (S38 Billing) aren’t part of this school system yet, so a credit can’t be issued from here.' });
+
   const TERM = 'Term 2 · 2026–27';
   const FEE_BY_LEVEL = { Nursery: 15000, LKG: 16500, UKG: 18000, Montessori: 21000 };
   const PAYMENT_METHODS = ['Cash', 'UPI', 'Bank transfer', 'Cheque', 'Card'];
@@ -6899,7 +7542,7 @@
 
   const NOTIF_SEEDED_KEY = 'nexora-notifications-seeded';
   const notifSettingsKey = userId => `nexora-notification-settings:${userId}`;
-  const NOTIFY_MODULES = ['attendance', 'admissions', 'fees', 'safeguarding', 'communication', 'classroom-tracker', 'observations', 'gallery', 'reports', 'payroll'];
+  const NOTIFY_MODULES = ['attendance', 'admissions', 'marketing', 'fees', 'safeguarding', 'communication', 'classroom-tracker', 'observations', 'gallery', 'reports', 'payroll'];
   const MODULE_LABEL = key => (key === 'system' ? 'System' : pages[key]?.name || 'Other');
 
   const getNotificationSettings = user => ({ muted: [], ...read(notifSettingsKey(user.id), {}) });
@@ -7046,6 +7689,8 @@
       case 'meeting': return ptmData().bookings.some(b => b.id === n.recordId) ? go('meetings', { tab: 'bookings', booking: n.recordId }) : missing;
       case 'conference': return ptmData().records.some(r => r.id === n.recordId) ? go('meetings', { tab: 'records', record: n.recordId }) : missing;
       case 'waitlist': { const w = getWaitlist().find(x => x.id === n.recordId); return w && w.status === 'waiting' ? go('waitlist', { cls: classByName(w.cls)?.id || '', focus: w.id }) : w ? { error: `${wlName(w)} is no longer waiting (${WAITLIST_STATUSES[w.status].toLowerCase()}).` } : missing; }
+      case 'referral': return getReferrals().some(r => r.id === n.recordId) ? go('marketing', { referral: n.recordId }) : missing;
+      case 'builder-form': return getBuilderForms().some(f => f.id === n.recordId) ? go('form-builder', { edit: n.recordId }) : missing;
       case 'form': return getForms().some(f => f.id === n.recordId) ? go('forms', { results: n.recordId }) : missing;
       case 'announcement': return getAnnouncements().some(a => a.id === n.recordId) ? go('communication', { focus: n.recordId }) : missing;
       case 'class': return classByName(n.recordId) ? go('attendance', { cls: n.recordId, view: n.kind === 'ratio' ? 'ratio' : '' }) : missing;
@@ -7104,6 +7749,7 @@
   };
 
   window.NexoraStore = {
+    settle,
     students,
     lessons,
     records,
@@ -7445,7 +8091,53 @@
     enquiryPrefill,
     completeEnquiryEnrolment,
     admissionsKpis,
+    CAMPAIGN_STATUSES,
+    REWARD_STATUSES,
+    MARKETING_PERIODS,
+    canManageMarketing,
+    getCampaigns,
+    campaignById,
+    campaignStatus,
+    normCampaignTag,
+    saveCampaign,
+    campaignStats,
+    marketingAnalytics,
+    getReferrals,
+    referralView,
+    referralDuplicates,
+    createReferral,
+    markReferralGiven,
+    referralsToReconcile,
+    reconcileReferrals,
+    retryReferralNotification,
+    referralBilling,
     websiteEnquiry,
+    BF_TYPES,
+    BF_STATUSES,
+    BF_FIELDS,
+    BF_GROUPS,
+    BF_MAP,
+    BF_APPLICATION_REQUIRED,
+    BF_GENDERS,
+    canManageBuilderForms,
+    newBuilderField,
+    bfMappedOptions,
+    builderFormIssues,
+    validateBuilderAnswers,
+    bfAnswerText,
+    getBuilderForms,
+    getBuilderSubmissions,
+    builderFormLink,
+    builderUnpublished,
+    createBuilderForm,
+    saveBuilderForm,
+    duplicateBuilderForm,
+    publishBuilderForm,
+    publicBuilderForm,
+    uploadBuilderFile,
+    builderFile,
+    submitBuilderForm,
+    builderSubmissionsFor,
     APPLICANT_DOCS,
     APPLICANT_DOC_TYPES,
     CALL_OUTCOMES,

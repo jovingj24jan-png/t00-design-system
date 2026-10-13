@@ -21,6 +21,7 @@ project path. `404.html` sets its base path automatically.
 | `/record.html?id=<childId>[#tab=…]` | Child profile (S13) |
 | `/access-denied.html?page=<key>` | Shown when a role can't open a page |
 | `/maintenance.html` | Maintenance page (switch in `config.js`) |
+| `/form.html?f=<formId>` | Public Form Builder form (no sign-in) — see `docs/form-builder.md` |
 | `/404.html` | Not found |
 
 App pages all share one shell (sidebar, header, notifications) at `app.html?page=<key>`:
@@ -35,9 +36,11 @@ App pages all share one shell (sidebar, header, notifications) at `app.html?page
 | `roster` | Class rosters | | `admissions` | Admissions pipeline (S06) |
 | `classroom-tracker` · `observations` · `gallery` | Classroom modules | | `admissions&applicant=<id>` | Applicant details (S07) |
 | `children` | Children (S12) | | `tours` | School Tours |
+| | | | `form-builder` (`&edit=`) | Form Builder |
 | `enrol` (`&id=`, `&enquiry=`) | Enrol / edit child (S14) | | `fees` · `statement&family=` | Fees · family statement |
 | `waitlist` (`&cls=`, `&focus=`) | Waitlist (S09) — see `docs/waitlist.md` | | `reports` · `payroll` · `safeguarding` | Management modules |
 | `families` · `family&id=` | Families (S15) · one family | | `resources` | Rooms & Resources |
+| `marketing` (`&period=`, `&referral=`) | Marketing & Referrals — see `docs/marketing.md` | | | |
 | `compose` | Message families | | `settings` | Settings |
 
 Signed-out visitors who open an app page go to sign-in and come back afterwards. Pages a role can't use go to
