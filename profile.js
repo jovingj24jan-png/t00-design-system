@@ -245,9 +245,20 @@
         const add = canEdit('learning') ? `<button class="btn btn--secondary" type="button" data-edit="learning">${icon('plus', 'icon--sm')}Record presentation</button><button class="btn btn--secondary" type="button" data-edit="milestone">${icon('star', 'icon--sm')}Record milestone</button>` : '';
         const fwk = window.NexoraFramework;
         const ms = store.getChildMilestones(c.id);
+        const obsList = store.childObservations(store.currentUser(), c.id);
+        const evidence = store.milestoneEvidence(store.currentUser(), c.id);
+        const evOnly = evidence.filter(x => !x.record);
+        const evFor = id => evidence.find(x => x.itemId === id);
+        const obsCard = card(`Observations (${obsList.length})`, obsList.length ? `<ul class="ob-pf">${obsList.map(o => { const sharedHere = (o.sharedChildIds || []).includes(c.id); return `<li class="ob-pf__item" id="pf-${esc(o.id)}">
+            ${o.photoIds.length ? `<div class="ob-pf__photos">${o.photoIds.slice(0, 3).map((p, i) => `<img src="${esc(store.observationPhoto(store.currentUser(), p) || '')}" alt="Photo ${i + 1} of ${o.photoIds.length}" loading="lazy">`).join('')}${o.photoIds.length > 3 ? `<span>+${o.photoIds.length - 3}</span>` : ''}</div>` : ''}
+            <div class="ob-pf__main"><p class="ob-pf__meta">${esc(new Date(o.publishedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }))} · ${esc(o.authorName)}${o.childIds.length > 1 ? ` · with ${o.childIds.length - 1} other${o.childIds.length === 2 ? '' : 's'}` : ''} · <span class="ob-share${sharedHere ? ' is-on' : ''}">${icon(sharedHere ? 'users' : 'lock')}${sharedHere ? 'Shared with this family' : 'Not shared with this family'}</span></p>
+            <p class="ob-pf__note">${esc(o.note)}</p>${o.outcomeRefs.length && fwk ? `<span class="fw-tags">${o.outcomeRefs.map(r => fwk.refLabel(r)).join('')}</span>` : ''}
+            <a class="btn btn--tertiary btn--sm" href="${routes.page('observations', { obs: o.id })}">Open in Observations</a></div></li>`; }).join('')}</ul>` : '<p class="cp-muted">No published observations yet. Observations tagged with this child appear here.</p>', { id: 'ln-obs-list', action: `<a class="btn btn--tertiary btn--sm" href="${routes.page('observations', { new: '1' })}">${icon('plus', 'icon--sm')}New observation</a>` });
         const tags = l => (l.outcomeRefs || []).length && fwk ? `<span class="fw-tags">${l.outcomeRefs.map(r => fwk.refLabel(r)).join('')}</span>` : '';
         return `<div class="cp-toolbar">${add}</div>
-          ${card('Milestones', ms.length ? `<ul class="fw-ms">${ms.map(m => `<li>${fwk ? fwk.refLabel(m) : esc(m.name)}<span class="cp-muted">Achieved ${esc(day(m.achievedOn))} · ${esc(m.recordedBy)}${m.note ? ` · ${esc(m.note)}` : ''}</span></li>`).join('')}</ul>` : '<p class="cp-muted">No milestones recorded yet. Milestones come from the school’s learning framework.</p>', { id: 'ln-ms' })}
+          ${obsCard}
+          ${card('Milestones', `${ms.length ? `<ul class="fw-ms">${ms.map(m => `<li>${fwk ? fwk.refLabel(m) : esc(m.name)}<span class="cp-muted">Achieved ${esc(day(m.achievedOn))} · ${esc(m.recordedBy)}${m.note ? ` · ${esc(m.note)}` : ''}${evFor(m.itemId) ? ` · evidence: ${evFor(m.itemId).observations.length} observation${evFor(m.itemId).observations.length === 1 ? '' : 's'}` : ''}</span></li>`).join('')}</ul>` : '<p class="cp-muted">No milestones recorded yet. Milestones come from the school’s learning framework.</p>'}
+            ${evOnly.length ? `<h3 class="cd-qv-h">Evidence, not yet recorded</h3><ul class="fw-ms">${evOnly.map(x => `<li>${fwk ? fwk.refLabel(x) : esc(x.name)}<span class="cp-muted">${x.observations.length} observation${x.observations.length === 1 ? '' : 's'} as evidence · not marked achieved — use Record milestone when you’re ready</span></li>`).join('')}</ul>` : ''}`, { id: 'ln-ms' })}
           ${legacy ? card('Latest class observation', `<p>${esc(legacy)}</p>`, { id: 'ln-obs' }) : ''}
           ${list.length ? `<div class="table-shell"><table class="data-table cp-table"><thead><tr><th scope="col">Date</th><th scope="col">Area</th><th scope="col">Activity or material</th><th scope="col">Stage</th><th scope="col">Observation</th><th scope="col" class="cell-action"><span class="sr-only">Edit</span></th></tr></thead><tbody>${list.map(l => `<tr>
             <td data-label="Date">${esc(day(l.date))}</td><td data-label="Area">${esc(l.area)}</td><td data-label="Material">${esc(l.material)}</td>
@@ -722,7 +733,7 @@
     // Any saved change to this child (here, in S12 or in another tab) repaints header, alerts and the open tab.
     let queued = false;
     store.subscribe(({ key }) => {
-      if (key && !/^nexora-(children|guardians|diary|learning|child-milestones|frameworks|framework-active|child-docs|consents|register|invoices|payments|incidents|school-plan|demo-role|events|event-)/.test(key)) return;
+      if (key && !/^nexora-(children|guardians|diary|learning|child-milestones|observations|frameworks|framework-active|child-docs|consents|register|invoices|payments|incidents|school-plan|demo-role|events|event-)/.test(key)) return;
       if (key === 'nexora-demo-role') { location.reload(); return; }
       if (queued) return;
       queued = true;

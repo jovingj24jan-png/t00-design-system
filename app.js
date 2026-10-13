@@ -46,6 +46,7 @@
   else if (window.NexoraCalendar?.render(key, main, user)) { /* Calendar & Events */ }
   else if (window.NexoraLessons?.render(key, main, user)) { /* Lesson Planning & Class Timetable */ }
   else if (window.NexoraFramework?.render(key, main, user)) { /* S24 Learning Framework */ }
+  else if (window.NexoraObservations?.render(key, main, user)) { /* S25 Learning Observations */ }
   else if (window.NexoraResources?.render(key, main, user)) { /* S23 Rooms & Resources */ }
   else if (window.NexoraInbox?.render(key, main, user)) { /* Messages inbox (?family= stays with families.js) */ }
   else if (window.NexoraTours?.render(key, main, user)) { /* School tours */ }

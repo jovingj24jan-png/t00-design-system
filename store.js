@@ -6287,7 +6287,7 @@
   // Everything that points at these items: observations (learning entries), child milestones, lesson activities.
   function frameworkReferences(ids) {
     const set = new Set(ids);
-    const obs = read(learningKey(school.id), []).filter(e => (e.outcomeRefs || []).some(r => set.has(r.itemId)));
+    const obs = [...read(learningKey(school.id), []), ...read(observationsKey(school.id), []).filter(o => !o.deletedAt)].filter(e => (e.outcomeRefs || []).some(r => set.has(r.itemId)));
     const ms = read(childMilestonesKey(school.id), []).filter(m => set.has(m.itemId));
     const acts = read(activitiesKey(school.id), []).filter(a => (a.outcomeIds || []).some(id => set.has(id)));
     return { observations: obs.length, milestones: ms.length, activities: acts.length, total: obs.length + ms.length + acts.length };
@@ -6660,6 +6660,224 @@
     logAudit(user, 'add:milestone', childId, `${opt.code ? `${opt.code} ` : ''}${opt.name}`);
     return settle({ ok: true, milestone: rec });
   }
+
+  /* Learning observations (S25 — observations.js at ?page=observations). One canonical record per observation:
+     `nexora-observations:<school>` [{ id, schoolId, authorId, authorName, createdAt, updatedAt, publishedAt, status:
+       draft|published, note, photoIds[], childIds[], frameworkId, frameworkVersion, outcomeRefs: [{ itemId, type,
+       frameworkId, frameworkVersion, name, code }], sharedChildIds[], sharedAt, sharedBy, clientId, deletedAt, deletedBy,
+       history: [{ at, by, byId, action, detail }] }]
+     Photos `nexora-observation-photos:<school>` { id, data (downscaled data URL), mime, size, by, byId, at } — device
+     storage only; production needs private object storage.
+     - Every tagged child's portfolio (S28) and milestone evidence (S27) resolve this same record; nothing is copied.
+     - Drafts are visible to their author and school leaders only, and never count as evidence.
+     - Edit / delete / share: the author, or the Director (and Super Admin) of this school. Delete is a soft delete
+       (deletedAt): the record and its history are kept; it leaves the feed, portfolios and evidence.
+     - New outcome links must be visible items of the active framework. Links already on a published record are kept
+       if the item is later hidden or the framework changes. A draft's links are re-checked when it's published.
+     - Family sharing is per tagged child and only for published observations. A family sees the note and outcomes,
+       never the other tagged children; photos only when every tagged child has photo consent. Sharing is recorded
+       here; no parent app delivers it in this prototype.
+     - No AI service exists: observationAssist() is the integration point and reports "unavailable". */
+  const observationsKey = id => `nexora-observations:${id}`;
+  const obsPhotosKey = id => `nexora-observation-photos:${id}`;
+  const OBS_STATUS = { draft: 'Draft', published: 'Published' };
+  const OBS_NOTE_MAX = 4000;
+  const OBS_MAX_PHOTOS = 6;
+  const OBS_EDIT_ROLES = ['Director', 'Super Admin'];
+  const allObservations = () => read(observationsKey(school.id), []);
+  const obsEvent = (user, action, detail) => ({ at: new Date().toISOString(), by: user.name, byId: user.id, action, detail });
+  const canObserve = user => can(user, 'observations') && CLASS_STAFF.includes(user.role);
+  const canEditObservation = (user, o) => canObserve(user) && (o.authorId === user.id || OBS_EDIT_ROLES.includes(user.role));
+  // A user sees an observation when it involves a child in their classes (or they wrote it); drafts only their own, or as a leader.
+  function canSeeObservation(user, o) {
+    if (!canObserve(user) || o.deletedAt) return false;
+    if (o.status === 'draft' && o.authorId !== user.id && !LEADERS.includes(user.role)) return false;
+    if (o.authorId === user.id) return true;
+    const scope = classScope(user);
+    return o.childIds.some(id => { const c = childById(id); return c && scope.includes(c.cls); });
+  }
+  const observationTaggable = user => getChildren().filter(c => ['active', 'starting'].includes(c.status) && classScope(user).includes(c.cls));
+  function observationOptions() {
+    const o = frameworkOptions('outcome');
+    const m = frameworkOptions('milestone');
+    return { framework: o.framework, options: [...o.options.map(x => ({ ...x, type: 'outcome' })), ...m.options.map(x => ({ ...x, type: 'milestone' }))] };
+  }
+  function listObservations(user, f = {}) {
+    if (!canObserve(user)) return [];
+    const fws = getFrameworks();
+    const areaOf = r => { const fw = fws.find(x => x.id === r.frameworkId) || fws.find(x => x.items.some(i => i.id === r.itemId)); return fw ? fwPath(fw, r.itemId)[0] : null; };
+    const q = clean(f.q).toLowerCase();
+    return allObservations().filter(o => canSeeObservation(user, o))
+      .filter(o => !f.status || o.status === f.status)
+      .filter(o => !f.childId || o.childIds.includes(f.childId))
+      .filter(o => !f.cls || o.childIds.some(id => childById(id)?.cls === f.cls))
+      .filter(o => !f.authorId || o.authorId === f.authorId)
+      .filter(o => !f.area || o.outcomeRefs.some(r => { const a = areaOf(r); return a && (a.id === f.area || a.name === f.areaName); }))
+      .filter(o => { const d = isoDate(new Date(o.publishedAt || o.createdAt)); return (!f.from || d >= f.from) && (!f.to || d <= f.to); })
+      .filter(o => !q || `${o.note} ${o.authorName} ${o.childIds.map(id => { const c = childById(id); return c ? childName(c) : ''; }).join(' ')} ${o.outcomeRefs.map(r => `${r.code} ${frameworkRef(r).name}`).join(' ')}`.toLowerCase().includes(q))
+      .sort((a, b) => (b.publishedAt || b.updatedAt || b.createdAt).localeCompare(a.publishedAt || a.updatedAt || a.createdAt));
+  }
+  function observationPhoto(user, photoId) {
+    if (!canObserve(user)) return null;
+    if (!allObservations().some(o => o.photoIds.includes(photoId) && canSeeObservation(user, o))) return null;
+    return read(obsPhotosKey(school.id), []).find(p => p.id === photoId)?.data || null;
+  }
+  // Photos are stored as soon as they're chosen (so a failed save can be retried without re-picking); unused ones are tidied on save.
+  function addObservationPhoto(user, { data, mime, size } = {}, { fail = false } = {}) {
+    if (!canObserve(user)) return settle({ ok: false, reason: 'forbidden' });
+    if (!PHOTO_TYPES.includes(mime) || !new RegExp(`^data:${String(mime).replace('/', '\\/')};base64,`).test(String(data || ''))) return settle({ ok: false, reason: 'invalid', message: 'Choose a JPEG, PNG or WebP photo.' });
+    if (!(Number(size) > 0) || Number(size) > PHOTO_MAX || String(data).length > PHOTO_MAX * 1.4) return settle({ ok: false, reason: 'invalid', message: 'The photo is too large. Choose one under 1 MB.' });
+    if (fail) return settle({ ok: false, reason: 'storage', message: 'The photo couldn’t be stored on this device. Try again, or save without it.' });
+    const photo = { id: newId('oph'), data, mime, size: Number(size), by: user.name, byId: user.id, at: new Date().toISOString() };
+    if (!write(obsPhotosKey(school.id), [...read(obsPhotosKey(school.id), []), photo])) return settle({ ok: false, reason: 'storage', message: 'This device has run out of space for photos. The photo wasn’t added.' });
+    return settle({ ok: true, photo: { id: photo.id, data: photo.data } });
+  }
+  function tidyObservationPhotos() {
+    const used = new Set(allObservations().flatMap(o => o.photoIds));
+    const cutoff = Date.now() - 864e5;
+    const list = read(obsPhotosKey(school.id), []);
+    const keep = list.filter(p => used.has(p.id) || new Date(p.at).getTime() > cutoff);
+    if (keep.length !== list.length) write(obsPhotosKey(school.id), keep);
+  }
+
+  /* Save (draft or publish). `id` edits the same record; `clientId` makes a repeated create return the first save. */
+  let savingObservation = false;
+  function saveObservation(user, input = {}, { id = null, publish = false, clientId = '', fail = false } = {}) {
+    if (!canObserve(user)) return settle({ ok: false, reason: 'forbidden' });
+    const list = allObservations();
+    if (!id && clientId) { const again = list.find(o => o.clientId === clientId && !o.deletedAt); if (again) return settle({ ok: true, observation: again, repeated: true }); }
+    const prev = id ? list.find(o => o.id === id && !o.deletedAt) : null;
+    if (id && !prev) return settle({ ok: false, reason: 'missing' });
+    if (prev && !canEditObservation(user, prev)) return settle({ ok: false, reason: 'forbidden' });
+    if (prev && input.updatedAt && input.updatedAt !== prev.updatedAt) return settle({ ok: false, reason: 'stale' });
+    if (savingObservation) return settle({ ok: false, reason: 'busy' });
+    const errors = {};
+    const note = String(input.note || '').replace(/\r\n/g, '\n').trim().slice(0, OBS_NOTE_MAX + 1);
+    if (note.length > OBS_NOTE_MAX) errors.note = `Keep the note under ${OBS_NOTE_MAX.toLocaleString('en-GB')} characters.`;
+    const allowedKids = new Set(observationTaggable(user).map(c => c.id));
+    const childIds = [...new Set(input.childIds || [])];
+    // Children already on the record stay valid for an editor (e.g. a Director editing another class's observation).
+    if (childIds.some(cid => !childById(cid) || (!allowedKids.has(cid) && !prev?.childIds.includes(cid)))) errors.childIds = 'One of the children isn’t in your classes. Remove them and try again.';
+    const photoIds = [...new Set(input.photoIds || [])];
+    const photos = read(obsPhotosKey(school.id), []);
+    if (photoIds.length > OBS_MAX_PHOTOS) errors.photos = `Add up to ${OBS_MAX_PHOTOS} photos.`;
+    else if (photoIds.some(p => !photos.some(x => x.id === p))) errors.photos = 'One of the photos is no longer on this device. Remove it and add it again.';
+    const { framework, options } = observationOptions();
+    const wasPublished = prev?.status === 'published';
+    const bad = [];
+    const outcomeRefs = [...new Set(input.outcomeIds || [])].map(itemId => {
+      const kept = prev?.outcomeRefs.find(r => r.itemId === itemId);
+      const o = options.find(x => x.id === itemId);
+      if (o) return kept && kept.frameworkId === framework.id ? kept : { itemId, type: o.type, frameworkId: framework.id, frameworkVersion: framework.version, name: o.name, code: o.code };
+      if (kept && wasPublished) return kept;
+      bad.push(kept ? frameworkRef(kept).name : itemId);
+      return null;
+    }).filter(Boolean);
+    if (bad.length) errors.outcomeIds = `${bad.join(', ')} ${bad.length === 1 ? 'isn’t' : 'aren’t'} available for new observations (hidden, removed, or from a framework that’s no longer active). Remove ${bad.length === 1 ? 'it' : 'them'} to continue.`;
+    if (publish) {
+      if (!childIds.length) errors.childIds = 'Tag at least one child before publishing.';
+      if (!note) errors.note = 'Write what happened before publishing.';
+    } else if (!note && !childIds.length && !photoIds.length) errors.note = 'Add a note, a photo or a child before saving a draft.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    savingObservation = true;
+    const now = new Date().toISOString();
+    const status = publish || wasPublished ? 'published' : 'draft';
+    const values = { note, childIds, photoIds, outcomeRefs, frameworkId: framework?.id || prev?.frameworkId || null, frameworkVersion: framework?.version || prev?.frameworkVersion || null };
+    let o;
+    const events = [];
+    if (prev) {
+      o = prev;
+      const added = outcomeRefs.filter(r => !prev.outcomeRefs.some(x => x.itemId === r.itemId)).map(r => r.name);
+      const removed = prev.outcomeRefs.filter(r => !outcomeRefs.some(x => x.itemId === r.itemId)).map(r => frameworkRef(r).name);
+      const changed = ['note', 'childIds', 'photoIds'].filter(k => JSON.stringify(prev[k]) !== JSON.stringify(values[k]));
+      if (changed.length) events.push(obsEvent(user, 'edited', `Edited: ${changed.map(k => ({ note: 'note', childIds: 'children', photoIds: 'photos' }[k])).join(', ')}`));
+      if (added.length || removed.length) events.push(obsEvent(user, 'outcomes', `${added.length ? `Linked ${added.join(', ')}` : ''}${added.length && removed.length ? '; ' : ''}${removed.length ? `unlinked ${removed.join(', ')}` : ''}`));
+      // Children removed from the observation are no longer shared with their families.
+      const sharedChildIds = (prev.sharedChildIds || []).filter(c => childIds.includes(c));
+      if (sharedChildIds.length !== (prev.sharedChildIds || []).length) events.push(obsEvent(user, 'sharing', 'Sharing removed for children no longer tagged'));
+      if (publish && !wasPublished) events.push(obsEvent(user, 'published', 'Published'));
+      if (!events.length) { savingObservation = false; return settle({ ok: true, observation: prev, unchanged: true }); }
+      Object.assign(o, values, { status, sharedChildIds, updatedAt: now, publishedAt: o.publishedAt || (status === 'published' ? now : null) });
+      o.history = [...o.history, ...events];
+    } else {
+      o = { id: newId('obs'), schoolId: school.id, authorId: user.id, authorName: user.name, createdAt: now, updatedAt: now, publishedAt: status === 'published' ? now : null, status, ...values, sharedChildIds: [], sharedAt: null, sharedBy: null, clientId: clientId || newId('cl'), deletedAt: null, deletedBy: null, history: [obsEvent(user, 'created', status === 'published' ? 'Created and published' : 'Draft created')] };
+      if (outcomeRefs.length) o.history.push(obsEvent(user, 'outcomes', `Linked ${outcomeRefs.map(r => r.name).join(', ')}`));
+      list.push(o);
+    }
+    const ok = write(observationsKey(school.id), list);
+    savingObservation = false;
+    if (!ok) return settle({ ok: false, reason: 'storage' });
+    tidyObservationPhotos();
+    logAudit(user, prev ? (publish && !wasPublished ? 'observation:publish' : 'observation:edit') : status === 'published' ? 'observation:publish' : 'observation:create', childIds[0] || '', `${o.id} · ${childIds.length} child${childIds.length === 1 ? '' : 'ren'} · ${OBS_STATUS[status]}`);
+    return settle({ ok: true, observation: o, published: status === 'published' && !wasPublished });
+  }
+  function deleteObservation(user, id, { fail = false } = {}) {
+    const list = allObservations();
+    const o = list.find(x => x.id === id && !x.deletedAt);
+    if (!o) return settle({ ok: false, reason: 'missing' });
+    if (!canEditObservation(user, o)) return settle({ ok: false, reason: 'forbidden' });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    const now = new Date().toISOString();
+    Object.assign(o, { deletedAt: now, deletedBy: user.name, updatedAt: now });
+    o.history = [...o.history, obsEvent(user, 'deleted', 'Deleted (kept in the school’s records, removed from the feed, portfolios and evidence)')];
+    if (!write(observationsKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'observation:delete', o.childIds[0] || '', `${o.id} deleted`);
+    return settle({ ok: true });
+  }
+  // Which tagged children's families may receive it, and what each family would see.
+  function observationSharing(o) {
+    const consentAll = o.childIds.every(photoConsent);
+    return { photosShareable: !o.photoIds.length || consentAll, missingConsent: o.childIds.filter(cid => !photoConsent(cid)), children: o.childIds.map(cid => { const c = childById(cid); const fam = listFamilies().find(f => f.children.some(k => k.id === cid)); return { id: cid, name: c ? childName(c) : 'Child no longer on record', family: fam ? { id: fam.id, name: fam.name, guardians: fam.guardians.length } : null, shared: (o.sharedChildIds || []).includes(cid) }; }) };
+  }
+  function shareObservation(user, id, childIds = [], { fail = false } = {}) {
+    const list = allObservations();
+    const o = list.find(x => x.id === id && !x.deletedAt);
+    if (!o) return settle({ ok: false, reason: 'missing' });
+    if (!canEditObservation(user, o)) return settle({ ok: false, reason: 'forbidden' });
+    if (o.status !== 'published') return settle({ ok: false, reason: 'invalid', message: 'Publish the observation before sharing it with families.' });
+    const want = [...new Set(childIds)].filter(cid => o.childIds.includes(cid));
+    const noFamily = want.filter(cid => !listFamilies().some(f => f.children.some(k => k.id === cid)));
+    if (noFamily.length) return settle({ ok: false, reason: 'invalid', message: `${noFamily.map(cid => childName(childById(cid))).join(', ')} ${noFamily.length === 1 ? 'has' : 'have'} no family on record to share with.` });
+    const before = o.sharedChildIds || [];
+    if (JSON.stringify([...want].sort()) === JSON.stringify([...before].sort())) return settle({ ok: true, observation: o, unchanged: true });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    const now = new Date().toISOString();
+    const nameOf = cid => childName(childById(cid));
+    const on = want.filter(c => !before.includes(c));
+    const off = before.filter(c => !want.includes(c));
+    Object.assign(o, { sharedChildIds: want, sharedAt: want.length ? now : null, sharedBy: want.length ? user.name : null, updatedAt: now });
+    o.history = [...o.history, obsEvent(user, 'sharing', `${on.length ? `Shared with the families of ${on.map(nameOf).join(', ')}` : ''}${on.length && off.length ? '; ' : ''}${off.length ? `stopped sharing with the families of ${off.map(nameOf).join(', ')}` : ''}`)];
+    if (!write(observationsKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'observation:share', want[0] || before[0] || '', `${o.id} · shared with ${want.length} famil${want.length === 1 ? 'y' : 'ies'}`);
+    return settle({ ok: true, observation: o });
+  }
+  // What one child's family would see: their child only, never the other tagged children; photos only with every child's consent.
+  function familyObservations(childId) {
+    return allObservations().filter(o => !o.deletedAt && o.status === 'published' && (o.sharedChildIds || []).includes(childId))
+      .map(o => ({ id: o.id, note: o.note, publishedAt: o.publishedAt, author: o.authorName, outcomes: o.outcomeRefs.map(r => { const x = frameworkRef(r); return { code: x.code, name: x.name }; }), photoIds: observationSharing(o).photosShareable ? o.photoIds : [], photosWithheld: !observationSharing(o).photosShareable && o.photoIds.length > 0 }));
+  }
+  // S28: one child's published observations (the canonical records), newest first.
+  const childObservations = (user, childId) => allObservations().filter(o => !o.deletedAt && o.status === 'published' && o.childIds.includes(childId) && canSeeObservation(user, o)).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+  /* S27: evidence per milestone for one child. A published observation is evidence for a milestone when it links that
+     milestone, or an outcome in the same sub-area of the same framework. Evidence never records the milestone. */
+  function milestoneEvidence(user, childId) {
+    const obs = childObservations(user, childId);
+    const fws = getFrameworks();
+    const recs = getChildMilestones(childId);
+    const out = new Map();
+    const add = (fw, ms, o) => { if (!out.has(ms.id)) out.set(ms.id, { itemId: ms.id, frameworkId: fw.id, frameworkVersion: fw.version, name: ms.name, code: ms.code, record: recs.find(r => r.itemId === ms.id) || null, observations: [] }); const e = out.get(ms.id); if (!e.observations.includes(o.id)) e.observations.push(o.id); };
+    obs.forEach(o => o.outcomeRefs.forEach(r => {
+      const fw = fws.find(x => x.id === r.frameworkId) || fws.find(x => x.items.some(i => i.id === r.itemId));
+      const it = fwItem(fw, r.itemId);
+      if (!it) { if (r.type === 'milestone') { if (!out.has(r.itemId)) out.set(r.itemId, { itemId: r.itemId, frameworkId: r.frameworkId, frameworkVersion: r.frameworkVersion, name: r.name, code: r.code, record: recs.find(x => x.itemId === r.itemId) || null, observations: [] }); out.get(r.itemId).observations.push(o.id); } return; }
+      if (it.type === 'milestone') add(fw, it, o);
+      else fwChildren(fw, it.parentId).filter(s => s.type === 'milestone').forEach(ms => add(fw, ms, o));
+    }));
+    return [...out.values()];
+  }
+  // AI integration point. No AI service is connected, so nothing is suggested and nothing is sent anywhere.
+  const observationAssist = () => settle({ ok: false, reason: 'unavailable', message: 'No AI writing service is connected to this school.' });
 
   const TERM = 'Term 2 · 2026–27';
   const FEE_BY_LEVEL = { Nursery: 15000, LKG: 16500, UKG: 18000, Montessori: 21000 };
@@ -8521,6 +8739,25 @@
     mergeFrameworkTemplate,
     getChildMilestones,
     recordChildMilestone,
+    OBS_STATUS,
+    OBS_NOTE_MAX,
+    OBS_MAX_PHOTOS,
+    canObserve,
+    canEditObservation,
+    observationTaggable,
+    observationOptions,
+    listObservations,
+    observationPhoto,
+    addObservationPhoto,
+    saveObservation,
+    deleteObservation,
+    observationSharing,
+    shareObservation,
+    familyObservations,
+    childObservations,
+    milestoneEvidence,
+    observationAssist,
+    photoConsent,
     getRepairs,
     saveMaterial,
     setRepairStatus,

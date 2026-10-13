@@ -38,7 +38,8 @@ every plan. **Code:** `framework.js` (page and shared picker), the "Learning fra
 
 | Consumer | How |
 | --- | --- |
-| **S25 observation tagging** — child profile → Learning & Portfolio → *Record presentation* | `NexoraFramework.picker({ type: 'outcome' })`. Saves `outcomeRefs: [{ itemId, frameworkId, frameworkVersion, name, code }]` on the learning entry. Only visible outcomes of the active framework are offered. Tags already on an entry are kept when it's edited. |
+| **S25 Learning Observations** (`docs/observations.md`) | Observations link outcomes and milestones by ID, with their framework and version. Published ones are milestone evidence, and they block deletion of the items they use. |
+| Presentation records — child profile → Learning & Portfolio → *Record presentation* | `NexoraFramework.picker({ type: 'outcome' })`. Saves `outcomeRefs: [{ itemId, frameworkId, frameworkVersion, name, code }]` on the learning entry. Only visible outcomes of the active framework are offered. Tags already on an entry are kept when it's edited. |
 | **S27 milestones** — the same tab → *Record milestone* | `nexora-child-milestones:<school>` `{ itemId, frameworkId, frameworkVersion, name, code, achievedOn, note, recordedBy }`. Only visible milestones of the active framework; one record per child and milestone. |
 | **Lesson Planning** activities | `store.frameworkOutcomes()` (the existing S24 adapter), with the same picker. |
 
@@ -120,5 +121,5 @@ In the tree:
   history can roll off.
 - **Reports:** no learning reports are generated in this project yet. Records keep `frameworkId` and
   `frameworkVersion`, so future reports can use the right context.
-- **Not built as modules:** S25 (a standalone Observations page) and S27 (a milestones dashboard). Tagging and
-  milestones live on the child profile, as described above.
+- **Milestones:** there's no standalone S27 milestones dashboard. Milestones are recorded on the child profile, where
+  observation evidence is also shown.
