@@ -128,6 +128,7 @@
       description: 'Take the register in seconds and see who is in, late or away across every classroom.',
       features: ['One-tap daily registers for each classroom', 'Late arrivals and early pick-ups recorded with times', 'Absence reasons captured from parents', 'Weekly attendance summaries for each child', 'Alerts when a child is absent several days in a row']
     },
+    portfolio: { name: 'Child Learning Portfolio', icon: 'image', requiredPlan: 'starter', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Each child’s learning story: observations, work samples, material progress and milestones in one timeline.', description: 'A visual, chronological learning story for every child, built from observations, work samples, material progress and milestone assessments.', features: ['One timeline from observations, progress and assessments', 'Work samples with photos and PDFs', 'Pinned moments', 'Family visibility per item', 'Print-ready learning story'] },
     milestones: { name: 'Developmental Milestones', icon: 'star', requiredPlan: 'starter', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Developmental milestones by area: assessments, evidence and children who may benefit from a review.', description: 'Assess developmental milestones by Montessori area, review observation evidence and see where additional support may help.', features: ['Class table and individual child view', 'Emerging, Developing and Secure with dated history', 'Observation evidence for each milestone', 'Transparent review flags based on age bands', 'Bulk assess one milestone for a group'] },
     'classroom-tracker': {
       name: 'Progress Tracker', icon: 'grid', requiredPlan: 'starter',
@@ -7264,6 +7265,209 @@
     }
   };
 
+  /* S28 Child Learning Portfolio (portfolio.js at ?page=portfolio). A read-only adapter over the canonical records —
+     S25 observations, S26 progress events, S27 assessment events, presentation records — plus the portfolio's own
+     evidence. Nothing from those modules is copied; every item key is its source id (obs:/pge:/mse:/ln:/ev:).
+     Evidence `nexora-portfolio-evidence:<school>` [{ id, schoolId, childId, caption, description, fileIds[], area (name or
+       ''), date, linkObservationId, linkMaterialId, linkMilestoneId, familyVisible, createdAt, createdBy, createdById,
+       updatedAt, clientId, history[] }] · files `nexora-portfolio-files:<school>` { id, name, mime, size, data } (device
+       storage only).
+     Presentation `nexora-portfolio-prefs:<school>` { [childId]: { pins: [key], visible: { [key]: { on, at, by } } } } —
+       shared per child (not private per user). Pins never change a source record.
+     Family visibility, most restrictive wins:
+       - observations: the S25 record's own per-child sharing (changed through shareObservation); photos only with every
+         tagged child's photo consent; other tagged children are never shown.
+       - progress / assessment / presentation events: the portfolio flag above (no source sharing exists).
+       - evidence: its own `familyVisible`; images also need the child's photo consent.
+     familyPortfolio(childId) is the family data layer. No parent app exists, so no family can open it yet. */
+  const pfEvidenceKey = id => `nexora-portfolio-evidence:${id}`;
+  const pfFilesKey = id => `nexora-portfolio-files:${id}`;
+  const pfPrefsKey = id => `nexora-portfolio-prefs:${id}`;
+  const PF_TYPES = { observation: 'Observation', evidence: 'Work sample', progress: 'Material progress', assessment: 'Milestone assessment', presentation: 'Presentation' };
+  const PF_FILE_TYPES = { 'image/jpeg': 'JPEG', 'image/png': 'PNG', 'image/webp': 'WebP', 'application/pdf': 'PDF' };
+  const PF_FILE_MAX = 1024 * 1024;
+  const PF_MAX_FILES = 4;
+  const canSeePortfolio = (user, childId) => { const c = childById(childId); return can(user, 'portfolio') && canView(user, 'learning') && Boolean(c) && classScope(user).includes(c.cls); };
+  const canCuratePortfolio = (user, childId) => canSeePortfolio(user, childId) && canEditSection(user, 'learning');
+  const pfPrefs = childId => ({ pins: [], visible: {}, ...(read(pfPrefsKey(school.id), {})[childId] || {}) });
+  const getPortfolioEvidence = childId => read(pfEvidenceKey(school.id), []).filter(e => e.childId === childId && !e.deletedAt);
+  // The school's terms: only the academic year from Settings is defined, so that's the one term the filter can offer.
+  function portfolioTerms() {
+    const y = getSettings(school.id).academicYear;
+    return y.start && y.end ? [{ id: 'year', name: y.name || 'Academic year', start: y.start, end: y.end }] : [];
+  }
+  const areaNameOfItem = id => { const fw = getFrameworks().find(f => f.items.some(i => i.id === id)); return fw ? fwPath(fw, id)[0]?.name || '' : ''; };
+  const LEARNING_AREA_ALIASES = { 'practical life': 'Practical life', sensorial: 'Sensorial', language: 'Language', mathematics: 'Mathematics', maths: 'Mathematics', math: 'Mathematics', culture: 'Culture' };
+  const canonicalArea = name => LEARNING_AREA_ALIASES[String(name || '').trim().toLowerCase()] || String(name || '').trim();
+
+  /* Every portfolio item for one child, newest first (date, then source time, then key). Each item:
+     { key, source, sourceId, type, date, at, areas[], area (primary, for counting), title, text, photoIds, fileIds,
+       author, link: { href-able ids }, visibility: { family, canChange, reason } } */
+  function portfolioItems(user, childId) {
+    if (!canSeePortfolio(user, childId)) return { ok: false, reason: 'forbidden', items: [] };
+    const prefs = pfPrefs(childId);
+    const consent = photoConsent(childId);
+    const items = [];
+    const vis = key => Boolean(prefs.visible[key]?.on);
+    allObservations().filter(o => !o.deletedAt && o.status === 'published' && o.childIds.includes(childId) && canSeeObservation(user, o)).forEach(o => {
+      const areas = [...new Set(o.outcomeRefs.map(r => canonicalArea(areaNameOfItem(r.itemId))).filter(Boolean))];
+      const sh = observationSharing(o);
+      const shared = (o.sharedChildIds || []).includes(childId);
+      items.push({ key: `obs:${o.id}`, source: 'observation', sourceId: o.id, type: 'observation', date: isoDate(new Date(o.publishedAt)), at: o.updatedAt || o.publishedAt, areas, area: areas[0] || '', title: o.note.split('\n')[0].slice(0, 90), text: o.note, photoIds: o.photoIds, fileIds: [], author: o.authorName, others: o.childIds.length - 1, outcomes: o.outcomeRefs.map(r => { const x = frameworkRef(r); return { code: x.code, name: x.name }; }),
+        visibility: { family: shared, canChange: canEditObservation(user, o), photosWithheld: shared && o.photoIds.length > 0 && !sh.photosShareable, reason: canEditObservation(user, o) ? 'Shared from the observation itself (Learning Observations).' : 'Only the observation’s author or the Director can change its sharing.' } });
+    });
+    getProgressEvents().filter(e => e.childId === childId).forEach(e => {
+      const fw = getFrameworks().find(f => f.id === e.frameworkId);
+      const m = fwItem(fw, e.materialId);
+      const area = canonicalArea(m ? fwPath(fw, m.id)[0]?.name : '');
+      items.push({ key: `pge:${e.id}`, source: 'progress', sourceId: e.id, type: 'progress', date: e.date, at: (e.edits || []).length ? e.edits[e.edits.length - 1].at : e.at, areas: area ? [area] : [], area, title: `${m?.name || e.materialName}: ${PROGRESS_STATES[e.to]}`, text: e.note || '', from: e.from, to: e.to, materialId: e.materialId, observationId: e.observationId, photoIds: [], fileIds: [], author: e.by,
+        visibility: { family: vis(`pge:${e.id}`), canChange: canCuratePortfolio(user, childId), reason: 'Set here — material progress has no sharing of its own.' } });
+    });
+    getAssessmentEvents().filter(e => e.childId === childId && e.kind !== 'evidence').forEach(e => {
+      const fw = getFrameworks().find(f => f.items.some(i => i.id === e.milestoneId));
+      const m = fwItem(fw, e.milestoneId);
+      const area = canonicalArea(m ? fwPath(fw, m.id)[0]?.name : '');
+      const achieved = /^Recorded as achieved/.test(e.note || '');
+      items.push({ key: `mse:${e.id}`, source: 'assessment', sourceId: e.id, type: 'assessment', date: e.date, at: e.at, areas: area ? [area] : [], area, title: `${m?.name || 'Milestone'}`, label: achieved ? 'Milestone recorded as achieved' : `${e.kind === 'reassessed' ? 'Re-assessed' : 'Assessed'} ${MS_STATUS[e.to]}${e.from ? ` (was ${MS_STATUS[e.from]})` : ''}`, status: e.to, text: achieved ? (e.note || '').replace(/^Recorded as achieved( — )?/, '').replace(/ \(before assessments\)$/, '') : e.note || '', milestoneId: e.milestoneId, code: m?.code || '', photoIds: [], fileIds: [], author: e.by,
+        visibility: { family: vis(`mse:${e.id}`), canChange: canCuratePortfolio(user, childId), reason: 'Set here — assessments have no sharing of their own.' } });
+    });
+    read(learningKey(school.id), []).filter(l => l.childId === childId).forEach(l => {
+      const area = canonicalArea(l.area);
+      items.push({ key: `ln:${l.id}`, source: 'presentation', sourceId: l.id, type: 'presentation', date: l.date, at: l.updatedAt || l.createdAt, areas: area ? [area] : [], area, title: `${l.material} · ${LEARNING_STAGES[l.stage] || l.stage}`, text: l.observation || '', photoIds: [], fileIds: [], author: l.author,
+        visibility: { family: vis(`ln:${l.id}`), canChange: canCuratePortfolio(user, childId), reason: 'Set here — presentation records have no sharing of their own.' } });
+    });
+    const files = read(pfFilesKey(school.id), []);
+    getPortfolioEvidence(childId).forEach(ev => {
+      const area = canonicalArea(ev.area);
+      const hasImage = ev.fileIds.some(id => /^image\//.test(files.find(f => f.id === id)?.mime || ''));
+      items.push({ key: `ev:${ev.id}`, source: 'evidence', sourceId: ev.id, type: 'evidence', date: ev.date, at: ev.updatedAt, areas: area ? [area] : [], area, title: ev.caption, text: ev.description, photoIds: [], fileIds: ev.fileIds, files: ev.fileIds.map(id => { const f = files.find(x => x.id === id); return f ? { id, name: f.name, mime: f.mime, size: f.size } : { id, name: 'File no longer on this device', missing: true }; }), author: ev.createdBy, linkObservationId: ev.linkObservationId, linkMaterialId: ev.linkMaterialId, linkMilestoneId: ev.linkMilestoneId,
+        visibility: { family: ev.familyVisible, canChange: canCuratePortfolio(user, childId), photosWithheld: ev.familyVisible && hasImage && !consent, reason: 'Set on the work sample.' } });
+    });
+    const pins = new Set(prefs.pins);
+    items.forEach(i => { i.pinned = pins.has(i.key); });
+    items.sort((a, b) => b.date.localeCompare(a.date) || String(b.at || '').localeCompare(String(a.at || '')) || a.key.localeCompare(b.key));
+    const prefTimes = [...Object.values(prefs.visible).map(v => v.at), prefs.pinsAt].filter(Boolean);
+    const lastUpdated = [...items.map(i => i.at), ...prefTimes].filter(Boolean).sort().pop() || null;
+    return { ok: true, items, lastUpdated };
+  }
+  function portfolioFile(user, childId, fileId) {
+    if (!canSeePortfolio(user, childId)) return null;
+    if (!getPortfolioEvidence(childId).some(e => e.fileIds.includes(fileId))) return null;
+    return read(pfFilesKey(school.id), []).find(f => f.id === fileId) || null;
+  }
+  // Files are stored when chosen so a failed save can be retried; unused ones are tidied after a day.
+  function addPortfolioFile(user, childId, { name, mime, size, data } = {}, { fail = false } = {}) {
+    if (!canCuratePortfolio(user, childId)) return settle({ ok: false, reason: 'forbidden' });
+    if (!PF_FILE_TYPES[mime] || !new RegExp(`^data:${String(mime).replace('/', '\\/')};base64,`).test(String(data || ''))) return settle({ ok: false, reason: 'invalid', message: `${name || 'This file'} isn’t a supported type. Use JPEG, PNG, WebP or PDF.` });
+    if (!(Number(size) > 0) || Number(size) > PF_FILE_MAX || String(data).length > PF_FILE_MAX * 1.4) return settle({ ok: false, reason: 'invalid', message: `${name || 'This file'} is larger than 1 MB.` });
+    if (fail) return settle({ ok: false, reason: 'storage', message: `${name} couldn’t be stored on this device. Try again.` });
+    const f = { id: newId('pff'), name: clean(name).slice(0, 120) || 'file', mime, size: Number(size), data, by: user.name, at: new Date().toISOString(), childId };
+    if (!write(pfFilesKey(school.id), [...read(pfFilesKey(school.id), []), f])) return settle({ ok: false, reason: 'storage', message: 'This device has run out of space for files. The file wasn’t added.' });
+    return settle({ ok: true, file: { id: f.id, name: f.name, mime, size: f.size, data } });
+  }
+  function tidyPortfolioFiles() {
+    const used = new Set(read(pfEvidenceKey(school.id), []).flatMap(e => e.fileIds));
+    const cutoff = Date.now() - 864e5;
+    const list = read(pfFilesKey(school.id), []);
+    const keep = list.filter(f => used.has(f.id) || new Date(f.at).getTime() > cutoff);
+    if (keep.length !== list.length) write(pfFilesKey(school.id), keep);
+  }
+  function addPortfolioEvidence(user, childId, input = {}, { clientId = '', fail = false } = {}) {
+    if (!canCuratePortfolio(user, childId)) return settle({ ok: false, reason: 'forbidden' });
+    const all = read(pfEvidenceKey(school.id), []);
+    if (clientId) { const again = all.find(e => e.clientId === clientId); if (again) return settle({ ok: true, evidence: again, repeated: true }); }
+    const c = childById(childId);
+    const errors = {};
+    const caption = clean(input.caption).slice(0, 120);
+    const date = clean(input.date);
+    const fileIds = [...new Set(input.fileIds || [])];
+    const files = read(pfFilesKey(school.id), []);
+    if (!caption) errors.caption = 'Add a caption.';
+    if (!fileIds.length) errors.files = 'Add at least one photo or file.';
+    else if (fileIds.length > PF_MAX_FILES) errors.files = `Add up to ${PF_MAX_FILES} files.`;
+    else if (fileIds.some(id => !files.some(f => f.id === id))) errors.files = 'A file is no longer on this device. Remove it and add it again.';
+    if (!isDate(date)) errors.date = 'Choose the date of the work.';
+    else if (date > today()) errors.date = 'The date can’t be in the future.';
+    else if (c?.dob && date < c.dob) errors.date = 'The date can’t be before the child was born.';
+    const area = clean(input.area);
+    const areas = (activeFramework() ? fwChildren(activeFramework(), null).map(a => a.name) : LEARNING_AREAS).map(canonicalArea);
+    if (area && !areas.includes(canonicalArea(area))) errors.area = 'Choose an area from the list.';
+    const obsOk = !input.linkObservationId || allObservations().some(o => o.id === input.linkObservationId && !o.deletedAt && o.status === 'published' && o.childIds.includes(childId));
+    if (!obsOk) errors.linkObservationId = 'Choose a published observation of this child.';
+    const fw = activeFramework();
+    if (input.linkMaterialId && fwItem(fw, input.linkMaterialId)?.type !== 'material') errors.linkMaterialId = 'Choose a material from the framework.';
+    if (input.linkMilestoneId && fwItem(fw, input.linkMilestoneId)?.type !== 'milestone') errors.linkMilestoneId = 'Choose a milestone from the framework.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    const now = new Date().toISOString();
+    const ev = { id: newId('pfe'), schoolId: school.id, childId, caption, description: String(input.description || '').trim().slice(0, 2000), fileIds, area: area ? canonicalArea(area) : '', date, linkObservationId: input.linkObservationId || null, linkMaterialId: input.linkMaterialId || null, linkMilestoneId: input.linkMilestoneId || null, familyVisible: Boolean(input.familyVisible), createdAt: now, createdBy: user.name, createdById: user.id, updatedAt: now, clientId: clientId || newId('cl'), history: [{ at: now, by: user.name, detail: `Added${input.familyVisible ? ' · visible to family' : ''}` }] };
+    if (!write(pfEvidenceKey(school.id), [...all, ev])) return settle({ ok: false, reason: 'storage' });
+    tidyPortfolioFiles();
+    logAudit(user, 'portfolio:evidence', childId, caption);
+    return settle({ ok: true, evidence: ev });
+  }
+  function setPortfolioPin(user, childId, key, pinned, { fail = false } = {}) {
+    if (!canCuratePortfolio(user, childId)) return settle({ ok: false, reason: 'forbidden' });
+    const all = read(pfPrefsKey(school.id), {});
+    const p = { pins: [], visible: {}, ...(all[childId] || {}) };
+    const has = p.pins.includes(key);
+    if (has === Boolean(pinned)) return settle({ ok: true, unchanged: true });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    p.pins = pinned ? [...p.pins, key] : p.pins.filter(k => k !== key);
+    p.pinsAt = new Date().toISOString();
+    all[childId] = p;
+    return settle(write(pfPrefsKey(school.id), all) ? { ok: true } : { ok: false, reason: 'storage' });
+  }
+  // Family visibility for one item. Observations change their own S25 sharing; everything else is stored here.
+  async function setPortfolioVisibility(user, childId, key, on, { fail = false } = {}) {
+    if (!canSeePortfolio(user, childId)) return { ok: false, reason: 'forbidden' };
+    const [kind, id] = key.split(':');
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    if (kind === 'obs') {
+      const o = allObservations().find(x => x.id === id && !x.deletedAt);
+      if (!o) return settle({ ok: false, reason: 'missing' });
+      const want = on ? [...new Set([...(o.sharedChildIds || []), childId])] : (o.sharedChildIds || []).filter(x => x !== childId);
+      return shareObservation(user, id, want);
+    }
+    if (!canCuratePortfolio(user, childId)) return settle({ ok: false, reason: 'forbidden' });
+    const now = new Date().toISOString();
+    if (kind === 'ev') {
+      const all = read(pfEvidenceKey(school.id), []);
+      const ev = all.find(x => x.id === id && x.childId === childId && !x.deletedAt);
+      if (!ev) return settle({ ok: false, reason: 'missing' });
+      if (ev.familyVisible === Boolean(on)) return settle({ ok: true, unchanged: true });
+      Object.assign(ev, { familyVisible: Boolean(on), updatedAt: now });
+      ev.history = [...ev.history, { at: now, by: user.name, detail: on ? 'Made visible to family' : 'Hidden from family' }];
+      if (!write(pfEvidenceKey(school.id), all)) return settle({ ok: false, reason: 'storage' });
+    } else {
+      if (!['pge', 'mse', 'ln'].includes(kind)) return settle({ ok: false, reason: 'invalid' });
+      const all = read(pfPrefsKey(school.id), {});
+      const p = { pins: [], visible: {}, ...(all[childId] || {}) };
+      if (Boolean(p.visible[key]?.on) === Boolean(on)) return settle({ ok: true, unchanged: true });
+      p.visible = { ...p.visible, [key]: { on: Boolean(on), at: now, by: user.name } };
+      all[childId] = p;
+      if (!write(pfPrefsKey(school.id), all)) return settle({ ok: false, reason: 'storage' });
+    }
+    logAudit(user, 'portfolio:visibility', childId, `${key} ${on ? 'visible to family' : 'hidden from family'}`);
+    return settle({ ok: true });
+  }
+  // What the child's family may see, with other children's details removed and consent applied. The data layer for a
+  // future parent app; nothing calls it for families today because no family sign-in exists.
+  function familyPortfolio(childId) {
+    if (!childById(childId)) return [];
+    // Internal reader with school-wide scope; only effective-visible items leave this function.
+    const reader = { id: 'family-view', name: 'Family view', role: 'Super Admin', schoolId: school.id };
+    const r = portfolioItems(reader, childId);
+    if (!r.ok) return [];
+    const consent = photoConsent(childId);
+    return r.items.filter(i => i.visibility.family).map(i => ({
+      key: i.key, type: i.type, date: i.date, area: i.area, title: i.title, label: i.label || '', text: i.text,
+      photoIds: i.type === 'observation' && !i.visibility.photosWithheld ? i.photoIds : [],
+      fileIds: i.type === 'evidence' ? i.fileIds.filter(id => { const f = read(pfFilesKey(school.id), []).find(x => x.id === id); return f && (!/^image\//.test(f.mime) || consent); }) : [],
+      outcomes: i.outcomes || []
+    }));
+  }
+
   const TERM = 'Term 2 · 2026–27';
   const FEE_BY_LEVEL = { Nursery: 15000, LKG: 16500, UKG: 18000, Montessori: 21000 };
   const PAYMENT_METHODS = ['Cash', 'UPI', 'Bank transfer', 'Cheque', 'Card'];
@@ -9173,6 +9377,20 @@
     bulkAssess,
     milestoneEvidenceFor,
     learningPlans,
+    PF_TYPES,
+    PF_FILE_TYPES,
+    PF_FILE_MAX,
+    PF_MAX_FILES,
+    canSeePortfolio,
+    canCuratePortfolio,
+    portfolioTerms,
+    portfolioItems,
+    portfolioFile,
+    addPortfolioFile,
+    addPortfolioEvidence,
+    setPortfolioPin,
+    setPortfolioVisibility,
+    familyPortfolio,
     childProgressTimeline,
     photoConsent,
     getRepairs,

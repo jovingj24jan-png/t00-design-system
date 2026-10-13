@@ -242,7 +242,8 @@
       learning: c => gate('learning', 'Learning & Portfolio', () => {
         const list = store.getLearning(c.id);
         const legacy = store.students.find(s => s.id === c.id)?.note;
-        const add = canEdit('learning') ? `<button class="btn btn--secondary" type="button" data-edit="learning">${icon('plus', 'icon--sm')}Record presentation</button>${store.canAccess(store.currentUser(), 'milestones') ? `<a class="btn btn--secondary" href="${routes.page('milestones', { view: 'child', child: c.id, cls: c.cls })}">${icon('star', 'icon--sm')}Assess milestones</a>` : ''}` : '';
+        const pfLink = store.canAccess(store.currentUser(), 'portfolio') && store.isEntitled('portfolio') ? `<a class="btn btn--primary" href="${routes.page('portfolio', { child: c.id })}">${icon('image', 'icon--sm')}Open learning portfolio</a>` : '';
+        const add = pfLink + (canEdit('learning') ? `<button class="btn btn--secondary" type="button" data-edit="learning">${icon('plus', 'icon--sm')}Record presentation</button>${store.canAccess(store.currentUser(), 'milestones') ? `<a class="btn btn--secondary" href="${routes.page('milestones', { view: 'child', child: c.id, cls: c.cls })}">${icon('star', 'icon--sm')}Assess milestones</a>` : ''}` : '');
         const fwk = window.NexoraFramework;
         const ms = store.getChildMilestones(c.id);
         const obsList = store.childObservations(store.currentUser(), c.id);

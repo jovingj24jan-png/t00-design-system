@@ -6361,3 +6361,100 @@ a.mk-name:hover, button.mk-name:hover, .mk-link:hover { color: var(--color-prima
   .ms-side { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { .ms-area > summary::after { transition: none; } }
+
+/* ---------------------------------------------------------------- Child Learning Portfolio (portfolio.js) */
+.pf-skel { display: block; height: 240px; border-radius: var(--radius-lg); }
+.pf-skel--head { height: 110px; }
+.pf-state { padding: var(--space-10) var(--space-4); }
+.pf-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3) var(--space-4); }
+.pf-controls .input { min-width: 170px; }
+.pf-pick { flex: 1 1 260px; max-width: 360px; }
+.pf-pick .input { width: 100%; }
+.pf-hero { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-5); }
+.pf-hero__photo { flex: none; width: 72px; height: 72px; border-radius: 50%; object-fit: cover; background: var(--color-secondary-light); }
+.pf-hero__photo--i { display: grid; place-items: center; font: 700 24px/1 var(--font-display); color: var(--color-text); }
+.pf-hero__name { font: 700 clamp(1.3rem, 1.1rem + 0.8vw, 1.7rem)/1.2 var(--font-display); color: var(--color-text); }
+.pf-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: var(--space-5); align-items: start; }
+.pf-layout > .panel { grid-column: auto; }
+.pf-main { display: grid; gap: var(--space-6); min-width: 0; }
+.pf-h { display: flex; align-items: center; gap: 6px; margin-bottom: var(--space-3); font: 600 12px/1.3 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); }
+.pf-pinned { padding: var(--space-4); border: 1px solid var(--color-accent-pressed); border-radius: var(--radius-lg); background: var(--color-accent-light); }
+.pf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-4); align-items: start; }
+.pf-card { display: grid; overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); animation: fade-up var(--duration-normal) var(--ease-emphasized) both; }
+.pf-card.is-pinned { border-color: var(--color-accent-pressed); }
+.pf-media { position: relative; display: grid; place-items: center; width: 100%; max-height: 320px; padding: 0; border: 0; background: var(--color-surface-3); overflow: hidden; cursor: zoom-in; }
+.pf-media img { display: block; width: 100%; height: auto; max-height: 320px; object-fit: contain; }
+.pf-media:focus-visible { outline: 3px solid var(--color-focus); outline-offset: -3px; }
+.pf-media__n { position: absolute; right: 8px; bottom: 8px; padding: 2px 8px; border-radius: var(--radius-full); background: var(--color-gunmetal); color: var(--color-on-primary); font-size: 12px; font-weight: 650; }
+.pf-media--pdf { display: flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 96px; padding: var(--space-3); color: var(--color-text); font-size: 13px; font-weight: 600; cursor: pointer; overflow-wrap: anywhere; }
+.pf-media--pdf .icon { width: 28px; height: 28px; flex: none; color: var(--color-primary-ink); }
+.pf-media--note { min-height: 64px; padding: var(--space-3); font-size: 12.5px; color: var(--color-text-muted); text-align: center; cursor: default; }
+.pf-media.is-broken { min-height: 64px; cursor: default; }
+.pf-broken { padding: var(--space-3); font-size: 12.5px; color: var(--color-text-muted); }
+.pf-card__body { display: grid; gap: 6px; padding: var(--space-3) var(--space-4) var(--space-4); }
+.pf-card__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); font-size: 12px; color: var(--color-text-muted); }
+.pf-type { display: inline-flex; align-items: center; gap: 4px; font-weight: 650; color: var(--color-text-secondary); }
+.pf-pinmark { display: inline-flex; align-items: center; gap: 3px; color: var(--color-primary-ink); font-weight: 650; }
+.pf-card__title { font: 650 15px/1.35 var(--font-display); color: var(--color-text); overflow-wrap: anywhere; }
+.pf-card__sub { font-size: 13px; color: var(--color-text-secondary); }
+.pf-areas { display: flex; flex-wrap: wrap; gap: 4px; }
+.pf-text { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--color-text); white-space: pre-line; overflow-wrap: anywhere; }
+.pf-text.is-clamped { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.pf-card__by { font-size: 12px; color: var(--color-text-muted); }
+.pf-card__acts { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+.pf-vis { min-height: 40px; font-size: 13px; }
+.pf-vis input:disabled + .pt-switch__track { opacity: 0.5; }
+.pf-vis.is-saving { color: var(--color-text-muted); }
+[data-pin][aria-pressed="true"] { color: var(--color-primary-ink); background: var(--color-accent-light); }
+.pf-card__note { display: flex; align-items: flex-start; gap: 4px; font-size: 12px; color: var(--color-text-muted); }
+.pf-card__note .icon { flex: none; margin-top: 2px; }
+.pf-sum { position: sticky; top: var(--space-4); display: grid; gap: var(--space-3); padding: var(--space-4); }
+.pf-bars .mk-bar { grid-template-columns: minmax(80px, 110px) minmax(0, 1fr) 28px; min-height: 36px; }
+.pf-links { font-size: 13.5px; }
+.pf-links summary { cursor: pointer; min-height: 36px; display: flex; align-items: center; font-weight: 600; color: var(--color-primary-ink); }
+.pf-links[open] summary { margin-bottom: var(--space-2); }
+.pf-add .modal__panel { width: 640px; max-width: 100%; }
+.pf-fprev .pf-media--pdf { width: 100%; height: 100%; min-height: 0; flex-direction: column; font-size: 11px; }
+.pf-pdf { display: block; width: 100%; height: 70dvh; border: 0; border-radius: var(--radius-md); background: var(--color-surface-3); }
+.pf-print { display: none; }
+
+@media (max-width: 1023px) {
+  .pf-layout { grid-template-columns: minmax(0, 1fr); }
+  .pf-sum { position: static; order: -1; }
+}
+@media (max-width: 767px) {
+  .pf-controls { display: grid; grid-template-columns: 1fr 1fr; }
+  .pf-controls .input { min-width: 0; width: 100%; }
+  .pf-pick { grid-column: 1 / -1; max-width: none; }
+  .pf-hero { padding: var(--space-4); }
+  .pf-hero__photo { width: 56px; height: 56px; }
+  .pf-grid { grid-template-columns: minmax(0, 1fr); }
+  .pf-media, .pf-media img { max-height: none; }
+  .pf .kids-head__actions { width: 100%; }
+  .pf .kids-head__actions .btn { flex: 1 1 auto; min-height: 48px; }
+}
+@media (prefers-reduced-motion: reduce) { .pf-card { animation: none; } }
+
+/* Print: only the learning story, on white A4 — no shell, toolbar, buttons or dialogs. */
+@media print {
+  body.is-printing-portfolio { background: var(--color-light-surface) !important; color: var(--color-light-text) !important; }
+  body.is-printing-portfolio > *:not(.main), body.is-printing-portfolio .main > *:not(main), body.is-printing-portfolio .backdrop, body.is-printing-portfolio .sidebar,
+  body.is-printing-portfolio .mobilebar, body.is-printing-portfolio .topbar, body.is-printing-portfolio dialog, body.is-printing-portfolio .toast-region { display: none !important; }
+  body.is-printing-portfolio .main { margin: 0 !important; }
+  body.is-printing-portfolio main.nf-page { display: block !important; padding: 0 !important; min-height: 0 !important; }
+  body.is-printing-portfolio main.nf-page > *:not(.pf-print) { display: none !important; }
+  body.is-printing-portfolio .pf-print { display: block !important; font: 11pt/1.5 var(--font-sans); color: var(--color-light-text); }
+  .pfp-cover { display: grid; justify-items: center; align-content: center; gap: 5mm; min-height: 240mm; text-align: center; break-after: page; page-break-after: always; }
+  .pfp-photo { width: 52mm; height: 52mm; border-radius: 50%; object-fit: cover; }
+  .pfp-photo--i { display: grid; place-items: center; border: 2px solid var(--color-light-text); font: 700 30pt/1 var(--font-display); }
+  .pfp-kicker { font-size: 10pt; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-light-muted); }
+  .pfp-cover h1 { font: 700 30pt/1.1 var(--font-display); }
+  .pfp-name { font: 600 18pt/1.2 var(--font-display); }
+  .pfp-meta { font-size: 10pt; color: var(--color-light-muted); }
+  .pfp-item { display: grid; gap: 3mm; margin-bottom: 7mm; padding-bottom: 5mm; border-bottom: 1px solid var(--color-light-border); break-inside: avoid; page-break-inside: avoid; }
+  .pfp-item img { display: block; max-width: 100%; max-height: 110mm; width: auto; height: auto; object-fit: contain; }
+  .pfp-item h2 { font: 700 13pt/1.3 var(--font-display); }
+  .pfp-imeta { font-size: 9pt; color: var(--color-light-muted); }
+  .pfp-text { white-space: pre-line; overflow-wrap: anywhere; }
+  .pfp-file { font-size: 9.5pt; font-style: italic; }
+}
