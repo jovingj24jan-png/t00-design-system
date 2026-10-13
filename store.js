@@ -128,6 +128,7 @@
       description: 'Take the register in seconds and see who is in, late or away across every classroom.',
       features: ['One-tap daily registers for each classroom', 'Late arrivals and early pick-ups recorded with times', 'Absence reasons captured from parents', 'Weekly attendance summaries for each child', 'Alerts when a child is absent several days in a row']
     },
+    milestones: { name: 'Developmental Milestones', icon: 'star', requiredPlan: 'starter', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Developmental milestones by area: assessments, evidence and children who may benefit from a review.', description: 'Assess developmental milestones by Montessori area, review observation evidence and see where additional support may help.', features: ['Class table and individual child view', 'Emerging, Developing and Secure with dated history', 'Observation evidence for each milestone', 'Transparent review flags based on age bands', 'Bulk assess one milestone for a group'] },
     'classroom-tracker': {
       name: 'Progress Tracker', icon: 'grid', requiredPlan: 'starter',
       roles: ['Teacher', 'Director', 'Admin', 'Super Admin'],
@@ -6288,7 +6289,7 @@
   function frameworkReferences(ids) {
     const set = new Set(ids);
     const obs = [...read(learningKey(school.id), []), ...read(observationsKey(school.id), []).filter(o => !o.deletedAt)].filter(e => (e.outcomeRefs || []).some(r => set.has(r.itemId)));
-    const ms = read(childMilestonesKey(school.id), []).filter(m => set.has(m.itemId));
+    const ms = [...read(assessmentsKey(school.id), []).filter(a => set.has(a.milestoneId)), ...read(childMilestonesKey(school.id), []).filter(m => !m.migrated && set.has(m.itemId))];
     const acts = read(activitiesKey(school.id), []).filter(a => (a.outcomeIds || []).some(id => set.has(id)));
     const prog = read(progressKey(school.id), []).filter(p => set.has(p.materialId)).length;
     const prereq = getFrameworks().flatMap(f => f.items).filter(i => !set.has(i.id) && (i.prerequisiteIds || []).some(id => set.has(id))).length;
@@ -6510,7 +6511,14 @@
     // Demo prerequisites (template content for testing, like everything in these templates).
     const pre = { 't-ma-1-y': ['t-ma-1-x'], 't-ma-2-x': ['t-ma-1-y'], 't-la-2-y': ['t-la-2-x'], 't-se-1-z': ['t-se-1-y'] };
     [v21, v22].forEach(list => list.forEach(i => { if (pre[i.id]) i.prerequisites = pre[i.id].slice(); }));
-    const meta = { provider: 'Nexora demo library', demo: true, updatedAt: '2026-06-01', schema: 2 };
+    // Demo milestones, so each area has several to assess (template content for testing).
+    const moreMs = [['t-pl-self', 't-pl-1-m2', 'Washes and dries own hands', 'PL.1.M2', '3–4 years'], ['t-pl-env', 't-pl-2-m', 'Carries a tray with two hands without spilling', 'PL.2.M1', '2½–3 years'], ['t-pl-env', 't-pl-2-m2', 'Tidies a work area before choosing new work', 'PL.2.M2', '4–5 years'],
+      ['t-se-vis', 't-se-1-m', 'Builds a tower of ten graded cubes', 'SE.1.M1', '3–4 years'], ['t-se-vis', 't-se-1-m2', 'Matches six pairs of colours', 'SE.1.M2', '3–4 years'], ['t-se-vis', 't-se-1-m3', 'Grades seven shades of one colour', 'SE.1.M3', '4–5 years'],
+      ['t-la-oral', 't-la-1-m2', 'Identifies the first sound of familiar words', 'LA.1.M2', '4–5 years'], ['t-la-wr', 't-la-2-m', 'Traces sandpaper letters with correct formation', 'LA.2.M1', '4–5 years'], ['t-la-wr', 't-la-2-m2', 'Builds three-letter words with the movable alphabet', 'LA.2.M2', '5–6 years'],
+      ['t-ma-num', 't-ma-1-m2', 'Matches numerals 1–10 to quantities', 'MA.1.M2', '4–5 years'], ['t-ma-dec', 't-ma-2-m', 'Names units, tens and hundreds with golden beads', 'MA.2.M1', '5–6 years'],
+      ['t-cu-geo', 't-cu-1-m', 'Names land and water forms', 'CU.1.M1', '4–5 years'], ['t-cu-geo', 't-cu-1-m2', 'Places the continents on the puzzle map', 'CU.1.M2', '5–6 years']];
+    [v21, v22].forEach(list => moreMs.forEach(([parentId, id, name, code, ageBand]) => list.push({ id, type: 'milestone', parentId, name, code, description: '', ageBand })));
+    const meta = { provider: 'Nexora demo library', demo: true, updatedAt: '2026-06-01', schema: 3 };
     return [
       { id: 'p15-mont-ec', templateKey: 'mont-ec', name: 'Montessori Early Childhood (demo)', version: '2.1', type: 'Montessori', description: 'Five Montessori areas with outcomes, milestones and linked classroom materials. Demo content for testing.', ageBands: bands, items: v21, ...meta },
       { id: 'p15-mont-ec-22', templateKey: 'mont-ec', name: 'Montessori Early Childhood (demo)', version: '2.2', type: 'Montessori', description: 'Version 2.2 adds botany, shape sorting and a courtesy outcome, and updates one description. Demo content for testing.', ageBands: bands, items: v22, ...meta },
@@ -6526,7 +6534,7 @@
   // Demo-only libraries saved before templates carried prerequisites are refreshed; a real library is never replaced.
   function platformTemplateList() {
     const list = seeded(PLATFORM_TEMPLATES_KEY, seedPlatformTemplates);
-    if (list.length && list.every(t => t.demo && (t.schema || 1) < 2)) { const fresh = seedPlatformTemplates(); try { localStorage.setItem(PLATFORM_TEMPLATES_KEY, JSON.stringify(fresh)); } catch { /* in memory */ } return fresh; }
+    if (list.length && list.every(t => t.demo && (t.schema || 1) < 3)) { const fresh = seedPlatformTemplates(); try { localStorage.setItem(PLATFORM_TEMPLATES_KEY, JSON.stringify(fresh)); } catch { /* in memory */ } return fresh; }
     return list;
   }
   const templateById = id => platformTemplateList().find(t => t.id === id) || null;
@@ -6666,25 +6674,17 @@
   /* S27 child milestones (the Learning & Portfolio tab): { id, childId, itemId, frameworkId, frameworkVersion, name, code,
      achievedOn, note, recordedBy, createdAt }. New records only accept visible milestones of the active framework; the
      name/code saved with each record is only the fallback label if the item is ever removed. */
-  const getChildMilestones = childId => read(childMilestonesKey(school.id), []).filter(m => m.childId === childId).sort((a, b) => b.achievedOn.localeCompare(a.achievedOn));
-  function recordChildMilestone(user, childId, input = {}) {
-    if (!canEditSection(user, 'learning') || !isEntitled('classroom-tracker')) return settle({ ok: false, reason: 'forbidden' });
-    const c = childById(childId);
-    if (!c || !classScope(user).includes(c.cls)) return settle({ ok: false, reason: 'forbidden' });
+  // The child profile's earlier milestone API, now read from S27 assessments: a Secure assessment is an achieved milestone.
+  const getChildMilestones = childId => getAssessments().filter(a => a.childId === childId && a.status === 'secure').map(a => { const r = frameworkRef({ itemId: a.milestoneId, frameworkId: a.frameworkId }); return { id: a.id, childId, itemId: a.milestoneId, frameworkId: a.frameworkId, frameworkVersion: a.frameworkVersion, name: r.name, code: r.code, achievedOn: a.date, note: a.note, recordedBy: a.assessorName, createdAt: a.createdAt }; }).sort((x, y) => y.achievedOn.localeCompare(x.achievedOn));
+  async function recordChildMilestone(user, childId, input = {}) {
+    if (!canAssess(user, childId)) return { ok: false, reason: 'forbidden' };
     const { framework, options } = frameworkOptions('milestone');
-    const errors = {};
-    const opt = options.find(o => o.id === input.itemId);
-    if (!framework) errors.itemId = 'No learning framework is active yet.';
-    else if (!opt) errors.itemId = 'Choose a milestone from the active framework.';
-    const achievedOn = clean(input.achievedOn);
-    if (!isDate(achievedOn) || achievedOn > today()) errors.achievedOn = 'Enter today or an earlier date.';
-    const all = read(childMilestonesKey(school.id), []);
-    if (opt && all.some(m => m.childId === childId && m.itemId === opt.id)) errors.itemId = 'This milestone is already recorded for this child.';
-    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
-    const rec = { id: newId('cms'), childId, itemId: opt.id, frameworkId: framework.id, frameworkVersion: framework.version, name: opt.name, code: opt.code, achievedOn, note: clean(input.note).slice(0, 500), recordedBy: user.name, createdAt: new Date().toISOString() };
-    if (!write(childMilestonesKey(school.id), [...all, rec])) return settle({ ok: false, reason: 'storage' });
-    logAudit(user, 'add:milestone', childId, `${opt.code ? `${opt.code} ` : ''}${opt.name}`);
-    return settle({ ok: true, milestone: rec });
+    if (!framework) return { ok: false, reason: 'invalid', errors: { itemId: 'No learning framework is active yet.' } };
+    if (!options.some(o => o.id === input.itemId)) return { ok: false, reason: 'invalid', errors: { itemId: 'Choose a milestone from the active framework.' } };
+    if (assessmentFor(childId, input.itemId)?.status === 'secure') return { ok: false, reason: 'invalid', errors: { itemId: 'This milestone is already recorded as Secure for this child.' } };
+    const r = await saveAssessment(user, childId, input.itemId, { status: 'secure', date: input.achievedOn, note: input.note });
+    if (!r.ok) return r.errors?.date ? { ...r, errors: { achievedOn: r.errors.date } } : r;
+    return { ok: true, milestone: getChildMilestones(childId).find(m => m.itemId === input.itemId) };
   }
 
   /* Learning observations (S25 — observations.js at ?page=observations). One canonical record per observation:
@@ -7046,6 +7046,223 @@
   }
   // S28: one child's progress timeline (all frameworks), newest first.
   const childProgressTimeline = childId => getProgressEvents().filter(e => e.childId === childId).sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at)).map(e => { const fw = getFrameworks().find(f => f.id === e.frameworkId); const m = fwItem(fw, e.materialId); return { ...e, materialName: m?.name || e.materialName, frameworkName: fw?.name || '', active: fw?.id === activeFrameworkId() }; });
+
+  /* S27 Developmental milestones (milestones.js at ?page=milestones). Milestones are the framework's `milestone` items.
+     Assessments `nexora-milestone-assessments:<school>` [{ id, schoolId, childId, milestoneId, frameworkId,
+       frameworkVersion, status: emerging|developing|secure, date, assessorId, assessorName, note, evidenceIds[],
+       createdAt, updatedAt }] — one per child + milestone; no record means Not assessed.
+     Events `nexora-milestone-assessment-events:<school>` [{ id, assessmentId, childId, milestoneId, kind: status|
+       reassessed|evidence|note, from, to, date, at, by, byId, note, evidenceAdded[], evidenceRemoved[], clientId }] —
+       append-only.
+     Earlier "Record milestone" records (`nexora-child-milestones`) are converted once into Secure assessments.
+     Area status: Secure when every assessed milestone in the area is Secure; Emerging when more than half are Emerging;
+       otherwise Developing. Not assessed milestones are left out. Secure % = Secure ÷ assessed.
+     Review flag (rules in `nexora-milestone-rules:<school>`, versioned): for one child and area, the "expected"
+       milestones are those whose age band ended at or before the child's current age. Review is recommended when at least
+       `minExpected` of them are assessed, at least `minEmerging` of those are Emerging, and Emerging is at least
+       `emergingShare` of them. Fewer assessed → "Not enough information". No date of birth or no parsable age bands →
+       no flag. A flag is a prompt for educator review, never a diagnosis. Material mastery is context only. */
+  const assessmentsKey = id => `nexora-milestone-assessments:${id}`;
+  const assessmentEventsKey = id => `nexora-milestone-assessment-events:${id}`;
+  const msRulesKey = id => `nexora-milestone-rules:${id}`;
+  const MS_STATUS = { emerging: 'Emerging', developing: 'Developing', secure: 'Secure' };
+  const MS_RANK = { emerging: 0, developing: 1, secure: 2 };
+  const MS_RULE_DEFAULTS = { version: 1, minExpected: 2, minEmerging: 2, emergingShare: 0.5, updatedAt: null, updatedBy: null };
+  const canAssess = (user, childId) => { const c = childById(childId); return can(user, 'milestones') && CLASS_STAFF.includes(user.role) && Boolean(c) && classScope(user).includes(c.cls); };
+  const getMilestoneRules = () => ({ ...MS_RULE_DEFAULTS, ...read(msRulesKey(school.id), {}) });
+  function saveMilestoneRules(user, input = {}) {
+    if (!['Director', 'Super Admin'].includes(user.role) || !can(user, 'milestones')) return settle({ ok: false, reason: 'forbidden' });
+    const cur = getMilestoneRules();
+    const v = { minExpected: Math.round(Number(input.minExpected)), minEmerging: Math.round(Number(input.minEmerging)), emergingShare: Number(input.emergingShare) };
+    const errors = {};
+    if (!(v.minExpected >= 1 && v.minExpected <= 10)) errors.minExpected = 'Use a whole number from 1 to 10.';
+    if (!(v.minEmerging >= 1 && v.minEmerging <= 10)) errors.minEmerging = 'Use a whole number from 1 to 10.';
+    else if (v.minEmerging > v.minExpected) errors.minEmerging = 'Can’t be more than the milestones that must be assessed.';
+    if (!(v.emergingShare > 0 && v.emergingShare <= 1)) errors.emergingShare = 'Choose a share.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    if (v.minExpected === cur.minExpected && v.minEmerging === cur.minEmerging && v.emergingShare === cur.emergingShare) return settle({ ok: true, rules: cur, unchanged: true });
+    const next = { ...v, version: cur.version + 1, updatedAt: new Date().toISOString(), updatedBy: user.name };
+    if (!write(msRulesKey(school.id), next)) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'milestones:rules', '', `Review rule v${next.version}: ${v.minExpected} assessed, ${v.minEmerging} emerging, ${Math.round(v.emergingShare * 100)}%`);
+    return settle({ ok: true, rules: next });
+  }
+  // "3–4 years", "2½–3 years", "5-6 years" → { from: 3, to: 4 } in years; anything else → null (never guessed).
+  function parseAgeBand(s) {
+    const m = String(s || '').replace(/½/g, '.5').match(/^\s*(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)\s*years?\s*$/i);
+    if (!m) return null;
+    const from = Number(m[1]);
+    const to = Number(m[2]);
+    return to > from ? { from, to } : null;
+  }
+  const ageYears = (dob, at = today()) => { const a = ageAt(dob, at); return a ? a.years + a.months / 12 : null; };
+  // The child's band in a framework: the narrowest configured band that contains their age.
+  function childAgeBand(fw, dob) {
+    const y = ageYears(dob);
+    if (y == null || !fw) return null;
+    return (fw.ageBands || []).map(b => ({ label: b, r: parseAgeBand(b) })).filter(b => b.r && y >= b.r.from && y < b.r.to).sort((a, b) => (a.r.to - a.r.from) - (b.r.to - b.r.from))[0]?.label || null;
+  }
+
+  function migrateLegacyMilestones(list) {
+    const legacy = read(childMilestonesKey(school.id), []);
+    if (!legacy.length || legacy.every(r => r.migrated)) return list;
+    const events = read(assessmentEventsKey(school.id), []);
+    legacy.filter(r => !r.migrated).forEach(r => {
+      if (!list.some(a => a.childId === r.childId && a.milestoneId === r.itemId)) {
+        const a = { id: newId('msa'), schoolId: school.id, childId: r.childId, milestoneId: r.itemId, frameworkId: r.frameworkId, frameworkVersion: r.frameworkVersion, status: 'secure', date: r.achievedOn, assessorId: '', assessorName: r.recordedBy, note: r.note || '', evidenceIds: [], createdAt: r.createdAt, updatedAt: r.createdAt, legacyId: r.id };
+        list.push(a);
+        events.push({ id: newId('mse'), assessmentId: a.id, childId: a.childId, milestoneId: a.milestoneId, kind: 'status', from: null, to: 'secure', date: r.achievedOn, at: r.createdAt, by: r.recordedBy, byId: '', note: `Recorded as achieved${r.note ? ` — ${r.note}` : ''} (before assessments)`, evidenceAdded: [], evidenceRemoved: [], clientId: `legacy-${r.id}` });
+      }
+      r.migrated = true;
+    });
+    commit([{ key: assessmentsKey(school.id), value: list }, { key: assessmentEventsKey(school.id), value: events }, { key: childMilestonesKey(school.id), value: legacy }]);
+    return list;
+  }
+  const getAssessments = () => migrateLegacyMilestones(read(assessmentsKey(school.id), []));
+  const getAssessmentEvents = () => { getAssessments(); return read(assessmentEventsKey(school.id), []); };
+  const assessmentFor = (childId, milestoneId, list = getAssessments()) => list.find(a => a.childId === childId && a.milestoneId === milestoneId) || null;
+  const assessmentHistory = (childId, milestoneId) => getAssessmentEvents().filter(e => e.childId === childId && e.milestoneId === milestoneId).sort((a, b) => b.at.localeCompare(a.at));
+
+  // Milestones of the active framework (visible), grouped by area, with what's configured about each.
+  function milestoneCatalogue() {
+    const fw = activeFramework();
+    if (!fw) return { framework: null, areas: [], milestones: [] };
+    const areas = fwChildren(fw, null).filter(a => !a.hidden).map(a => ({ id: a.id, name: a.name, code: a.code }));
+    const milestones = fwOrdered(fw).filter(i => i.type === 'milestone' && !fwHiddenBy(fw, i.id)).map(i => {
+      const p = fwPath(fw, i.id);
+      const sub = fwItem(fw, i.parentId);
+      return { id: i.id, name: i.name, code: i.code, description: i.description, ageBand: i.ageBand, band: parseAgeBand(i.ageBand), areaId: p[0]?.id, area: p[0]?.name || '', subareaId: sub?.id || null, subarea: sub?.name || '', materials: sub ? fwChildren(fw, sub.id).filter(x => x.type === 'material' && !fwHiddenBy(fw, x.id)).map(x => ({ id: x.id, name: x.name })) : [], outcomes: sub ? fwChildren(fw, sub.id).filter(x => x.type === 'outcome' && !fwHiddenBy(fw, x.id)).map(x => x.id) : [] };
+    });
+    return { framework: { id: fw.id, name: fw.name, version: fw.version, ageBands: fw.ageBands || [] }, areas, milestones };
+  }
+  // Area status from assessed milestones (see the rule above). null = nothing assessed.
+  function areaStatus(statuses) {
+    if (!statuses.length) return null;
+    if (statuses.every(s => s === 'secure')) return 'secure';
+    if (statuses.filter(s => s === 'emerging').length > statuses.length / 2) return 'emerging';
+    return 'developing';
+  }
+  /* The one review-flag calculation (class table, child view, review list and the S29 handoff all call this).
+     `assessed` = { [milestoneId]: status } within the chosen period. */
+  function milestoneFlag(child, area, milestones, assessed, rules = getMilestoneRules(), fwBands = []) {
+    const base = { childId: child.id, areaId: area.id, area: area.name, ruleVersion: rules.version, calculatedAt: new Date().toISOString() };
+    const age = ageYears(child.dob);
+    const inArea = milestones.filter(m => m.areaId === area.id);
+    if (!inArea.length) return { ...base, state: 'none', reason: 'No milestones are configured for this area.' };
+    if (age == null) return { ...base, state: 'unknown', reason: 'The child’s date of birth isn’t recorded, so age-band comparison isn’t possible.' };
+    const banded = inArea.filter(m => m.band);
+    if (!banded.length) return { ...base, state: 'unknown', reason: 'Milestones in this area have no age bands the rule can read.' };
+    const expected = banded.filter(m => m.band.to <= age);
+    const exAssessed = expected.filter(m => assessed[m.id]);
+    const emerging = exAssessed.filter(m => assessed[m.id] === 'emerging');
+    const detail = { age, ageBand: childAgeBand({ ageBands: fwBands }, child.dob), expected: expected.map(m => ({ id: m.id, name: m.name, code: m.code, ageBand: m.ageBand, status: assessed[m.id] || null })), expectedCount: expected.length, assessedCount: exAssessed.length, emergingCount: emerging.length, coverage: { assessed: inArea.filter(m => assessed[m.id]).length, total: inArea.length } };
+    if (!expected.length) return { ...base, ...detail, state: 'clear', reason: 'No milestones in this area are expected by the child’s age yet.' };
+    if (exAssessed.length < rules.minExpected) return { ...base, ...detail, state: 'insufficient', reason: `Not enough information: ${exAssessed.length} of ${expected.length} milestone${expected.length === 1 ? '' : 's'} expected by now ${exAssessed.length === 1 ? 'is' : 'are'} assessed (the rule needs ${rules.minExpected}).` };
+    const hit = emerging.length >= rules.minEmerging && emerging.length / exAssessed.length >= rules.emergingShare;
+    return { ...base, ...detail, state: hit ? 'review' : 'clear', reason: hit ? `${emerging.length} of ${exAssessed.length} assessed milestones expected by now are Emerging (rule: at least ${rules.minEmerging} and ${Math.round(rules.emergingShare * 100)}%).` : `${emerging.length} of ${exAssessed.length} assessed milestones expected by now are Emerging, which is below the review rule.` };
+  }
+  // Everything the class table, child view, chart and review list show, from one read. `from` limits to assessments dated on/after it.
+  function milestoneOverview(user, { cls = '', childIds = null, from = '' } = {}) {
+    const cat = milestoneCatalogue();
+    const rules = getMilestoneRules();
+    const list = getAssessments();
+    const kids = (childIds ? childIds.map(childById).filter(Boolean) : getChildren().filter(c => c.cls === cls && ['active', 'starting'].includes(c.status))).filter(c => classScope(user).includes(c.cls));
+    const rows = kids.map(c => {
+      const mine = list.filter(a => a.childId === c.id && (!from || a.date >= from) && cat.milestones.some(m => m.id === a.milestoneId));
+      const assessed = Object.fromEntries(mine.map(a => [a.milestoneId, a.status]));
+      const areas = Object.fromEntries(cat.areas.map(ar => {
+        const ms = cat.milestones.filter(m => m.areaId === ar.id);
+        const st = ms.filter(m => assessed[m.id]).map(m => assessed[m.id]);
+        return [ar.id, { status: areaStatus(st), assessed: st.length, secure: st.filter(s => s === 'secure').length, total: ms.length, flag: milestoneFlag(c, ar, cat.milestones, assessed, rules, cat.framework?.ageBands || []) }];
+      }));
+      const vals = Object.values(assessed);
+      return { child: c, assessed, areas, assessedCount: vals.length, secureCount: vals.filter(s => s === 'secure').length, securePct: vals.length ? Math.round((vals.filter(s => s === 'secure').length / vals.length) * 100) : null, lastDate: mine.map(a => a.date).sort().pop() || null, flags: Object.values(areas).filter(a => a.flag.state === 'review').map(a => a.flag) };
+    });
+    return { ...cat, rules, rows };
+  }
+
+  /* Save one child's assessment of one milestone. Same status + same date/note/evidence → unchanged. Same status with a
+     new date or note → a "reassessed" event (an explicit re-check). `expected` = updatedAt the person saw (stale check). */
+  function saveAssessment(user, childId, milestoneId, input = {}, { expected = undefined, clientId = '', fail = false, mode = 'single' } = {}) {
+    if (!canAssess(user, childId)) return settle({ ok: false, reason: 'forbidden' });
+    const cat = milestoneCatalogue();
+    const m = cat.milestones.find(x => x.id === milestoneId);
+    if (!m) return settle({ ok: false, reason: 'missing', message: 'This milestone isn’t in the active framework (it may be hidden or removed).' });
+    const events = getAssessmentEvents();
+    if (clientId) { const again = events.find(e => e.clientId === clientId); if (again) return settle({ ok: true, repeated: true, assessment: assessmentFor(childId, milestoneId) }); }
+    const list = getAssessments();
+    const a = assessmentFor(childId, milestoneId, list);
+    if (expected !== undefined && (a?.updatedAt || null) !== expected) return settle({ ok: false, reason: 'stale' });
+    const errors = {};
+    const status = input.status ?? a?.status;
+    if (!MS_STATUS[status]) errors.status = 'Choose Emerging, Developing or Secure.';
+    const date = clean(input.date) || today();
+    if (!isDate(date)) errors.date = 'Enter a valid date.';
+    else if (date > today()) errors.date = 'The assessment date can’t be in the future.';
+    const dob = childById(childId)?.dob;
+    if (isDate(date) && dob && date < dob) errors.date = 'The date can’t be before the child was born.';
+    const note = input.note === undefined ? a?.note || '' : clean(input.note).slice(0, 1000);
+    const want = input.evidenceIds === undefined ? a?.evidenceIds || [] : [...new Set(input.evidenceIds)];
+    const valid = new Set(allObservations().filter(o => !o.deletedAt && o.status === 'published' && o.childIds.includes(childId)).map(o => o.id));
+    if (want.some(id => !valid.has(id) && !(a?.evidenceIds || []).includes(id))) errors.evidenceIds = 'Evidence must be a published observation of this child.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const before = a?.evidenceIds || [];
+    const added = want.filter(id => !before.includes(id));
+    const removed = before.filter(id => !want.includes(id));
+    const statusChange = !a || a.status !== status;
+    const reassess = !statusChange && (date !== a.date || (mode === 'single' && note !== (a.note || '')));
+    if (!statusChange && !reassess && !added.length && !removed.length) return settle({ ok: true, unchanged: true, assessment: a });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    const now = new Date().toISOString();
+    const rec = a || { id: newId('msa'), schoolId: school.id, childId, milestoneId, frameworkId: cat.framework.id, frameworkVersion: cat.framework.version, createdAt: now };
+    Object.assign(rec, { status, date: statusChange || reassess ? date : rec.date, assessorId: statusChange || reassess ? user.id : rec.assessorId, assessorName: statusChange || reassess ? user.name : rec.assessorName, note, evidenceIds: want, updatedAt: now, frameworkVersion: cat.framework.version });
+    const ev = { id: newId('mse'), assessmentId: rec.id, childId, milestoneId, kind: statusChange ? 'status' : reassess ? 'reassessed' : 'evidence', from: a?.status || null, to: status, date: rec.date, at: now, by: user.name, byId: user.id, note: input.eventNote !== undefined ? clean(input.eventNote).slice(0, 1000) : statusChange || reassess ? note : '', evidenceAdded: added, evidenceRemoved: removed, clientId: clientId || newId('cl') };
+    if (!commit([{ key: assessmentsKey(school.id), value: a ? list : [...list, rec] }, { key: assessmentEventsKey(school.id), value: [...events, ev] }])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'milestones:assess', childId, `${m.code ? `${m.code} ` : ''}${m.name}: ${a ? MS_STATUS[a.status] : 'Not assessed'} → ${MS_STATUS[status]}`);
+    return settle({ ok: true, assessment: rec, event: ev });
+  }
+  /* Bulk: one milestone, one status, many children — saved child by child so a failure doesn't undo the others.
+     `clientId` + child id makes a retry skip children already saved. Children already at that status are left unchanged
+     (no event). A shared note goes on each new event; an assessment's own note is only filled if it was empty. */
+  async function bulkAssess(user, milestoneId, childIds, { status, date = '', note = '', evidenceId = '', clientId = '', failAt = -1 } = {}) {
+    if (!MS_STATUS[status]) return { ok: false, reason: 'invalid', errors: { status: 'Choose a status.' } };
+    if (evidenceId) {
+      const o = allObservations().find(x => x.id === evidenceId && !x.deletedAt && x.status === 'published');
+      const missing = childIds.filter(id => !o?.childIds.includes(id));
+      if (missing.length) return { ok: false, reason: 'invalid', errors: { evidenceId: `That observation doesn’t include ${missing.length === 1 ? childName(childById(missing[0])) : `${missing.length} of the selected children`}. Choose one that includes everyone, or leave it empty.` } };
+    }
+    const out = { saved: [], unchanged: [], failed: [] };
+    for (const [i, cid] of [...new Set(childIds)].entries()) {
+      const a = assessmentFor(cid, milestoneId);
+      if (a && a.status === status && (!evidenceId || a.evidenceIds.includes(evidenceId))) { out.unchanged.push(cid); continue; }
+      const evidenceIds = evidenceId ? [...new Set([...(a?.evidenceIds || []), evidenceId])] : undefined;
+      const r = await saveAssessment(user, cid, milestoneId, { status, date, note: a?.note ? undefined : note, eventNote: note, evidenceIds }, { clientId: clientId ? `${clientId}:${cid}` : '', fail: i === failAt, mode: 'bulk' });
+      if (r.ok && !r.unchanged) out[r.repeated ? 'unchanged' : 'saved'].push(cid);
+      else if (r.ok) out.unchanged.push(cid);
+      else out.failed.push({ childId: cid, reason: r.reason, message: r.message || (r.errors && Object.values(r.errors)[0]) || '' });
+    }
+    return { ok: !out.failed.length, ...out };
+  }
+  // Observations that support one child's milestone: linked on the assessment, or tagged with the milestone in S25.
+  function milestoneEvidenceFor(user, childId, milestoneId) {
+    const a = assessmentFor(childId, milestoneId);
+    const visible = allObservations().filter(o => !o.deletedAt && o.status === 'published' && o.childIds.includes(childId) && canSeeObservation(user, o));
+    const linked = new Set(a?.evidenceIds || []);
+    return visible.filter(o => linked.has(o.id) || o.outcomeRefs.some(r => r.itemId === milestoneId)).map(o => ({ id: o.id, date: o.publishedAt, author: o.authorName, excerpt: o.note.slice(0, 160), linked: linked.has(o.id), tagged: o.outcomeRefs.some(r => r.itemId === milestoneId), outcomes: o.outcomeRefs.map(r => frameworkRef(r).name) }));
+  }
+  /* S29 individual learning plans aren't part of this project. This adapter is where they plug in: it reports
+     availability, looks up existing plans for a child + area (none today) and builds the context a plan would start with. */
+  const learningPlans = {
+    available: false,
+    reason: 'Individual learning plans (S29) aren’t built in this school system yet, so no plan can be created or opened from here.',
+    forChild: () => [],
+    context(user, childId, areaId) {
+      const ov = milestoneOverview(user, { childIds: [childId] });
+      const row = ov.rows[0];
+      const ar = row?.areas[areaId];
+      const ms = ov.milestones.filter(m => m.areaId === areaId);
+      return row ? { childId, classId: classByName(row.child.cls)?.id || null, cls: row.child.cls, areaId, area: ov.areas.find(a => a.id === areaId)?.name || '', milestones: ms.filter(m => row.assessed[m.id]).map(m => ({ id: m.id, name: m.name, code: m.code, status: row.assessed[m.id] })), observationIds: [...new Set(ms.flatMap(m => milestoneEvidenceFor(user, childId, m.id).map(o => o.id)))], flag: ar?.flag || null, coverage: ar ? { assessed: ar.assessed, total: ar.total } : null } : null;
+    }
+  };
 
   const TERM = 'Term 2 · 2026–27';
   const FEE_BY_LEVEL = { Nursery: 15000, LKG: 16500, UKG: 18000, Montessori: 21000 };
@@ -8938,6 +9155,24 @@
     setProgressState,
     editProgressEvent,
     readyForNext,
+    MS_STATUS,
+    MS_RANK,
+    canAssess,
+    getMilestoneRules,
+    saveMilestoneRules,
+    parseAgeBand,
+    childAgeBand,
+    getAssessments,
+    assessmentFor,
+    assessmentHistory,
+    milestoneCatalogue,
+    areaStatus,
+    milestoneFlag,
+    milestoneOverview,
+    saveAssessment,
+    bulkAssess,
+    milestoneEvidenceFor,
+    learningPlans,
     childProgressTimeline,
     photoConsent,
     getRepairs,

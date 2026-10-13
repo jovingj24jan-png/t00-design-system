@@ -35,7 +35,7 @@ App pages all share one shell (sidebar, header, notifications) at `app.html?page
 | `classes` · `class&id=` | Classes · one class | | `notifications` · `notification-settings` | Notifications |
 | `roster` | Class rosters | | `admissions` | Admissions pipeline (S06) |
 | `classroom-tracker` (`&cls=`, `&area=`, `&view=child`) | Progress Tracker — see `docs/progress-tracker.md` | | `gallery` | Gallery |
-| `observations` (`&obs=`, `&new=1`) | Learning Observations (S25) — see `docs/observations.md` | | `admissions&applicant=<id>` | Applicant details (S07) |
+| `observations` (`&obs=`, `&new=1`) | Learning Observations (S25) — see `docs/observations.md`; `milestones` (`&view=child&child=`) — Developmental Milestones (S27), see `docs/milestones.md` | | `admissions&applicant=<id>` | Applicant details (S07) |
 | `children` | Children (S12) | | `tours` | School Tours |
 | | | | `form-builder` (`&edit=`) | Form Builder |
 | `enrol` (`&id=`, `&enquiry=`) | Enrol / edit child (S14) | | `fees` · `statement&family=` | Fees · family statement |

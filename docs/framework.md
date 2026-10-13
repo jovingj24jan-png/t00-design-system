@@ -123,5 +123,5 @@ In the tree:
   history can roll off.
 - **Reports:** no learning reports are generated in this project yet. Records keep `frameworkId` and
   `frameworkVersion`, so future reports can use the right context.
-- **Milestones:** there's no standalone S27 milestones dashboard. Milestones are recorded on the child profile, where
-  observation evidence is also shown.
+- **Milestones:** assessed in Developmental Milestones (S27, `docs/milestones.md`). Child milestone records live
+  there, not in a separate store.

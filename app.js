@@ -48,6 +48,7 @@
   else if (window.NexoraFramework?.render(key, main, user)) { /* S24 Learning Framework */ }
   else if (window.NexoraObservations?.render(key, main, user)) { /* S25 Learning Observations */ }
   else if (window.NexoraTracker?.render(key, main, user)) { /* Progress Tracker (classroom-tracker) */ }
+  else if (window.NexoraMilestones?.render(key, main, user)) { /* S27 Developmental Milestones */ }
   else if (window.NexoraResources?.render(key, main, user)) { /* S23 Rooms & Resources */ }
   else if (window.NexoraInbox?.render(key, main, user)) { /* Messages inbox (?family= stays with families.js) */ }
   else if (window.NexoraTours?.render(key, main, user)) { /* School tours */ }

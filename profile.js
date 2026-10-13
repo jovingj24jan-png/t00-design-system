@@ -242,7 +242,7 @@
       learning: c => gate('learning', 'Learning & Portfolio', () => {
         const list = store.getLearning(c.id);
         const legacy = store.students.find(s => s.id === c.id)?.note;
-        const add = canEdit('learning') ? `<button class="btn btn--secondary" type="button" data-edit="learning">${icon('plus', 'icon--sm')}Record presentation</button><button class="btn btn--secondary" type="button" data-edit="milestone">${icon('star', 'icon--sm')}Record milestone</button>` : '';
+        const add = canEdit('learning') ? `<button class="btn btn--secondary" type="button" data-edit="learning">${icon('plus', 'icon--sm')}Record presentation</button>${store.canAccess(store.currentUser(), 'milestones') ? `<a class="btn btn--secondary" href="${routes.page('milestones', { view: 'child', child: c.id, cls: c.cls })}">${icon('star', 'icon--sm')}Assess milestones</a>` : ''}` : '';
         const fwk = window.NexoraFramework;
         const ms = store.getChildMilestones(c.id);
         const obsList = store.childObservations(store.currentUser(), c.id);
@@ -263,8 +263,15 @@
         return `<div class="cp-toolbar">${add}</div>
           ${progCard}
           ${obsCard}
-          ${card('Milestones', `${ms.length ? `<ul class="fw-ms">${ms.map(m => `<li>${fwk ? fwk.refLabel(m) : esc(m.name)}<span class="cp-muted">Achieved ${esc(day(m.achievedOn))} · ${esc(m.recordedBy)}${m.note ? ` · ${esc(m.note)}` : ''}${evFor(m.itemId) ? ` · evidence: ${evText(evFor(m.itemId))}` : ''}</span></li>`).join('')}</ul>` : '<p class="cp-muted">No milestones recorded yet. Milestones come from the school’s learning framework.</p>'}
-            ${evOnly.length ? `<h3 class="cd-qv-h">Evidence, not yet recorded</h3><ul class="fw-ms">${evOnly.map(x => `<li>${fwk ? fwk.refLabel(x) : esc(x.name)}<span class="cp-muted">Evidence: ${evText(x)} · not marked achieved — use Record milestone when you’re ready</span></li>`).join('')}</ul>` : ''}`, { id: 'ln-ms' })}
+          ${card('Developmental milestones', (() => {
+            const MSS = store.MS_STATUS;
+            const assess = store.getAssessments().filter(a => a.childId === c.id).sort((x, y) => y.date.localeCompare(x.date));
+            const pillHtml = s2 => `<span class="ms-pill ms-pill--${s2}"><span class="ms-pill__l" aria-hidden="true">${s2[0].toUpperCase()}</span>${MSS[s2]}</span>`;
+            const msLink = mid => routes.page('milestones', { view: 'child', child: c.id, cls: c.cls, ms: mid });
+            const list = assess.length ? `<ul class="fw-ms">${assess.map(a => { const r = store.frameworkRef({ itemId: a.milestoneId, frameworkId: a.frameworkId }); const n = store.milestoneEvidenceFor(store.currentUser(), c.id, a.milestoneId).length; return `<li>${pillHtml(a.status)}<a href="${msLink(a.milestoneId)}">${r.code ? `<b>${esc(r.code)}</b> ` : ''}${esc(r.name)}</a><span class="cp-muted">${esc(day(a.date))} · ${esc(a.assessorName || '—')}${a.note ? ` · ${esc(a.note)}` : ''} · ${n ? `${n} observation${n === 1 ? '' : 's'} as evidence` : 'no evidence linked'}${r.active ? '' : ` · ${esc(r.frameworkName)} ${esc(r.version)}`}</span></li>`; }).join('')}</ul>` : '<p class="cp-muted">No milestones assessed yet.</p>';
+            const notAssessed = evOnly.filter(x => !store.assessmentFor(c.id, x.itemId));
+            return `${list}${notAssessed.length ? `<h3 class="cd-qv-h">Evidence, not yet assessed</h3><ul class="fw-ms">${notAssessed.map(x => `<li>${fwk ? fwk.refLabel(x) : esc(x.name)}<span class="cp-muted">Evidence: ${evText(x)} · <a href="${msLink(x.itemId)}">Assess</a></span></li>`).join('')}</ul>` : ''}`;
+          })(), { id: 'ln-ms', action: store.canAccess(store.currentUser(), 'milestones') && store.isEntitled('milestones') ? `<a class="btn btn--tertiary btn--sm" href="${routes.page('milestones', { view: 'child', child: c.id, cls: c.cls })}">Open in Developmental Milestones</a>` : '' })}
           ${legacy ? card('Latest class observation', `<p>${esc(legacy)}</p>`, { id: 'ln-obs' }) : ''}
           ${list.length ? `<div class="table-shell"><table class="data-table cp-table"><thead><tr><th scope="col">Date</th><th scope="col">Area</th><th scope="col">Activity or material</th><th scope="col">Stage</th><th scope="col">Observation</th><th scope="col" class="cell-action"><span class="sr-only">Edit</span></th></tr></thead><tbody>${list.map(l => `<tr>
             <td data-label="Date">${esc(day(l.date))}</td><td data-label="Area">${esc(l.area)}</td><td data-label="Material">${esc(l.material)}</td>
@@ -539,23 +546,6 @@
           async onSubmit(form) { return done(await store.saveLearningEntry(store.currentUser(), childId, { ...Object.fromEntries(['date', 'area', 'material', 'stage', 'observation'].map(k => [k, form.elements[k].value])), ...(window.NexoraFramework ? { outcomeIds: window.NexoraFramework.pickedIds(form) } : {}) }, l?.id)); }
         });
       },
-      milestone() {
-        const fwk = window.NexoraFramework;
-        const { framework, options } = store.frameworkOptions('milestone');
-        const had = new Set(store.getChildMilestones(childId).map(m => m.itemId));
-        kids.dialog({
-          label: 'Child profile / Milestones', title: 'Record a milestone', desc: framework ? `From ${esc(framework.name)} v${esc(framework.version)}.` : '',
-          body: !framework || !options.length ? `<p class="cp-muted">${framework ? 'The active learning framework has no visible milestones.' : 'No learning framework is active yet. A school leader can set one up in Learning Framework.'}</p>`
-            : `${fwk.picker({ type: 'milestone', name: 'itemId', multiple: false, id: 'kd-ms' })}${had.size ? `<p class="field__hint">${had.size} already recorded for this child.</p>` : ''}
-              <div class="kids-form__grid">${field('kd-achievedOn', 'Achieved on', input('achievedOn', store.today(), `type="date" max="${store.today()}" required`), { required: true })}</div>
-              ${field('kd-note', 'Note', textarea('note', ''))}`,
-          submit: framework && options.length ? 'Save milestone' : 'Close',
-          async onSubmit(form) {
-            if (!framework || !options.length) return { ok: true };
-            return done(await store.recordChildMilestone(store.currentUser(), childId, { itemId: form.querySelector('[name="itemId"]:checked')?.value || '', achievedOn: form.elements.achievedOn.value, note: form.elements.note.value }));
-          }
-        });
-      },
       document() {
         kids.dialog({
           label: 'Child profile / Documents', title: 'Upload a document', desc: 'PDF, JPEG or PNG, up to 1 MB. Files stay on this device in the prototype.',
@@ -589,7 +579,7 @@
         });
       }
     };
-    const EDIT_GUARD = { identity: 'identity', guardian: 'family', emergency: 'emergency', pickup: 'emergency', custody: 'custody', passcode: 'passcode', allergies: 'medical', conditions: 'medical', medications: 'medical', dietary: 'medical', care: 'medical', diary: 'diary', learning: 'learning', milestone: 'learning', document: 'documents', consent: 'consents' };
+    const EDIT_GUARD = { identity: 'identity', guardian: 'family', emergency: 'emergency', pickup: 'emergency', custody: 'custody', passcode: 'passcode', allergies: 'medical', conditions: 'medical', medications: 'medical', dietary: 'medical', care: 'medical', diary: 'diary', learning: 'learning', document: 'documents', consent: 'consents' };
 
     /* ----------------------------------------------------------- Passcode reveal */
 
@@ -739,7 +729,7 @@
     // Any saved change to this child (here, in S12 or in another tab) repaints header, alerts and the open tab.
     let queued = false;
     store.subscribe(({ key }) => {
-      if (key && !/^nexora-(children|guardians|diary|learning|child-milestones|observations|progress|frameworks|framework-active|child-docs|consents|register|invoices|payments|incidents|school-plan|demo-role|events|event-)/.test(key)) return;
+      if (key && !/^nexora-(children|guardians|diary|learning|child-milestones|milestone-|observations|progress|frameworks|framework-active|child-docs|consents|register|invoices|payments|incidents|school-plan|demo-role|events|event-)/.test(key)) return;
       if (key === 'nexora-demo-role') { location.reload(); return; }
       if (queued) return;
       queued = true;
