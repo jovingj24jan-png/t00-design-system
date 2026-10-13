@@ -105,7 +105,8 @@
       Object.entries(errors).forEach(([k, msg]) => {
         const hint = form.querySelector(`[data-error-for="${k}"]`);
         if (hint) { hint.innerHTML = `${icon('info')}${esc(msg)}`; hint.hidden = false; }
-        const input = form.elements[k];
+        const named = form.elements[k];
+        const input = typeof RadioNodeList !== 'undefined' && named instanceof RadioNodeList ? named[0] : named;
         input?.setAttribute('aria-invalid', 'true');
         first = first || input;
       });

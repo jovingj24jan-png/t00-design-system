@@ -321,7 +321,7 @@
       const p = plan();
       const can = editable(p);
       const fw = store.frameworkOutcomes();
-      const linked = a.outcomeIds.map(id => fw.outcomes.find(o => o.id === id) || { id, missing: true });
+      const linked = a.outcomeIds.map(id => fw.lookup(id) || { id, missing: true });
       const themes = store.themesFor(klass().id, month).filter(t => t.activityIds.includes(a.id));
       const d = kids.dialog({
         label: entry ? `${cls} / ${store.DAY_NAMES[entry.day]}` : 'Activity library',
@@ -330,7 +330,7 @@
         body: `<div class="ls-detail">
           <p class="ls-card__meta">${areaTag(a)}${a.ages ? `<span>Ages ${esc(a.ages)}</span>` : ''}${a.demo ? '<span class="cp-muted">Demo activity</span>' : ''}</p>
           ${a.objectives ? `<div><h3 class="cd-qv-h">Learning objectives</h3><p>${esc(a.objectives)}</p></div>` : ''}
-          <div><h3 class="cd-qv-h">Framework outcomes (S24)</h3>${!fw.available ? '<p class="ls-banner">The learning framework (S24) isn’t set up in this prototype yet, so no outcomes can be linked. Nothing is shown rather than inventing codes.</p>' : linked.length ? `<ul class="ls-outcomes">${linked.map(o => o.missing ? `<li class="is-missing">${icon('alert-circle', 'icon--sm')}Outcome ${esc(o.id)} is no longer in the framework</li>` : `<li><b>${esc(o.code || '')}</b> ${esc(o.title || '')}${o.description ? `<small>${esc(o.description)}</small>` : ''}</li>`).join('')}</ul>` : '<p class="cp-muted">No outcomes linked yet.</p>'}</div>
+          <div><h3 class="cd-qv-h">Framework outcomes (S24)</h3>${!fw.available && !linked.length ? '<p class="ls-banner">No learning framework is active yet, so no outcomes can be linked. A school leader can set one up in Learning Framework.</p>' : linked.length ? `<ul class="ls-outcomes">${linked.map(o => o.missing ? `<li class="is-missing">${icon('alert-circle', 'icon--sm')}Outcome ${esc(o.id)} is no longer in the framework</li>` : `<li><b>${esc(o.code || '')}</b> ${esc(o.title || '')}${o.hidden ? ' <small>(hidden in the framework)</small>' : ''}${!o.active ? ` <small>(${esc(o.frameworkName)} — not the active framework)</small>` : ''}</li>`).join('')}</ul>` : '<p class="cp-muted">No outcomes linked yet.</p>'}</div>
           <div><h3 class="cd-qv-h">Materials</h3>${a.materials.length ? `<ul class="ls-mats">${a.materials.map(m => `<li>${icon('layers', 'icon--sm')}${esc(m)}</li>`).join('')}</ul>` : '<p class="cp-muted">No materials listed.</p>'}</div>
           ${a.prep ? `<div><h3 class="cd-qv-h">Preparation</h3><p>${esc(a.prep)}</p></div>` : ''}
           ${a.notes ? `<div><h3 class="cd-qv-h">Teacher notes</h3><p>${esc(a.notes)}</p></div>` : ''}
@@ -411,12 +411,12 @@
           ${kids.field('kd-materials', 'Materials (one per line)', `<textarea class="input" id="kd-materials" name="materials" rows="3">${esc((a?.materials || []).join('\n'))}</textarea>`)}
           ${kids.field('kd-prep', 'Preparation', `<textarea class="input" id="kd-prep" name="prep" rows="2" maxlength="600">${esc(a?.prep || '')}</textarea>`)}
           ${kids.field('kd-notes', 'Teacher notes', `<textarea class="input" id="kd-notes" name="notes" rows="2" maxlength="600">${esc(a?.notes || '')}</textarea>`)}
-          <p class="cp-muted">Framework outcomes (S24) can be linked once the framework module is set up.</p>
+          ${window.NexoraFramework ? window.NexoraFramework.picker({ type: 'outcome', current: a?.outcomeIds || [], id: 'kd-outcomes' }) : ''}
         </div>`,
         submit: a ? 'Save activity' : 'Add activity',
         async onSubmit(form) {
           const f = form.elements;
-          const res = await store.saveActivity(store.currentUser(), { title: f.title.value, area: f.area.value, ages: f.ages.value, objectives: f.objectives.value, materials: f.materials.value.split('\n'), prep: f.prep.value, notes: f.notes.value, outcomeIds: a?.outcomeIds || [] }, a?.id || null);
+          const res = await store.saveActivity(store.currentUser(), { title: f.title.value, area: f.area.value, ages: f.ages.value, objectives: f.objectives.value, materials: f.materials.value.split('\n'), prep: f.prep.value, notes: f.notes.value, outcomeIds: window.NexoraFramework ? window.NexoraFramework.pickedIds(form) : a?.outcomeIds || [] }, a?.id || null);
           if (!res.ok) return res.errors ? { ok: false, errors: res.errors } : { ok: false, message: FAIL[res.reason] || FAIL.storage };
           window.NexoraToast?.show(a ? 'Activity saved' : 'Activity added', res.activity.title);
           return res;
@@ -699,7 +699,7 @@
     wideQ.addEventListener('change', () => paint());
     let queued = false;
     store.subscribe(({ key }) => {
-      if (!loaded || (key && !/^nexora-(lesson-plans|plan-|themes|activities|class-routines|class-registry|framework-outcomes|settings|demo-role)/.test(key))) return;
+      if (!loaded || (key && !/^nexora-(lesson-plans|plan-|themes|activities|class-routines|class-registry|frameworks|framework-active|settings|demo-role)/.test(key))) return;
       if (queued) return;
       queued = true;
       setTimeout(() => { queued = false; paint(); }, 0);

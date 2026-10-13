@@ -242,13 +242,17 @@
       learning: c => gate('learning', 'Learning & Portfolio', () => {
         const list = store.getLearning(c.id);
         const legacy = store.students.find(s => s.id === c.id)?.note;
-        const add = canEdit('learning') ? `<button class="btn btn--secondary" type="button" data-edit="learning">${icon('plus', 'icon--sm')}Record presentation</button>` : '';
+        const add = canEdit('learning') ? `<button class="btn btn--secondary" type="button" data-edit="learning">${icon('plus', 'icon--sm')}Record presentation</button><button class="btn btn--secondary" type="button" data-edit="milestone">${icon('star', 'icon--sm')}Record milestone</button>` : '';
+        const fwk = window.NexoraFramework;
+        const ms = store.getChildMilestones(c.id);
+        const tags = l => (l.outcomeRefs || []).length && fwk ? `<span class="fw-tags">${l.outcomeRefs.map(r => fwk.refLabel(r)).join('')}</span>` : '';
         return `<div class="cp-toolbar">${add}</div>
+          ${card('Milestones', ms.length ? `<ul class="fw-ms">${ms.map(m => `<li>${fwk ? fwk.refLabel(m) : esc(m.name)}<span class="cp-muted">Achieved ${esc(day(m.achievedOn))} · ${esc(m.recordedBy)}${m.note ? ` · ${esc(m.note)}` : ''}</span></li>`).join('')}</ul>` : '<p class="cp-muted">No milestones recorded yet. Milestones come from the school’s learning framework.</p>', { id: 'ln-ms' })}
           ${legacy ? card('Latest class observation', `<p>${esc(legacy)}</p>`, { id: 'ln-obs' }) : ''}
           ${list.length ? `<div class="table-shell"><table class="data-table cp-table"><thead><tr><th scope="col">Date</th><th scope="col">Area</th><th scope="col">Activity or material</th><th scope="col">Stage</th><th scope="col">Observation</th><th scope="col" class="cell-action"><span class="sr-only">Edit</span></th></tr></thead><tbody>${list.map(l => `<tr>
             <td data-label="Date">${esc(day(l.date))}</td><td data-label="Area">${esc(l.area)}</td><td data-label="Material">${esc(l.material)}</td>
             <td data-label="Stage"><span class="badge ${l.stage === 'mastered' ? 'badge--success' : l.stage === 'practising' ? 'badge--info' : ''}">${esc(store.LEARNING_STAGES[l.stage])}</span></td>
-            <td data-label="Observation">${esc(l.observation || '—')} <span class="cp-muted">· ${esc(l.author)}</span></td>
+            <td data-label="Observation">${esc(l.observation || '—')} <span class="cp-muted">· ${esc(l.author)}</span>${tags(l)}</td>
             <td class="cell-action">${canEdit('learning') ? pencil('learning', l.material, ` data-entry="${esc(l.id)}"`) : ''}</td></tr>`).join('')}</tbody></table></div>`
             : empty('No presentations recorded yet', 'Record each presentation as Introduced, Practising or Mastered to build the child’s portfolio.')}`;
       }),
@@ -512,9 +516,27 @@
             ${field('kd-area', 'Learning area', select('area', l?.area || '', [['', 'Choose'], ...store.LEARNING_AREAS.map(a => [a, a])], 'required'), { required: true })}
             ${field('kd-material', 'Activity or material', input('material', l?.material || '', 'required placeholder="e.g. Pink tower"'), { required: true })}
             ${field('kd-stage', 'Stage', select('stage', l?.stage || '', [['', 'Choose'], ...Object.entries(store.LEARNING_STAGES)], 'required'), { required: true })}</div>
-            ${field('kd-observation', 'Observation', textarea('observation', l?.observation || ''))}`,
+            ${field('kd-observation', 'Observation', textarea('observation', l?.observation || ''))}
+            ${window.NexoraFramework ? window.NexoraFramework.picker({ type: 'outcome', current: l?.outcomeRefs || [], id: 'kd-outcomes' }) : ''}`,
           submit: 'Save',
-          async onSubmit(form) { return done(await store.saveLearningEntry(store.currentUser(), childId, Object.fromEntries(['date', 'area', 'material', 'stage', 'observation'].map(k => [k, form.elements[k].value])), l?.id)); }
+          async onSubmit(form) { return done(await store.saveLearningEntry(store.currentUser(), childId, { ...Object.fromEntries(['date', 'area', 'material', 'stage', 'observation'].map(k => [k, form.elements[k].value])), ...(window.NexoraFramework ? { outcomeIds: window.NexoraFramework.pickedIds(form) } : {}) }, l?.id)); }
+        });
+      },
+      milestone() {
+        const fwk = window.NexoraFramework;
+        const { framework, options } = store.frameworkOptions('milestone');
+        const had = new Set(store.getChildMilestones(childId).map(m => m.itemId));
+        kids.dialog({
+          label: 'Child profile / Milestones', title: 'Record a milestone', desc: framework ? `From ${esc(framework.name)} v${esc(framework.version)}.` : '',
+          body: !framework || !options.length ? `<p class="cp-muted">${framework ? 'The active learning framework has no visible milestones.' : 'No learning framework is active yet. A school leader can set one up in Learning Framework.'}</p>`
+            : `${fwk.picker({ type: 'milestone', name: 'itemId', multiple: false, id: 'kd-ms' })}${had.size ? `<p class="field__hint">${had.size} already recorded for this child.</p>` : ''}
+              <div class="kids-form__grid">${field('kd-achievedOn', 'Achieved on', input('achievedOn', store.today(), `type="date" max="${store.today()}" required`), { required: true })}</div>
+              ${field('kd-note', 'Note', textarea('note', ''))}`,
+          submit: framework && options.length ? 'Save milestone' : 'Close',
+          async onSubmit(form) {
+            if (!framework || !options.length) return { ok: true };
+            return done(await store.recordChildMilestone(store.currentUser(), childId, { itemId: form.querySelector('[name="itemId"]:checked')?.value || '', achievedOn: form.elements.achievedOn.value, note: form.elements.note.value }));
+          }
         });
       },
       document() {
@@ -550,7 +572,7 @@
         });
       }
     };
-    const EDIT_GUARD = { identity: 'identity', guardian: 'family', emergency: 'emergency', pickup: 'emergency', custody: 'custody', passcode: 'passcode', allergies: 'medical', conditions: 'medical', medications: 'medical', dietary: 'medical', care: 'medical', diary: 'diary', learning: 'learning', document: 'documents', consent: 'consents' };
+    const EDIT_GUARD = { identity: 'identity', guardian: 'family', emergency: 'emergency', pickup: 'emergency', custody: 'custody', passcode: 'passcode', allergies: 'medical', conditions: 'medical', medications: 'medical', dietary: 'medical', care: 'medical', diary: 'diary', learning: 'learning', milestone: 'learning', document: 'documents', consent: 'consents' };
 
     /* ----------------------------------------------------------- Passcode reveal */
 
@@ -700,7 +722,7 @@
     // Any saved change to this child (here, in S12 or in another tab) repaints header, alerts and the open tab.
     let queued = false;
     store.subscribe(({ key }) => {
-      if (key && !/^nexora-(children|guardians|diary|learning|child-docs|consents|register|invoices|payments|incidents|school-plan|demo-role|events|event-)/.test(key)) return;
+      if (key && !/^nexora-(children|guardians|diary|learning|child-milestones|frameworks|framework-active|child-docs|consents|register|invoices|payments|incidents|school-plan|demo-role|events|event-)/.test(key)) return;
       if (key === 'nexora-demo-role') { location.reload(); return; }
       if (queued) return;
       queued = true;

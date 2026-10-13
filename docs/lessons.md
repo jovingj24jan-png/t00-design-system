@@ -33,13 +33,11 @@ Sidebar: **Lesson Planning**. Teachers plan their own classes; leaders can plan 
   use asks first, and those activities stay (shown under "Routine removed") rather than moving.
 - **Themes**: name and dates required (≤ 6 weeks); focus areas from the learning areas; linked activities by id.
 
-## S24 framework outcomes — not available yet
+## S24 framework outcomes
 
-There is no S24 learning-framework module or outcome data in this project. `store.frameworkOutcomes()` is the
-single integration point: it reads `nexora-framework-outcomes:<school>` (`{ id, code, title, description }`) and
-returns nothing today, so activity details say the framework isn't set up instead of showing invented codes.
-`saveActivity` only accepts outcome ids that exist there. When S24 is built, populate that adapter and add the
-link/unlink controls to the activity form.
+Outcomes come from the Learning Framework module (`docs/framework.md`) through `store.frameworkOutcomes()`. The activity
+form's outcome picker offers the active framework's visible outcomes. Outcomes an activity already links stay linked,
+and are shown with a note, if they are later hidden or belong to a framework that is no longer active.
 
 ## S04
 

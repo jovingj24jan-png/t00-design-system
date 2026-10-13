@@ -40,7 +40,7 @@ App pages all share one shell (sidebar, header, notifications) at `app.html?page
 | `enrol` (`&id=`, `&enquiry=`) | Enrol / edit child (S14) | | `fees` · `statement&family=` | Fees · family statement |
 | `waitlist` (`&cls=`, `&focus=`) | Waitlist (S09) — see `docs/waitlist.md` | | `reports` · `payroll` · `safeguarding` | Management modules |
 | `families` · `family&id=` | Families (S15) · one family | | `resources` | Rooms & Resources |
-| `marketing` (`&period=`, `&referral=`) | Marketing & Referrals — see `docs/marketing.md` | | | |
+| `marketing` (`&period=`, `&referral=`) | Marketing & Referrals — see `docs/marketing.md` | | `framework` (`&fw=`, `&item=`) | Learning Framework (S24) — see `docs/framework.md` |
 | `compose` | Message families | | `settings` | Settings |
 
 Signed-out visitors who open an app page go to sign-in and come back afterwards. Pages a role can't use go to

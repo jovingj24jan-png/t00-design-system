@@ -208,6 +208,7 @@
     compose: { name: 'Message families', icon: 'message', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Write to selected families. Prototype: messages are saved, not delivered.' },
     classes: { name: 'Classes', icon: 'grid', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Manage classrooms, capacity and today’s staffing.' },
     resources: { name: 'Rooms & Resources', icon: 'door', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Rooms and bookings, Montessori materials and repairs, the library and classroom stock.' },
+    framework: { name: 'Learning Framework', icon: 'layers', requiredPlan: 'starter', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'The school’s learning framework: areas, sub-areas, outcomes, milestones and linked materials.', description: 'Choose and shape the learning framework your observations, milestones and plans refer to.', features: ['Areas, sub-areas, outcomes and milestones in one tree', 'Montessori materials linked from your inventory', 'Hide items without losing history', 'Templates from the platform library', 'Full change history'] },
     lessons: { name: 'Lesson Planning', icon: 'book', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Weekly plans, monthly themes, class timetable and the activity library, with review and approval.' },
     calendar: { name: 'Calendar & Events', icon: 'calendar-check', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'School events, trips, meetings, closures and parent conferences, with RSVP and consent.' },
     diary: { name: 'Daily Diary', icon: 'book', roles: ['Teacher', 'Director', 'Admin', 'Super Admin'], summary: 'Meals, naps, toileting, mood, activities, notes and photos for each child, shared with families.' },
@@ -707,8 +708,8 @@
   const canEditSection = (user, section) => Boolean(PROFILE_ACCESS[section]?.edit.includes(user.role));
   const sectionModule = section => PROFILE_ACCESS[section]?.module || null;
 
-  function logAudit(user, action, childId, detail = '') {
-    const entry = { id: newId('au'), at: new Date().toISOString(), actorId: user.id, actorName: user.name, actorRole: user.role, action, childId, detail };
+  function logAudit(user, action, childId, detail = '', extra = {}) {
+    const entry = { ...extra, id: newId('au'), at: new Date().toISOString(), actorId: user.id, actorName: user.name, actorRole: user.role, action, childId, detail };
     const list = read(auditKey(school.id), []);
     list.unshift(entry);
     write(auditKey(school.id), list.slice(0, 500));
@@ -1002,6 +1003,18 @@
       if (!LEARNING_AREAS.includes(values.area)) errors.area = 'Choose a learning area.';
       if (!values.material) errors.material = 'Enter the activity or material.';
       if (!LEARNING_STAGES[values.stage]) errors.stage = 'Choose a stage.';
+      // S25 tagging: stable item id + the framework/version it came from. Tags already on the entry stay, even if hidden since.
+      if (Array.isArray(input.outcomeIds)) {
+        const prev = entryId ? read(learningKey(school.id), []).find(e => e.id === entryId && e.childId === childId) : null;
+        const { framework, options } = frameworkOptions('outcome');
+        values.outcomeRefs = [...new Set(input.outcomeIds)].map(id => {
+          const old = prev?.outcomeRefs?.find(r => r.itemId === id);
+          if (old) return old;
+          const o = options.find(x => x.id === id);
+          if (!o) { errors.outcomeIds = 'One of the outcomes isn’t available in the active framework any more. Untick it and save again.'; return null; }
+          return { itemId: o.id, frameworkId: framework.id, frameworkVersion: framework.version, name: o.name, code: o.code };
+        }).filter(Boolean);
+      }
     }
     if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
     const key = kind === 'diary' ? diaryKey(school.id) : learningKey(school.id);
@@ -3438,15 +3451,14 @@
      Reviewer `nexora-plan-settings:<school>` { reviewerId } (default: the Director account).
      Timetable = the class routine (`nexora-class-routines`); blocks have stable ids and optional weekdays. Plan entries point
      at block ids, so changing the timetable never silently moves planned activities.
-     S24 framework outcomes: read through frameworkOutcomes() from `nexora-framework-outcomes:<school>`. That module isn't
-     built yet, so no outcome exists and none is invented; activities can link outcomes once it does. */
+     S24 framework outcomes: read through frameworkOutcomes() (the Learning framework section below). New links must be
+     visible outcomes of the active framework; outcomes an activity already links stay valid if later hidden. */
 
   const activitiesKey = id => `nexora-activities:${id}`;
   const plansKey = id => `nexora-lesson-plans:${id}`;
   const reviewsKey = id => `nexora-plan-reviews:${id}`;
   const themesKey = id => `nexora-themes:${id}`;
   const planSettingsKey = id => `nexora-plan-settings:${id}`;
-  const outcomesKey = id => `nexora-framework-outcomes:${id}`;
   const PLAN_STATUS = { draft: 'Draft', submitted: 'Submitted', approved: 'Approved', changes: 'Changes requested' };
   const PLAN_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
   const DAY_NAMES = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
@@ -3469,11 +3481,6 @@
   ];
   const getActivities = () => seeded(activitiesKey(school.id), () => ACTIVITY_SEED.map(([title, area, ages, objectives, materials], i) => ({ id: `act-${i + 1}`, title, area, ages, objectives, materials, prep: '', notes: '', outcomeIds: [], status: 'active', demo: true, createdBy: 'Demo library', createdAt: atToday(9, 0, -90), updatedAt: null })));
   const activityById = id => getActivities().find(a => a.id === id) || null;
-  // S24 adapter: the only place outcome records are read. Empty until the framework module exists.
-  function frameworkOutcomes() {
-    const list = read(outcomesKey(school.id), []);
-    return { available: list.length > 0, outcomes: list };
-  }
   const canPlan = (user, cls) => (LEADERS.includes(user.role) || user.role === 'Teacher') && classScope(user).includes(cls);
   function saveActivity(user, input, activityId = null) {
     if (!canAccess(user, 'lessons')) return settle({ ok: false, reason: 'forbidden' });
@@ -3484,7 +3491,8 @@
     else if (list.some(a => a.id !== activityId && a.status === 'active' && a.title.toLowerCase() === v.title.toLowerCase())) errors.title = 'An activity with this title is already in the library.';
     if (!LEARNING_AREAS.includes(v.area)) errors.area = 'Choose a learning area.';
     const known = frameworkOutcomes().outcomes.map(o => o.id);
-    if (v.outcomeIds.some(id => !known.includes(id))) errors.outcomeIds = 'One of the outcomes isn’t in the framework.';
+    const linked = activityId ? list.find(x => x.id === activityId)?.outcomeIds || [] : [];
+    if (v.outcomeIds.some(id => !known.includes(id) && !linked.includes(id))) errors.outcomeIds = 'One of the outcomes isn’t in the framework.';
     if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
     const now = new Date().toISOString();
     let a = activityId ? list.find(x => x.id === activityId) : null;
@@ -6200,6 +6208,459 @@
   // S38 credit notes: the school system has invoices and payments but no credit-note service, so none is created here.
   const referralBilling = user => ({ available: false, canSeeFees: can(user, 'fees'), reason: 'Fee credit notes (S38 Billing) aren’t part of this school system yet, so a credit can’t be issued from here.' });
 
+  /* Learning framework (S24 — framework.js at ?page=framework). The one framework model for the whole app.
+     Frameworks `nexora-frameworks:<school>` [{ id, name, version, type, description, ageBands[], source: { library: 'P15',
+       templateId, templateVersion, provider } | null, rev, createdAt, createdBy, updatedAt, updatedBy, items[] }]
+     Items { id, type: area|subarea|outcome|milestone|material, parentId, order, name, code, description, ageBand, hidden,
+       materialId (material → S23 `nexora-materials` record, or null when it isn't in the school's inventory),
+       sourceId (P15 template item id), createdAt, updatedAt }
+     Active `nexora-framework-active:<school>` { frameworkId, at, by }.
+     Rules: area → sub-area → outcome | milestone | material. IDs never change (rename, move and hide keep them), so tags
+     on observations, child milestones and lesson activities stay linked. An item is unavailable for new tagging when it
+     or any ancestor is hidden; its own `hidden` flag is never rewritten by a parent. Delete is refused while anything
+     references the item or its descendants. Every change is written to the shared audit log (logAudit, action
+     `framework:<kind>`). Writes are one localStorage write per change; a server would need the same checks, tenant
+     isolation and transactions. P15 (platform template library) isn't part of this project: platformTemplates() is
+     the integration point and reads `nexora-platform-templates`, seeded with labelled demo templates only. */
+  const frameworksKey = id => `nexora-frameworks:${id}`;
+  const frameworkActiveKey = id => `nexora-framework-active:${id}`;
+  const childMilestonesKey = id => `nexora-child-milestones:${id}`;
+  const PLATFORM_TEMPLATES_KEY = 'nexora-platform-templates';
+  const FW_TYPES = { area: 'Area', subarea: 'Sub-area', outcome: 'Outcome', milestone: 'Milestone', material: 'Material' };
+  const FW_CHILDREN = { root: ['area'], area: ['subarea'], subarea: ['outcome', 'milestone', 'material'], outcome: [], milestone: [], material: [] };
+  const FW_ACTIONS = { created: 'Created', edited: 'Edited', renamed: 'Renamed', reordered: 'Reordered', reparented: 'Re-parented', hidden: 'Hidden', shown: 'Shown', deleted: 'Deleted', imported: 'Imported', merged: 'Merged', activated: 'Framework changed' };
+  const canEditFramework = user => LEADERS.includes(user.role) && can(user, 'framework');
+  const fwEvent = (user, kind, fw, detail, extra = {}) => logAudit(user, `framework:${kind}`, '', detail, { frameworkId: fw.id, frameworkName: fw.name, frameworkVersion: fw.version, ...extra });
+
+  const getFrameworks = () => read(frameworksKey(school.id), []);
+  const frameworkById = id => getFrameworks().find(f => f.id === id) || null;
+  const activeFrameworkId = () => read(frameworkActiveKey(school.id), null)?.frameworkId || null;
+  const activeFramework = () => frameworkById(activeFrameworkId());
+  const fwItem = (fw, id) => fw?.items.find(i => i.id === id) || null;
+  const fwChildren = (fw, parentId) => fw.items.filter(i => (i.parentId || null) === (parentId || null)).sort((a, b) => a.order - b.order);
+  function fwDescendants(fw, id) {
+    const out = [];
+    const walk = pid => fwChildren(fw, pid).forEach(c => { out.push(c); walk(c.id); });
+    walk(id);
+    return out;
+  }
+  function fwPath(fw, id) {
+    const out = [];
+    for (let it = fwItem(fw, id), i = 0; it && i < 10; it = fwItem(fw, it.parentId), i += 1) out.unshift(it);
+    return out;
+  }
+  const fwHiddenBy = (fw, id) => fwPath(fw, id).find(i => i.hidden) || null;
+  // Tree order (depth first), for selectors that follow the framework's own order.
+  function fwOrdered(fw) {
+    const out = [];
+    const walk = pid => fwChildren(fw, pid).forEach(c => { out.push(c); walk(c.id); });
+    if (fw) walk(null);
+    return out;
+  }
+
+  // What new observations (outcomes) and new milestone records (milestones) may use: the active framework's visible items.
+  function frameworkOptions(type) {
+    const fw = activeFramework();
+    if (!fw) return { framework: null, options: [] };
+    const options = fwOrdered(fw).filter(i => i.type === type && !fwHiddenBy(fw, i.id)).map(i => {
+      const p = fwPath(fw, i.id);
+      return { id: i.id, name: i.name, code: i.code, ageBand: i.ageBand, description: i.description, area: p[0]?.name || '', subarea: p[1]?.name || '' };
+    });
+    return { framework: { id: fw.id, name: fw.name, version: fw.version }, options };
+  }
+  // Display for a stored reference: the live item when it still exists (current name), otherwise the saved snapshot.
+  function frameworkRef(ref) {
+    const r = typeof ref === 'string' ? { itemId: ref } : ref || {};
+    const fws = getFrameworks();
+    const fw = fws.find(f => f.id === r.frameworkId) || fws.find(f => f.items.some(i => i.id === r.itemId));
+    const it = fwItem(fw, r.itemId);
+    const activeId = activeFrameworkId();
+    if (!it) return { itemId: r.itemId, name: r.name || 'Removed framework item', code: r.code || '', frameworkName: fw?.name || r.frameworkName || '', version: r.frameworkVersion || fw?.version || '', missing: true, active: false, hidden: false };
+    return { itemId: it.id, name: it.name, code: it.code, ageBand: it.ageBand, frameworkName: fw.name, version: r.frameworkVersion || fw.version, missing: false, active: fw.id === activeId, hidden: Boolean(fwHiddenBy(fw, it.id)), path: fwPath(fw, it.id).slice(0, -1).map(x => x.name) };
+  }
+  // Lesson Planning's adapter (unchanged shape): visible outcomes of the active framework, plus a lookup for linked ones.
+  function frameworkOutcomes() {
+    const { framework, options } = frameworkOptions('outcome');
+    return { available: Boolean(framework), framework, outcomes: options.map(o => ({ id: o.id, code: o.code, title: o.name, description: o.description })), lookup: id => { const r = frameworkRef(id); return r.missing && !r.frameworkName ? null : { id, code: r.code, title: r.name, hidden: r.hidden, active: r.active, frameworkName: r.frameworkName }; } };
+  }
+
+  // Everything that points at these items: observations (learning entries), child milestones, lesson activities.
+  function frameworkReferences(ids) {
+    const set = new Set(ids);
+    const obs = read(learningKey(school.id), []).filter(e => (e.outcomeRefs || []).some(r => set.has(r.itemId)));
+    const ms = read(childMilestonesKey(school.id), []).filter(m => set.has(m.itemId));
+    const acts = read(activitiesKey(school.id), []).filter(a => (a.outcomeIds || []).some(id => set.has(id)));
+    return { observations: obs.length, milestones: ms.length, activities: acts.length, total: obs.length + ms.length + acts.length };
+  }
+  function frameworkItemUsage(fwId, itemId) {
+    const fw = frameworkById(fwId);
+    if (!fw || !fwItem(fw, itemId)) return null;
+    return { self: frameworkReferences([itemId]), subtree: frameworkReferences([itemId, ...fwDescendants(fw, itemId).map(d => d.id)]), descendants: fwDescendants(fw, itemId).length };
+  }
+
+  // Loads, checks and saves one framework change. `rev` (optional) is the revision the person saw.
+  function mutateFramework(user, fwId, rev, fn) {
+    if (!canEditFramework(user)) return { ok: false, reason: 'forbidden' };
+    const list = getFrameworks();
+    const fw = list.find(f => f.id === fwId);
+    if (!fw) return { ok: false, reason: 'missing' };
+    if (rev != null && rev !== fw.rev) return { ok: false, reason: 'stale' };
+    const r = fn(fw);
+    if (!r.ok) return r;
+    const now = new Date().toISOString();
+    Object.assign(fw, { rev: (fw.rev || 0) + 1, updatedAt: now, updatedBy: user.name });
+    if (!write(frameworksKey(school.id), list)) return { ok: false, reason: 'storage' };
+    r.after?.(fw);
+    return { ...r, framework: fw };
+  }
+  function fwItemValues(fw, input, existing = null) {
+    const errors = {};
+    const v = {
+      name: clean(input.name ?? existing?.name).replace(/\s+/g, ' ').slice(0, 120),
+      code: clean(input.code ?? existing?.code ?? '').slice(0, 24),
+      description: String(input.description ?? existing?.description ?? '').trim().slice(0, 1000),
+      ageBand: clean(input.ageBand ?? existing?.ageBand ?? '')
+    };
+    if (!v.name) errors.name = 'Enter a name.';
+    if (v.ageBand && !(fw.ageBands || []).includes(v.ageBand)) errors.ageBand = 'Choose an age band from this framework.';
+    if (v.code && fw.items.some(i => i.id !== existing?.id && i.code && i.code.toLowerCase() === v.code.toLowerCase())) errors.code = `Code ${v.code} is already used in this framework.`;
+    return { v, errors };
+  }
+  function addFrameworkItem(user, fwId, input = {}, { rev = null, fail = false } = {}) {
+    return settle(mutateFramework(user, fwId, rev, fw => {
+      const parent = input.parentId ? fwItem(fw, input.parentId) : null;
+      if (input.parentId && !parent) return { ok: false, reason: 'missing' };
+      if (!FW_CHILDREN[parent ? parent.type : 'root'].includes(input.type)) return { ok: false, reason: 'invalid', errors: { type: `A ${parent ? FW_TYPES[parent.type].toLowerCase() : 'framework'} can’t contain a ${String(FW_TYPES[input.type] || 'item').toLowerCase()}.` } };
+      const mats = input.type === 'material' ? getMaterials() : [];
+      const mat = input.type === 'material' && input.materialId ? mats.find(m => m.id === input.materialId) : null;
+      if (input.type === 'material' && input.materialId && !mat) return { ok: false, reason: 'invalid', errors: { materialId: 'Choose a material from the school’s inventory.' } };
+      const { v, errors } = fwItemValues(fw, { ...input, name: input.name || mat?.name });
+      if (input.type === 'material') { v.code = ''; v.ageBand = ''; }
+      if (input.type === 'material' && mat && fwChildren(fw, parent.id).some(c => c.type === 'material' && c.materialId === mat.id)) errors.materialId = `${mat.name} is already linked here.`;
+      if (Object.keys(errors).length) return { ok: false, reason: 'invalid', errors };
+      if (fail) return { ok: false, reason: 'storage' };
+      const now = new Date().toISOString();
+      const item = { id: newId('fwi'), type: input.type, parentId: parent?.id || null, order: fwChildren(fw, parent?.id || null).length, ...v, hidden: false, materialId: mat?.id || null, sourceId: null, createdAt: now, updatedAt: now };
+      fw.items.push(item);
+      return { ok: true, item, after: f => fwEvent(user, 'created', f, `${FW_TYPES[item.type]} created: ${item.name}`, { itemId: item.id, itemName: item.name, to: parent?.name || '' }) };
+    }));
+  }
+  function updateFrameworkItem(user, fwId, itemId, input = {}, { rev = null, fail = false } = {}) {
+    return settle(mutateFramework(user, fwId, rev, fw => {
+      const it = fwItem(fw, itemId);
+      if (!it) return { ok: false, reason: 'missing' };
+      const { v, errors } = fwItemValues(fw, input, it);
+      if (it.type === 'material') {
+        v.code = ''; v.ageBand = '';
+        v.materialId = input.materialId === undefined ? it.materialId : clean(input.materialId) || null;
+        if (v.materialId && !getMaterials().some(m => m.id === v.materialId)) errors.materialId = 'Choose a material from the school’s inventory.';
+        else if (v.materialId && v.materialId !== it.materialId && fwChildren(fw, it.parentId).some(c => c.id !== it.id && c.materialId === v.materialId)) errors.materialId = 'That material is already linked to this sub-area.';
+      }
+      if (Object.keys(errors).length) return { ok: false, reason: 'invalid', errors };
+      const changed = ['name', 'code', 'description', 'ageBand', 'materialId'].filter(k => k in v && (v[k] || '') !== (it[k] || ''));
+      if (!changed.length) return { ok: true, item: it, unchanged: true };
+      if (fail) return { ok: false, reason: 'storage' };
+      const before = { ...it };
+      Object.assign(it, v, { updatedAt: new Date().toISOString() });
+      const kind = changed.length === 1 && changed[0] === 'name' ? 'renamed' : 'edited';
+      return { ok: true, item: it, after: f => fwEvent(user, kind, f, kind === 'renamed' ? `Renamed ${before.name} → ${it.name}` : `${it.name}: ${changed.join(', ')} changed`, { itemId: it.id, itemName: it.name, changes: changed.map(k => ({ field: k, from: before[k] || '', to: it[k] || '' })) }) };
+    }));
+  }
+  // Area names of observations tagged with these items, when moving them under a different area would contradict them.
+  function areaConflicts(fw, ids, toAreaName) {
+    const set = new Set(ids);
+    return read(learningKey(school.id), []).filter(e => e.area && e.area !== toAreaName && (e.outcomeRefs || []).some(r => set.has(r.itemId) && fwPath(fw, r.itemId)[0]?.name === e.area)).length;
+  }
+  function moveFrameworkItem(user, fwId, itemId, { parentId = undefined, index = null } = {}, { rev = null, fail = false } = {}) {
+    return settle(mutateFramework(user, fwId, rev, fw => {
+      const it = fwItem(fw, itemId);
+      if (!it) return { ok: false, reason: 'missing' };
+      const fromParent = it.parentId || null;
+      const toParentId = parentId === undefined ? fromParent : parentId || null;
+      const to = toParentId ? fwItem(fw, toParentId) : null;
+      if (toParentId && !to) return { ok: false, reason: 'missing' };
+      if (toParentId === it.id || fwDescendants(fw, it.id).some(d => d.id === toParentId)) return { ok: false, reason: 'invalid', message: 'An item can’t be moved inside itself.' };
+      if (!FW_CHILDREN[to ? to.type : 'root'].includes(it.type)) return { ok: false, reason: 'invalid', message: `A ${FW_TYPES[it.type].toLowerCase()} can’t go ${to ? `inside a ${FW_TYPES[to.type].toLowerCase()}` : 'at the top level'}. ${it.type === 'area' ? 'Areas stay at the top level.' : it.type === 'subarea' ? 'Sub-areas belong in an area.' : 'Outcomes, milestones and materials belong in a sub-area.'}` };
+      if (toParentId !== fromParent) {
+        if (it.type === 'material' && it.materialId && fwChildren(fw, toParentId).some(c => c.type === 'material' && c.materialId === it.materialId)) return { ok: false, reason: 'invalid', message: `${it.name} is already linked to ${to.name}.` };
+        const fromArea = fwPath(fw, it.id)[0]?.name;
+        const toArea = (to ? fwPath(fw, to.id)[0] : it)?.name;
+        if (fromArea !== toArea) {
+          const n = areaConflicts(fw, [it.id, ...fwDescendants(fw, it.id).map(d => d.id)], toArea);
+          if (n) return { ok: false, reason: 'dependents', message: `${n} observation${n === 1 ? '' : 's'} tagged with ${it.name} ${n === 1 ? 'is' : 'are'} recorded under ${fromArea}. Moving it under ${toArea} would contradict ${n === 1 ? 'it' : 'them'}. Add a new item under ${toArea} instead, or hide this one.` };
+        }
+      }
+      const sibs = fwChildren(fw, toParentId).filter(s => s.id !== it.id);
+      const at = index == null ? sibs.length : Math.max(0, Math.min(index, sibs.length));
+      const oldSibs = fwChildren(fw, fromParent);
+      const oldIndex = oldSibs.findIndex(s => s.id === it.id);
+      if (toParentId === fromParent && at === oldIndex) return { ok: true, item: it, unchanged: true };
+      if (fail) return { ok: false, reason: 'storage' };
+      sibs.splice(at, 0, it);
+      sibs.forEach((s, i) => { s.order = i; });
+      if (toParentId !== fromParent) fwChildren(fw, fromParent).filter(s => s.id !== it.id).forEach((s, i) => { s.order = i; });
+      const prevParent = fromParent ? fwItem(fw, fromParent)?.name : 'Top level';
+      it.parentId = toParentId;
+      it.updatedAt = new Date().toISOString();
+      const kind = toParentId === fromParent ? 'reordered' : 'reparented';
+      return { ok: true, item: it, after: f => fwEvent(user, kind, f, kind === 'reordered' ? `${it.name} moved to position ${at + 1}` : `${it.name} moved from ${prevParent} to ${to?.name || 'Top level'}`, { itemId: it.id, itemName: it.name, from: kind === 'reordered' ? String(oldIndex + 1) : prevParent, to: kind === 'reordered' ? String(at + 1) : to?.name || 'Top level' }) };
+    }));
+  }
+  function setFrameworkItemHidden(user, fwId, itemId, hidden, { rev = null, fail = false } = {}) {
+    return settle(mutateFramework(user, fwId, rev, fw => {
+      const it = fwItem(fw, itemId);
+      if (!it) return { ok: false, reason: 'missing' };
+      if (Boolean(it.hidden) === Boolean(hidden)) return { ok: true, item: it, unchanged: true };
+      if (fail) return { ok: false, reason: 'storage' };
+      it.hidden = Boolean(hidden);
+      it.updatedAt = new Date().toISOString();
+      return { ok: true, item: it, after: f => fwEvent(user, hidden ? 'hidden' : 'shown', f, `${it.name} ${hidden ? 'hidden' : 'shown'}`, { itemId: it.id, itemName: it.name, from: hidden ? 'Visible' : 'Hidden', to: hidden ? 'Hidden' : 'Visible' }) };
+    }));
+  }
+  function deleteFrameworkItem(user, fwId, itemId, { rev = null, fail = false } = {}) {
+    return settle(mutateFramework(user, fwId, rev, fw => {
+      const it = fwItem(fw, itemId);
+      if (!it) return { ok: false, reason: 'missing' };
+      const gone = [it, ...fwDescendants(fw, it.id)];
+      const refs = frameworkReferences(gone.map(g => g.id));
+      if (refs.total) return { ok: false, reason: 'linked', refs };
+      if (fail) return { ok: false, reason: 'storage' };
+      const ids = new Set(gone.map(g => g.id));
+      fw.items = fw.items.filter(i => !ids.has(i.id));
+      fwChildren(fw, it.parentId).forEach((s, i) => { s.order = i; });
+      return { ok: true, removed: gone.length, after: f => fwEvent(user, 'deleted', f, `${FW_TYPES[it.type]} deleted: ${it.name}${gone.length > 1 ? ` (and ${gone.length - 1} item${gone.length === 2 ? '' : 's'} inside it)` : ''}`, { itemId: it.id, itemName: it.name, from: fwItem(f, it.parentId)?.name || 'Top level' }) };
+    }));
+  }
+  // What switching would mean for existing records: tags and milestones keep pointing at the framework they used.
+  function frameworkSwitchImpact(toId) {
+    const cur = activeFramework();
+    const all = cur ? cur.items.map(i => i.id) : [];
+    const refs = frameworkReferences(all);
+    const to = frameworkById(toId);
+    return { current: cur ? { id: cur.id, name: cur.name, version: cur.version } : null, target: to ? { id: to.id, name: to.name, version: to.version, outcomes: to.items.filter(i => i.type === 'outcome').length, milestones: to.items.filter(i => i.type === 'milestone').length } : null, refs, sameAgeBands: !cur || !to || JSON.stringify(cur.ageBands) === JSON.stringify(to.ageBands) };
+  }
+  function setActiveFramework(user, fwId, { fail = false } = {}) {
+    if (!canEditFramework(user)) return settle({ ok: false, reason: 'forbidden' });
+    const fw = frameworkById(fwId);
+    if (!fw) return settle({ ok: false, reason: 'missing' });
+    const prev = activeFramework();
+    if (prev?.id === fw.id) return settle({ ok: true, unchanged: true, framework: fw });
+    if (fail || !write(frameworkActiveKey(school.id), { frameworkId: fw.id, at: new Date().toISOString(), by: user.name })) return settle({ ok: false, reason: 'storage' });
+    fwEvent(user, 'activated', fw, `Active framework changed${prev ? ` from ${prev.name} ${prev.version}` : ''} to ${fw.name} ${fw.version}`, { from: prev ? `${prev.name} ${prev.version}` : '—', to: `${fw.name} ${fw.version}` });
+    if (prev) fwEvent(user, 'activated', prev, `No longer active — replaced by ${fw.name} ${fw.version}`, { from: `${prev.name} ${prev.version}`, to: `${fw.name} ${fw.version}` });
+    return settle({ ok: true, framework: fw, previous: prev });
+  }
+  const frameworkHistory = fwId => getAudit().filter(a => a.action.startsWith('framework:') && a.frameworkId === fwId).map(a => ({ ...a, kind: a.action.slice(10), label: FW_ACTIONS[a.action.slice(10)] || a.action }));
+
+  /* P15 platform template library — integration point. Templates live at platform scope (not per school) and are read
+     here only. This prototype seeds DEMO templates written for testing; they are not published or official frameworks. */
+  function seedPlatformTemplates() {
+    const bands = ['2½–3 years', '3–4 years', '4–5 years', '5–6 years', '3–6 years'];
+    const m = (id, area, code, subs) => [{ id, type: 'area', parentId: null, name: area, code, description: '', ageBand: '' }, ...subs.flat()];
+    const s = (id, parentId, name, code, kids) => [{ id, type: 'subarea', parentId, name, code, description: '', ageBand: '' }, ...kids.map(([t, kid, n, c, band, d]) => ({ id: kid, type: t, parentId: id, name: n, code: t === 'material' ? '' : c, description: d || '', ageBand: t === 'material' ? '' : band }))];
+    const v21 = [
+      ...m('t-pl', 'Practical life', 'PL', [
+        s('t-pl-self', 't-pl', 'Care of self', 'PL.1', [['outcome', 't-pl-1-1', 'Dresses with growing independence', 'PL.1.1', '3–4 years', 'Uses frames and real clothing to fasten buttons, zips and buckles.'], ['milestone', 't-pl-1-m', 'Puts on own coat and shoes', 'PL.1.M1', '3–4 years'], ['material', 't-pl-1-x', 'Dressing frames (6)']]),
+        s('t-pl-env', 't-pl', 'Care of the environment', 'PL.2', [['outcome', 't-pl-2-1', 'Pours without spilling', 'PL.2.1', '2½–3 years', 'Controls a jug when pouring water or grain between containers.'], ['outcome', 't-pl-2-2', 'Returns work to the shelf', 'PL.2.2', '2½–3 years'], ['material', 't-pl-2-x', 'Pouring jugs set'], ['material', 't-pl-2-y', 'Polishing tray']]),
+        s('t-pl-gc', 't-pl', 'Grace and courtesy', 'PL.3', [['outcome', 't-pl-3-1', 'Greets others and waits for a turn', 'PL.3.1', '3–4 years']])
+      ]),
+      ...m('t-se', 'Sensorial', 'SE', [
+        s('t-se-vis', 't-se', 'Visual discrimination', 'SE.1', [['outcome', 't-se-1-1', 'Grades objects by size', 'SE.1.1', '3–4 years', 'Builds the pink tower and orders cylinders from largest to smallest.'], ['outcome', 't-se-1-2', 'Matches and grades colours', 'SE.1.2', '4–5 years'], ['material', 't-se-1-x', 'Pink tower'], ['material', 't-se-1-y', 'Knobbed cylinders block 1'], ['material', 't-se-1-z', 'Colour box 2']])
+      ]),
+      ...m('t-la', 'Language', 'LA', [
+        s('t-la-oral', 't-la', 'Spoken language', 'LA.1', [['outcome', 't-la-1-1', 'Hears beginning sounds in words', 'LA.1.1', '3–4 years'], ['milestone', 't-la-1-m', 'Names objects in the environment in full sentences', 'LA.1.M1', '3–4 years']]),
+        s('t-la-wr', 't-la', 'Writing', 'LA.2', [['outcome', 't-la-2-1', 'Traces letter shapes with correct formation', 'LA.2.1', '4–5 years'], ['outcome', 't-la-2-2', 'Builds words with the movable alphabet', 'LA.2.2', '4–5 years'], ['material', 't-la-2-x', 'Sandpaper letters'], ['material', 't-la-2-y', 'Movable alphabet'], ['material', 't-la-2-z', 'Metal insets']])
+      ]),
+      ...m('t-ma', 'Mathematics', 'MA', [
+        s('t-ma-num', 't-ma', 'Numbers to 10', 'MA.1', [['outcome', 't-ma-1-1', 'Associates quantity and numeral to 10', 'MA.1.1', '4–5 years'], ['milestone', 't-ma-1-m', 'Counts a set of 10 objects reliably', 'MA.1.M1', '4–5 years'], ['material', 't-ma-1-x', 'Number rods'], ['material', 't-ma-1-y', 'Spindle box']]),
+        s('t-ma-dec', 't-ma', 'Decimal system', 'MA.2', [['outcome', 't-ma-2-1', 'Names units, tens, hundreds and thousands', 'MA.2.1', '5–6 years'], ['material', 't-ma-2-x', 'Golden bead material']])
+      ]),
+      ...m('t-cu', 'Culture', 'CU', [
+        s('t-cu-geo', 't-cu', 'Geography', 'CU.1', [['outcome', 't-cu-1-1', 'Names the continents', 'CU.1.1', '4–5 years'], ['material', 't-cu-1-x', 'Continents puzzle map'], ['material', 't-cu-1-y', 'Land and water forms']])
+      ])
+    ];
+    // v2.2: two new outcomes, one changed description, and one code clash, so merging has something to resolve.
+    const v22 = v21.map(i => (i.id === 't-se-1-1' ? { ...i, description: 'Builds the pink tower and brown stair, and orders cylinders by size.' } : { ...i }));
+    v22.push({ id: 't-se-1-3', type: 'outcome', parentId: 't-se-vis', name: 'Sorts objects by shape', code: 'SE.1.3', description: '', ageBand: '3–4 years' });
+    v22.push({ id: 't-cu-2', type: 'subarea', parentId: 't-cu', name: 'Botany', code: 'CU.2', description: '', ageBand: '' });
+    v22.push({ id: 't-cu-2-1', type: 'outcome', parentId: 't-cu-2', name: 'Names the parts of a leaf', code: 'CU.2.1', description: '', ageBand: '5–6 years' });
+    v22.push({ id: 't-cu-2-x', type: 'material', parentId: 't-cu-2', name: 'Botany cabinet', code: '', description: '', ageBand: '' });
+    v22.push({ id: 't-pl-3-2', type: 'outcome', parentId: 't-pl-gc', name: 'Offers help to a friend', code: 'PL.3.2', description: '', ageBand: '4–5 years' });
+    const elg = [
+      { id: 'e-cl', type: 'area', parentId: null, name: 'Communication and language', code: 'CL', description: '', ageBand: '' },
+      { id: 'e-cl-1', type: 'subarea', parentId: 'e-cl', name: 'Listening and attention', code: 'CL.1', description: '', ageBand: '' },
+      { id: 'e-cl-1-1', type: 'outcome', parentId: 'e-cl-1', name: 'Listens to short stories and responds', code: 'CL.1.1', description: '', ageBand: '3–4 years' },
+      { id: 'e-cl-1-2', type: 'milestone', parentId: 'e-cl-1', name: 'Follows a two-step instruction', code: 'CL.1.M1', description: '', ageBand: '3–4 years' },
+      { id: 'e-pd', type: 'area', parentId: null, name: 'Physical development', code: 'PD', description: '', ageBand: '' },
+      { id: 'e-pd-1', type: 'subarea', parentId: 'e-pd', name: 'Fine motor', code: 'PD.1', description: '', ageBand: '' },
+      { id: 'e-pd-1-1', type: 'outcome', parentId: 'e-pd-1', name: 'Uses a pincer grip to pick up small objects', code: 'PD.1.1', description: '', ageBand: '3–4 years' },
+      { id: 'e-pd-1-2', type: 'outcome', parentId: 'e-pd-1', name: 'Holds a pencil with a tripod grip', code: 'PD.1.2', description: '', ageBand: '4–5 years' }
+    ];
+    const meta = { provider: 'Nexora demo library', demo: true, updatedAt: '2026-06-01' };
+    return [
+      { id: 'p15-mont-ec', templateKey: 'mont-ec', name: 'Montessori Early Childhood (demo)', version: '2.1', type: 'Montessori', description: 'Five Montessori areas with outcomes, milestones and linked classroom materials. Demo content for testing.', ageBands: bands, items: v21, ...meta },
+      { id: 'p15-mont-ec-22', templateKey: 'mont-ec', name: 'Montessori Early Childhood (demo)', version: '2.2', type: 'Montessori', description: 'Version 2.2 adds botany, shape sorting and a courtesy outcome, and updates one description. Demo content for testing.', ageBands: bands, items: v22, ...meta },
+      { id: 'p15-elg-sample', templateKey: 'elg-sample', name: 'Early learning goals — sample (demo)', version: '1.0', type: 'Outcomes-based', description: 'A short outcomes-based sample with its own age bands and no materials. Demo content for testing.', ageBands: ['3–4 years', '4–5 years'], items: elg, ...meta }
+    ];
+  }
+  // The P15 read. `fail` simulates the library being unreachable.
+  function platformTemplates({ fail = false } = {}) {
+    if (fail) return settle({ ok: false, reason: 'unavailable' });
+    const list = seeded(PLATFORM_TEMPLATES_KEY, seedPlatformTemplates);
+    return settle({ ok: true, library: 'P15', demo: list.every(t => t.demo), templates: list.map(t => ({ ...t, counts: { areas: t.items.filter(i => i.type === 'area').length, outcomes: t.items.filter(i => i.type === 'outcome').length, milestones: t.items.filter(i => i.type === 'milestone').length, materials: t.items.filter(i => i.type === 'material').length } })) });
+  }
+  const templateById = id => seeded(PLATFORM_TEMPLATES_KEY, seedPlatformTemplates).find(t => t.id === id) || null;
+  // Structural check of a template before anything is written.
+  function templateIssues(t) {
+    const out = [];
+    const ids = new Set();
+    const codes = new Set();
+    t.items.forEach(i => {
+      if (ids.has(i.id)) out.push(`Duplicate item id ${i.id}`);
+      ids.add(i.id);
+      if (!FW_TYPES[i.type]) out.push(`Unknown item type on ${i.id}`);
+      const p = i.parentId ? t.items.find(x => x.id === i.parentId) : null;
+      if (i.parentId && !p) out.push(`${i.name} points at a missing parent`);
+      else if (!FW_CHILDREN[p ? p.type : 'root'].includes(i.type)) out.push(`${i.name} (${i.type}) can’t sit under ${p ? p.type : 'the top level'}`);
+      if (i.code) { if (codes.has(i.code.toLowerCase())) out.push(`Code ${i.code} is used twice`); codes.add(i.code.toLowerCase()); }
+      if (i.ageBand && !t.ageBands.includes(i.ageBand)) out.push(`${i.name} uses age band “${i.ageBand}”, which the template doesn’t define`);
+      if (!clean(i.name)) out.push(`Item ${i.id} has no name`);
+    });
+    return out;
+  }
+  const inventoryMatch = name => getMaterials().find(m => m.name.trim().toLowerCase() === String(name).trim().toLowerCase())?.id || null;
+  function importFrameworkTemplate(user, templateId, { activate = false, confirmCopy = false, fail = false } = {}) {
+    if (!canEditFramework(user)) return settle({ ok: false, reason: 'forbidden' });
+    const t = templateById(templateId);
+    if (!t) return settle({ ok: false, reason: 'missing' });
+    const issues = templateIssues(t);
+    if (issues.length) return settle({ ok: false, reason: 'invalid-template', issues });
+    const list = getFrameworks();
+    const same = list.find(f => f.source?.templateId === t.id);
+    if (same && !confirmCopy) return settle({ ok: false, reason: 'exists', existing: { id: same.id, name: same.name, version: same.version } });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    const now = new Date().toISOString();
+    const idMap = new Map(t.items.map(i => [i.id, newId('fwi')]));
+    const orderOf = new Map();
+    const items = t.items.map(i => {
+      const k = i.parentId || 'root';
+      const order = orderOf.get(k) || 0;
+      orderOf.set(k, order + 1);
+      return { id: idMap.get(i.id), type: i.type, parentId: i.parentId ? idMap.get(i.parentId) : null, order, name: i.name, code: i.code || '', description: i.description || '', ageBand: i.ageBand || '', hidden: false, materialId: i.type === 'material' ? inventoryMatch(i.name) : null, sourceId: i.id, createdAt: now, updatedAt: now };
+    });
+    const fw = { id: newId('fw'), name: same ? `${t.name} (copy)` : t.name, version: t.version, type: t.type, description: t.description, ageBands: t.ageBands.slice(), source: { library: 'P15', templateId: t.id, templateKey: t.templateKey, templateVersion: t.version, provider: t.provider, demo: Boolean(t.demo) }, rev: 1, createdAt: now, createdBy: user.name, updatedAt: now, updatedBy: user.name, items };
+    const writes = [{ key: frameworksKey(school.id), value: [...list, fw] }];
+    if (activate) writes.push({ key: frameworkActiveKey(school.id), value: { frameworkId: fw.id, at: now, by: user.name } });
+    if (!commit(writes)) return settle({ ok: false, reason: 'storage' });
+    fwEvent(user, 'imported', fw, `Imported from P15: ${t.name} ${t.version} (${t.provider}) — ${items.length} items`, { source: `${t.name} ${t.version}`, to: fw.name });
+    if (activate) fwEvent(user, 'activated', fw, `Active framework set to ${fw.name} ${fw.version}`, { from: '—', to: `${fw.name} ${fw.version}` });
+    return settle({ ok: true, framework: fw, activated: Boolean(activate), unlinkedMaterials: items.filter(i => i.type === 'material' && !i.materialId).length });
+  }
+
+  /* Merge a template into a framework. Matching rules, in order: the item's recorded template id (sourceId); then the same
+     type and the same code. Materials (no code) match by name under the same parent. Nothing matches on name alone:
+     a same-named item with a different code is a "possible duplicate" the person decides on. */
+  function planFrameworkMerge(fwId, templateId) {
+    const fw = frameworkById(fwId);
+    const t = templateById(templateId);
+    if (!fw || !t) return { ok: false, reason: 'missing' };
+    const issues = templateIssues(t);
+    if (issues.length) return { ok: false, reason: 'invalid-template', issues };
+    const match = new Map();
+    const rows = [];
+    const byCode = c => (c ? fw.items.find(i => i.code && i.code.toLowerCase() === c.toLowerCase()) : null);
+    const ordered = [];
+    const walk = pid => t.items.filter(i => (i.parentId || null) === pid).forEach(i => { ordered.push(i); walk(i.id); });
+    walk(null);
+    ordered.forEach(ti => {
+      const parentMatch = ti.parentId ? match.get(ti.parentId) : null;
+      let ex = fw.items.find(i => i.sourceId === ti.id && i.type === ti.type) || null;
+      if (!ex && ti.code) { const c = byCode(ti.code); if (c && c.type === ti.type) ex = c; }
+      if (!ex && ti.type === 'material' && parentMatch?.existingId) ex = fwChildren(fw, parentMatch.existingId).find(c => c.type === 'material' && c.name.toLowerCase() === ti.name.toLowerCase()) || null;
+      const row = { tid: ti.id, type: ti.type, name: ti.name, code: ti.code, ageBand: ti.ageBand, description: ti.description, parentTid: ti.parentId || null };
+      if (ex) {
+        const diffs = ['name', 'code', 'description', 'ageBand'].filter(k => (ti[k] || '') !== (ex[k] || '') && !(ti.type === 'material' && ['code', 'ageBand'].includes(k)));
+        Object.assign(row, { status: diffs.length ? 'changed' : 'same', existingId: ex.id, existingName: ex.name, diffs: diffs.map(k => ({ field: k, mine: ex[k] || '', theirs: ti[k] || '' })), choices: diffs.length ? ['keep', 'use'] : [], decision: diffs.length ? 'keep' : null });
+      } else {
+        const clash = byCode(ti.code);
+        const parentExistingId = parentMatch?.existingId || null;
+        const lookalike = parentExistingId ? fwChildren(fw, parentExistingId).find(c => c.type === ti.type && c.name.toLowerCase() === ti.name.toLowerCase()) : !ti.parentId ? fwChildren(fw, null).find(c => c.type === ti.type && c.name.toLowerCase() === ti.name.toLowerCase()) : null;
+        if (clash) Object.assign(row, { status: 'code-clash', clashWith: { id: clash.id, name: clash.name, type: clash.type }, choices: ['suffix', 'skip'], decision: null });
+        else if (lookalike) Object.assign(row, { status: 'lookalike', lookalike: { id: lookalike.id, name: lookalike.name, code: lookalike.code }, choices: ['add', 'skip'], decision: null });
+        else Object.assign(row, { status: 'add', choices: [], decision: 'add' });
+      }
+      match.set(ti.id, row);
+      rows.push(row);
+    });
+    const missingBands = t.ageBands.filter(b => !(fw.ageBands || []).includes(b) && t.items.some(i => i.ageBand === b));
+    return { ok: true, rev: fw.rev, framework: { id: fw.id, name: fw.name, version: fw.version }, template: { id: t.id, name: t.name, version: t.version, provider: t.provider }, rows, missingBands };
+  }
+  function mergeFrameworkTemplate(user, fwId, templateId, { decisions = {}, rev = null, fail = false } = {}) {
+    if (!canEditFramework(user)) return settle({ ok: false, reason: 'forbidden' });
+    const plan = planFrameworkMerge(fwId, templateId);
+    if (!plan.ok) return settle(plan);
+    if (rev != null && rev !== plan.rev) return settle({ ok: false, reason: 'stale' });
+    const decide = r => decisions[r.tid] || r.decision;
+    const open = plan.rows.filter(r => r.choices.length && !decide(r));
+    if (open.length) return settle({ ok: false, reason: 'unresolved', rows: open.map(r => r.tid) });
+    if (fail) return settle({ ok: false, reason: 'storage' });
+    const list = getFrameworks();
+    const fw = list.find(f => f.id === fwId);
+    const t = templateById(templateId);
+    const now = new Date().toISOString();
+    const newIds = new Map();
+    const summary = { added: [], updated: [], unchanged: 0, kept: 0, skipped: [] };
+    const parentIdFor = r => (r.parentTid ? newIds.get(r.parentTid) || plan.rows.find(x => x.tid === r.parentTid)?.existingId || null : null);
+    const usedCodes = new Set(fw.items.map(i => (i.code || '').toLowerCase()).filter(Boolean));
+    plan.rows.forEach(r => {
+      const d = decide(r);
+      if (r.status === 'same') { summary.unchanged += 1; return; }
+      if (r.status === 'changed') {
+        if (d === 'use') { const ex = fwItem(fw, r.existingId); r.diffs.forEach(x => { if (x.field !== 'code' || !usedCodes.has(String(x.theirs).toLowerCase())) ex[x.field] = x.theirs; }); ex.sourceId = ex.sourceId || r.tid; ex.updatedAt = now; summary.updated.push(ex.name); } else { summary.kept += 1; }
+        return;
+      }
+      const parentId = parentIdFor(r);
+      if (d === 'skip' || (r.parentTid && !parentId)) { summary.skipped.push(`${r.name}${d === 'skip' ? '' : ' (its parent was skipped)'}`); return; }
+      let code = r.type === 'material' ? '' : r.code || '';
+      if (code && usedCodes.has(code.toLowerCase())) { let n = 2; while (usedCodes.has(`${code}-${n}`.toLowerCase())) n += 1; code = `${code}-${n}`; }
+      if (code) usedCodes.add(code.toLowerCase());
+      const id = newId('fwi');
+      newIds.set(r.tid, id);
+      fw.items.push({ id, type: r.type, parentId, order: fwChildren(fw, parentId).length, name: r.name, code, description: r.description || '', ageBand: r.ageBand || '', hidden: false, materialId: r.type === 'material' ? inventoryMatch(r.name) : null, sourceId: r.tid, createdAt: now, updatedAt: now });
+      summary.added.push(code && code !== r.code ? `${r.name} (code ${code})` : r.name);
+    });
+    fw.ageBands = [...(fw.ageBands || []), ...plan.missingBands];
+    if (!summary.added.length && !summary.updated.length && !plan.missingBands.length) return settle({ ok: true, unchanged: true, summary });
+    Object.assign(fw, { rev: (fw.rev || 0) + 1, updatedAt: now, updatedBy: user.name, merges: [...(fw.merges || []), { templateId: t.id, templateVersion: t.version, provider: t.provider, at: now, by: user.name }] });
+    if (!write(frameworksKey(school.id), list)) return settle({ ok: false, reason: 'storage' });
+    fwEvent(user, 'merged', fw, `Merged P15 ${t.name} ${t.version}: ${summary.added.length} added, ${summary.updated.length} updated, ${summary.unchanged + summary.kept} unchanged, ${summary.skipped.length} skipped${plan.missingBands.length ? ` · age bands added: ${plan.missingBands.join(', ')}` : ''}`, { source: `${t.name} ${t.version}` });
+    return settle({ ok: true, framework: fw, summary, addedBands: plan.missingBands });
+  }
+
+  /* S27 child milestones (the Learning & Portfolio tab): { id, childId, itemId, frameworkId, frameworkVersion, name, code,
+     achievedOn, note, recordedBy, createdAt }. New records only accept visible milestones of the active framework; the
+     name/code saved with each record is only the fallback label if the item is ever removed. */
+  const getChildMilestones = childId => read(childMilestonesKey(school.id), []).filter(m => m.childId === childId).sort((a, b) => b.achievedOn.localeCompare(a.achievedOn));
+  function recordChildMilestone(user, childId, input = {}) {
+    if (!canEditSection(user, 'learning') || !isEntitled('classroom-tracker')) return settle({ ok: false, reason: 'forbidden' });
+    const c = childById(childId);
+    if (!c || !classScope(user).includes(c.cls)) return settle({ ok: false, reason: 'forbidden' });
+    const { framework, options } = frameworkOptions('milestone');
+    const errors = {};
+    const opt = options.find(o => o.id === input.itemId);
+    if (!framework) errors.itemId = 'No learning framework is active yet.';
+    else if (!opt) errors.itemId = 'Choose a milestone from the active framework.';
+    const achievedOn = clean(input.achievedOn);
+    if (!isDate(achievedOn) || achievedOn > today()) errors.achievedOn = 'Enter today or an earlier date.';
+    const all = read(childMilestonesKey(school.id), []);
+    if (opt && all.some(m => m.childId === childId && m.itemId === opt.id)) errors.itemId = 'This milestone is already recorded for this child.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const rec = { id: newId('cms'), childId, itemId: opt.id, frameworkId: framework.id, frameworkVersion: framework.version, name: opt.name, code: opt.code, achievedOn, note: clean(input.note).slice(0, 500), recordedBy: user.name, createdAt: new Date().toISOString() };
+    if (!write(childMilestonesKey(school.id), [...all, rec])) return settle({ ok: false, reason: 'storage' });
+    logAudit(user, 'add:milestone', childId, `${opt.code ? `${opt.code} ` : ''}${opt.name}`);
+    return settle({ ok: true, milestone: rec });
+  }
+
   const TERM = 'Term 2 · 2026–27';
   const FEE_BY_LEVEL = { Nursery: 15000, LKG: 16500, UKG: 18000, Montessori: 21000 };
   const PAYMENT_METHODS = ['Cash', 'UPI', 'Bank transfer', 'Cheque', 'Card'];
@@ -8034,6 +8495,32 @@
     saveBooking,
     cancelBooking,
     getMaterials,
+    FW_TYPES,
+    FW_CHILDREN,
+    FW_ACTIONS,
+    canEditFramework,
+    getFrameworks,
+    frameworkById,
+    activeFramework,
+    activeFrameworkId,
+    frameworkOptions,
+    frameworkRef,
+    frameworkItemUsage,
+    frameworkReferences,
+    addFrameworkItem,
+    updateFrameworkItem,
+    moveFrameworkItem,
+    setFrameworkItemHidden,
+    deleteFrameworkItem,
+    frameworkSwitchImpact,
+    setActiveFramework,
+    frameworkHistory,
+    platformTemplates,
+    importFrameworkTemplate,
+    planFrameworkMerge,
+    mergeFrameworkTemplate,
+    getChildMilestones,
+    recordChildMilestone,
     getRepairs,
     saveMaterial,
     setRepairStatus,
