@@ -22,6 +22,8 @@ every plan. **Code:** `framework.js` (page and shared picker), the "Learning fra
 - **Age bands** belong to each framework (`ageBands`). Items can only use their own framework's bands. Nothing is
   converted between frameworks. A merge adds any missing template bands and says so.
 - **Codes** are unique within a framework and stay the same when an item is renamed.
+- **Prerequisites** (`prerequisiteIds`, materials only) list materials to master first. Only other materials can be
+  chosen, and loops are refused. The Progress Tracker uses them for "Ready for next presentation".
 
 ## Visibility and deletion
 

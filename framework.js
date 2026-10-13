@@ -254,13 +254,15 @@
       const ages = f.ageBands || [];
       const field = (id, label, control, hint = '') => `<div class="field"><label class="field__label" for="${id}">${label}</label>${control}${hint ? `<p class="field__hint">${hint}</p>` : ''}<p class="field__hint field__hint--error" data-error-for="${id.replace('fwd-', '')}" hidden></p></div>`;
       const ro = (k, v) => `<div><dt>${esc(k)}</dt><dd>${v}</dd></div>`;
+      const preNames = (it.prerequisiteIds || []).map(id => f.items.find(i => i.id === id)).map(p => (p ? `<button class="fw-link" type="button" data-goto="${esc(p.id)}">${esc(p.name)}</button>` : 'Removed material')).join(', ');
       const mats = it.type === 'subarea' ? kids.filter(k => k.type === 'material') : it.type === 'outcome' || it.type === 'milestone' ? kidsOf(f, it.parentId).filter(k => k.type === 'material') : [];
       const matList = mats.length ? `<ul class="fw-d-list">${mats.map(k => `<li>${icon('shapes', 'icon--sm')}<button class="fw-link" type="button" data-goto="${esc(k.id)}">${esc(k.name)}</button>${k.materialId ? '' : ' <small>not in inventory</small>'}</li>`).join('')}</ul>` : '<p class="cp-muted">None linked.</p>';
-      const usageText = usage ? [usage.self.observations && plural(usage.self.observations, 'observation'), usage.self.milestones && plural(usage.self.milestones, 'child milestone'), usage.self.activities && plural(usage.self.activities, 'lesson activity', 'lesson activities')].filter(Boolean).join(', ') || 'Not used yet' : '—';
+      const usageText = usage ? [usage.self.observations && plural(usage.self.observations, 'observation'), usage.self.milestones && plural(usage.self.milestones, 'child milestone'), usage.self.activities && plural(usage.self.activities, 'lesson activity', 'lesson activities'), usage.self.progress && plural(usage.self.progress, 'child’s progress', 'children’s progress'), usage.self.prerequisites && plural(usage.self.prerequisites, 'material’s prerequisites', 'materials’ prerequisites')].filter(Boolean).join(', ') || 'Not used yet' : '—';
       const form = editable ? `<form class="fw-d-form" data-itemform novalidate>
           ${field('fwd-name', 'Name <span class="field__req" aria-hidden="true">*</span>', `<input class="input" id="fwd-name" name="name" maxlength="120" required value="${esc(it.name)}">`)}
           ${it.type !== 'material' ? `<div class="fw-d-row">${field('fwd-code', 'Code', `<input class="input" id="fwd-code" name="code" maxlength="24" value="${esc(it.code)}" autocomplete="off" spellcheck="false">`, 'Unique in this framework. Stays when you rename.')}${field('fwd-ageBand', 'Age band', `<select class="input" id="fwd-ageBand" name="ageBand"><option value="">None</option>${ages.map(a => `<option${a === it.ageBand ? ' selected' : ''}>${esc(a)}</option>`).join('')}${it.ageBand && !ages.includes(it.ageBand) ? `<option selected>${esc(it.ageBand)}</option>` : ''}</select>`, ages.length ? 'This framework’s own age bands.' : 'This framework has no age bands.')}</div>` : field('fwd-materialId', 'Inventory material', `<select class="input" id="fwd-materialId" name="materialId"><option value="">Not in the school’s inventory</option>${inv.map(m => `<option value="${esc(m.id)}"${m.id === it.materialId ? ' selected' : ''}>${esc(m.name)} · ${esc(m.area)}</option>`).join('')}</select>`, 'From Rooms &amp; Resources.')}
           ${field('fwd-description', 'Description', `<textarea class="input" id="fwd-description" name="description" rows="3" maxlength="1000">${esc(it.description)}</textarea>`)}
+          ${it.type === 'material' ? prereqField(f, it) : ''}
           <div class="fw-d-save"><button class="btn btn--primary btn--sm" type="submit">Save changes</button><span class="fw-d-status" data-savestatus role="status"></span></div>
         </form>` : '';
       return `<div class="fw-d">
@@ -275,12 +277,24 @@
           ${it.type === 'subarea' ? ro('Outcomes & milestones', String(kids.filter(k => k.type !== 'material').length)) : ''}
           ${['subarea', 'outcome', 'milestone'].includes(it.type) ? ro(it.type === 'subarea' ? 'Linked materials' : 'Materials (sub-area)', matList) : ''}
           ${it.type === 'material' ? ro('Linked to', p.length ? `<button class="fw-link" type="button" data-goto="${esc(p[p.length - 1].id)}">${esc(p[p.length - 1].name)}</button>` : '—') : ''}
+          ${it.type === 'material' && !editable ? ro('Prerequisites', preNames || 'None configured') : ''}
           ${ro('Used by', esc(usageText))}
           ${ro('Created', esc(when(it.createdAt)))}${ro('Last updated', esc(when(it.updatedAt)))}
           ${ro('Item ID', `<code class="mk-tag">${esc(it.id)}</code>${it.sourceId ? ` <small>template ${esc(it.sourceId)}</small>` : ''}`)}
         </dl>
         ${editable ? `<div class="fw-d-acts"><button class="btn btn--secondary btn--sm" type="button" data-vis>${icon(it.hidden ? 'eye' : 'eye-off', 'icon--sm')}${it.hidden ? 'Show' : 'Hide'}</button>${store.FW_CHILDREN[it.type].length ? `<button class="btn btn--secondary btn--sm" type="button" data-add="${esc(it.id)}">${icon('plus', 'icon--sm')}Add inside</button>` : ''}<button class="btn btn--tertiary btn--sm fw-d-del" type="button" data-del>${icon('trash', 'icon--sm')}Delete</button></div>` : ''}
       </div>`;
+    }
+
+    // Materials a child must have mastered first (used by the Progress Tracker's "Ready for next presentation").
+    function prereqField(f, it) {
+      const mats = f.items.filter(i => i.type === 'material' && i.id !== it.id);
+      const areaOf = id => pathOf(f, id)[0]?.name || '';
+      const sel = new Set(it.prerequisiteIds || []);
+      const groups = [...new Set(mats.map(m => areaOf(m.id)))];
+      return `<fieldset class="fw-pick fw-pre"><legend class="field__label">Prerequisites</legend><p class="field__hint">Materials a child should have mastered before this one is presented. Used by the Progress Tracker.</p>
+        <div class="fw-pick__list">${groups.map(g => `<div class="fw-pick__g"><p>${esc(g)}</p>${mats.filter(m => areaOf(m.id) === g).map(m => `<label class="fw-pick__opt"><input type="checkbox" name="prerequisiteIds" value="${esc(m.id)}"${sel.has(m.id) ? ' checked' : ''}><span>${esc(m.name)}</span></label>`).join('')}</div>`).join('') || '<p class="field__hint">No other materials yet.</p>'}</div>
+        <p class="field__hint field__hint--error" data-error-for="prerequisiteIds" hidden></p></fieldset>`;
     }
 
     // Below 1024px the details open in a side drawer (the same content, kept in sync).
@@ -440,7 +454,7 @@
       const usage = store.frameworkItemUsage(f.id, it.id);
       const u = usage.subtree;
       if (u.total) {
-        const parts = [u.observations && plural(u.observations, 'observation'), u.milestones && plural(u.milestones, 'child milestone record'), u.activities && plural(u.activities, 'lesson activity', 'lesson activities')].filter(Boolean).join(', ');
+        const parts = [u.observations && plural(u.observations, 'observation'), u.milestones && plural(u.milestones, 'child milestone record'), u.activities && plural(u.activities, 'lesson activity', 'lesson activities'), u.progress && plural(u.progress, 'Progress Tracker record'), u.prerequisites && plural(u.prerequisites, 'material that lists it as a prerequisite', 'materials that list it as a prerequisite')].filter(Boolean).join(', ');
         const d = kids.dialog({
           label: 'Learning framework / Delete', title: u.observations ? 'This item is linked to existing observations and cannot be deleted.' : 'This item is in use and cannot be deleted.',
           desc: `${esc(it.name)}${usage.descendants ? ' or an item inside it' : ''} is used by ${esc(parts)}. Those records must keep their history, so the item stays. Hiding it stops it being offered for new observations and milestones.`,
@@ -730,10 +744,11 @@
         if (form.elements.code) input.code = form.elements.code.value;
         if (form.elements.ageBand) input.ageBand = form.elements.ageBand.value;
         if (form.elements.materialId) input.materialId = form.elements.materialId.value;
+        if (form.querySelector('[name="prerequisiteIds"]') || form.querySelector('.fw-pre')) input.prerequisiteIds = [...form.querySelectorAll('[name="prerequisiteIds"]:checked')].map(i => i.value);
         const r = await store.updateFrameworkItem(me(), f.id, it.id, input, { rev: f.rev, fail: takeFail('save') });
         if (!r.ok) {
           st.textContent = '';
-          if (r.errors) { Object.entries(r.errors).forEach(([k, msg]) => { const h = form.querySelector(`[data-error-for="${k}"]`); if (h) { h.textContent = msg; h.hidden = false; } }); form.elements[Object.keys(r.errors)[0]]?.focus(); return; }
+          if (r.errors) { Object.entries(r.errors).forEach(([k, msg]) => { const h = form.querySelector(`[data-error-for="${k}"]`); if (h) { h.textContent = msg; h.hidden = false; } }); form.querySelector(`[name="${Object.keys(r.errors)[0]}"]`)?.focus(); return; }
           st.innerHTML = `<span class="fw-d-err">${icon('alert-circle', 'icon--sm')}Not saved. ${esc(failText(r))}</span>`;
           if (['stale', 'missing'].includes(r.reason)) draw();
           return;
@@ -887,7 +902,7 @@
     const relayout = () => { renaming = mqPhone.matches ? '' : renaming; if (!mqNarrow.matches && drawer) drawer.close(); draw(); };
     mqPhone.addEventListener('change', relayout);
     mqNarrow.addEventListener('change', relayout);
-    store.subscribe(({ key }) => { if (loaded && !busy && !renaming && !openMenu && !document.querySelector('dialog.modal[open]') && (!key || /^nexora-(frameworks|framework-active|learning|child-milestones|activities|materials|demo-role|school-plan)/.test(key))) draw(); });
+    store.subscribe(({ key }) => { if (loaded && !busy && !renaming && !openMenu && !document.querySelector('dialog.modal[open]') && (!key || /^nexora-(frameworks|framework-active|learning|child-milestones|observations|progress|activities|materials|demo-role|school-plan)/.test(key))) draw(); });
     load();
   }
 

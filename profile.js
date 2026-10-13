@@ -248,6 +248,11 @@
         const obsList = store.childObservations(store.currentUser(), c.id);
         const evidence = store.milestoneEvidence(store.currentUser(), c.id);
         const evOnly = evidence.filter(x => !x.record);
+        const evText = x => [x.observations.length && `${x.observations.length} observation${x.observations.length === 1 ? '' : 's'}`, (x.progress || []).length && `${x.progress.length} material${x.progress.length === 1 ? '' : 's'} in progress or mastered`].filter(Boolean).join(' · ');
+        const timeline = store.childProgressTimeline(c.id);
+        const PS = store.PROGRESS_STATES;
+        const tlItem = e => `<li><b>${esc(e.materialName)}</b>: ${esc(PS[e.from])} → <b>${esc(PS[e.to])}</b><span class="cp-muted"> · ${esc(day(e.date))} · ${esc(e.by)}${e.active ? '' : ` · ${esc(e.frameworkName)}`}</span>${e.note ? `<p class="pt-tl__note">${esc(e.note)}</p>` : ''}${e.observationId ? ` <a href="${routes.page('observations', { obs: e.observationId })}">Observation</a>` : ''}</li>`;
+        const progCard = card(`Progress (${timeline.length} change${timeline.length === 1 ? '' : 's'})`, timeline.length ? `<ol class="pt-tl">${timeline.slice(0, 8).map(tlItem).join('')}</ol>${timeline.length > 8 ? `<details class="pt-tl__more"><summary>Show ${timeline.length - 8} earlier</summary><ol class="pt-tl">${timeline.slice(8).map(tlItem).join('')}</ol></details>` : ''}` : '<p class="cp-muted">No material progress recorded yet. Changes made in the Progress Tracker appear here.</p>', { id: 'ln-prog', action: store.canAccess(store.currentUser(), 'classroom-tracker') ? `<a class="btn btn--tertiary btn--sm" href="${routes.page('classroom-tracker', { cls: c.cls, view: 'child', child: c.id })}">Open in Progress Tracker</a>` : '' });
         const evFor = id => evidence.find(x => x.itemId === id);
         const obsCard = card(`Observations (${obsList.length})`, obsList.length ? `<ul class="ob-pf">${obsList.map(o => { const sharedHere = (o.sharedChildIds || []).includes(c.id); return `<li class="ob-pf__item" id="pf-${esc(o.id)}">
             ${o.photoIds.length ? `<div class="ob-pf__photos">${o.photoIds.slice(0, 3).map((p, i) => `<img src="${esc(store.observationPhoto(store.currentUser(), p) || '')}" alt="Photo ${i + 1} of ${o.photoIds.length}" loading="lazy">`).join('')}${o.photoIds.length > 3 ? `<span>+${o.photoIds.length - 3}</span>` : ''}</div>` : ''}
@@ -256,9 +261,10 @@
             <a class="btn btn--tertiary btn--sm" href="${routes.page('observations', { obs: o.id })}">Open in Observations</a></div></li>`; }).join('')}</ul>` : '<p class="cp-muted">No published observations yet. Observations tagged with this child appear here.</p>', { id: 'ln-obs-list', action: `<a class="btn btn--tertiary btn--sm" href="${routes.page('observations', { new: '1' })}">${icon('plus', 'icon--sm')}New observation</a>` });
         const tags = l => (l.outcomeRefs || []).length && fwk ? `<span class="fw-tags">${l.outcomeRefs.map(r => fwk.refLabel(r)).join('')}</span>` : '';
         return `<div class="cp-toolbar">${add}</div>
+          ${progCard}
           ${obsCard}
-          ${card('Milestones', `${ms.length ? `<ul class="fw-ms">${ms.map(m => `<li>${fwk ? fwk.refLabel(m) : esc(m.name)}<span class="cp-muted">Achieved ${esc(day(m.achievedOn))} · ${esc(m.recordedBy)}${m.note ? ` · ${esc(m.note)}` : ''}${evFor(m.itemId) ? ` · evidence: ${evFor(m.itemId).observations.length} observation${evFor(m.itemId).observations.length === 1 ? '' : 's'}` : ''}</span></li>`).join('')}</ul>` : '<p class="cp-muted">No milestones recorded yet. Milestones come from the school’s learning framework.</p>'}
-            ${evOnly.length ? `<h3 class="cd-qv-h">Evidence, not yet recorded</h3><ul class="fw-ms">${evOnly.map(x => `<li>${fwk ? fwk.refLabel(x) : esc(x.name)}<span class="cp-muted">${x.observations.length} observation${x.observations.length === 1 ? '' : 's'} as evidence · not marked achieved — use Record milestone when you’re ready</span></li>`).join('')}</ul>` : ''}`, { id: 'ln-ms' })}
+          ${card('Milestones', `${ms.length ? `<ul class="fw-ms">${ms.map(m => `<li>${fwk ? fwk.refLabel(m) : esc(m.name)}<span class="cp-muted">Achieved ${esc(day(m.achievedOn))} · ${esc(m.recordedBy)}${m.note ? ` · ${esc(m.note)}` : ''}${evFor(m.itemId) ? ` · evidence: ${evText(evFor(m.itemId))}` : ''}</span></li>`).join('')}</ul>` : '<p class="cp-muted">No milestones recorded yet. Milestones come from the school’s learning framework.</p>'}
+            ${evOnly.length ? `<h3 class="cd-qv-h">Evidence, not yet recorded</h3><ul class="fw-ms">${evOnly.map(x => `<li>${fwk ? fwk.refLabel(x) : esc(x.name)}<span class="cp-muted">Evidence: ${evText(x)} · not marked achieved — use Record milestone when you’re ready</span></li>`).join('')}</ul>` : ''}`, { id: 'ln-ms' })}
           ${legacy ? card('Latest class observation', `<p>${esc(legacy)}</p>`, { id: 'ln-obs' }) : ''}
           ${list.length ? `<div class="table-shell"><table class="data-table cp-table"><thead><tr><th scope="col">Date</th><th scope="col">Area</th><th scope="col">Activity or material</th><th scope="col">Stage</th><th scope="col">Observation</th><th scope="col" class="cell-action"><span class="sr-only">Edit</span></th></tr></thead><tbody>${list.map(l => `<tr>
             <td data-label="Date">${esc(day(l.date))}</td><td data-label="Area">${esc(l.area)}</td><td data-label="Material">${esc(l.material)}</td>
@@ -733,7 +739,7 @@
     // Any saved change to this child (here, in S12 or in another tab) repaints header, alerts and the open tab.
     let queued = false;
     store.subscribe(({ key }) => {
-      if (key && !/^nexora-(children|guardians|diary|learning|child-milestones|observations|frameworks|framework-active|child-docs|consents|register|invoices|payments|incidents|school-plan|demo-role|events|event-)/.test(key)) return;
+      if (key && !/^nexora-(children|guardians|diary|learning|child-milestones|observations|progress|frameworks|framework-active|child-docs|consents|register|invoices|payments|incidents|school-plan|demo-role|events|event-)/.test(key)) return;
       if (key === 'nexora-demo-role') { location.reload(); return; }
       if (queued) return;
       queued = true;

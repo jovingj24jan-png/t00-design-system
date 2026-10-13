@@ -129,11 +129,11 @@
       features: ['One-tap daily registers for each classroom', 'Late arrivals and early pick-ups recorded with times', 'Absence reasons captured from parents', 'Weekly attendance summaries for each child', 'Alerts when a child is absent several days in a row']
     },
     'classroom-tracker': {
-      name: 'Classroom Tracker', icon: 'grid', requiredPlan: 'starter',
+      name: 'Progress Tracker', icon: 'grid', requiredPlan: 'starter',
       roles: ['Teacher', 'Director', 'Admin', 'Super Admin'],
-      summary: 'Daily work cycles, presentations and observations for each classroom.',
-      description: 'Follow each child through the work cycle, from first presentation to independent mastery.',
-      features: ['Presentation log for every material', 'Work cycle notes by child and by day', 'Progress stages from introduced to mastered', 'Planning view for the week ahead', 'Shared classroom view for co-teachers']
+      summary: 'Each child’s progress through the Montessori materials, from first presentation to mastery.',
+      description: 'Follow each child through the materials of every area, from first presentation to independent mastery, and see who is ready for their next presentation.',
+      features: ['Class grid of every child and material in sequence', 'Presented, Practising and Mastered with dated history', 'Ready-for-next-presentation list from prerequisites', 'Gaps view for what still needs attention', 'Every change in the child’s portfolio']
     },
     observations: {
       name: 'Observations', icon: 'eye', requiredPlan: 'starter',
@@ -6290,7 +6290,9 @@
     const obs = [...read(learningKey(school.id), []), ...read(observationsKey(school.id), []).filter(o => !o.deletedAt)].filter(e => (e.outcomeRefs || []).some(r => set.has(r.itemId)));
     const ms = read(childMilestonesKey(school.id), []).filter(m => set.has(m.itemId));
     const acts = read(activitiesKey(school.id), []).filter(a => (a.outcomeIds || []).some(id => set.has(id)));
-    return { observations: obs.length, milestones: ms.length, activities: acts.length, total: obs.length + ms.length + acts.length };
+    const prog = read(progressKey(school.id), []).filter(p => set.has(p.materialId)).length;
+    const prereq = getFrameworks().flatMap(f => f.items).filter(i => !set.has(i.id) && (i.prerequisiteIds || []).some(id => set.has(id))).length;
+    return { observations: obs.length, milestones: ms.length, activities: acts.length, progress: prog, prerequisites: prereq, total: obs.length + ms.length + acts.length + prog + prereq };
   }
   function frameworkItemUsage(fwId, itemId) {
     const fw = frameworkById(fwId);
@@ -6355,15 +6357,24 @@
         v.materialId = input.materialId === undefined ? it.materialId : clean(input.materialId) || null;
         if (v.materialId && !getMaterials().some(m => m.id === v.materialId)) errors.materialId = 'Choose a material from the school’s inventory.';
         else if (v.materialId && v.materialId !== it.materialId && fwChildren(fw, it.parentId).some(c => c.id !== it.id && c.materialId === v.materialId)) errors.materialId = 'That material is already linked to this sub-area.';
+        if (Array.isArray(input.prerequisiteIds)) {
+          const ids = [...new Set(input.prerequisiteIds.map(clean).filter(Boolean))];
+          // A prerequisite must be another material in this framework, and the chain can't loop back to this one.
+          const reaches = (from, seen = new Set()) => (from === it.id ? true : seen.has(from) ? false : (seen.add(from), (fwItem(fw, from)?.prerequisiteIds || []).some(x => reaches(x, seen))));
+          if (ids.some(id => fwItem(fw, id)?.type !== 'material' || id === it.id)) errors.prerequisiteIds = 'Prerequisites must be other materials in this framework.';
+          else if (ids.some(id => reaches(id))) errors.prerequisiteIds = 'That would make a loop: a material can’t depend on itself through its prerequisites.';
+          v.prerequisiteIds = ids;
+        }
       }
       if (Object.keys(errors).length) return { ok: false, reason: 'invalid', errors };
-      const changed = ['name', 'code', 'description', 'ageBand', 'materialId'].filter(k => k in v && (v[k] || '') !== (it[k] || ''));
+      const same = (a, b) => (Array.isArray(a) || Array.isArray(b) ? JSON.stringify(a || []) === JSON.stringify(b || []) : (a || '') === (b || ''));
+      const changed = ['name', 'code', 'description', 'ageBand', 'materialId', 'prerequisiteIds'].filter(k => k in v && !same(v[k], it[k]));
       if (!changed.length) return { ok: true, item: it, unchanged: true };
       if (fail) return { ok: false, reason: 'storage' };
       const before = { ...it };
       Object.assign(it, v, { updatedAt: new Date().toISOString() });
       const kind = changed.length === 1 && changed[0] === 'name' ? 'renamed' : 'edited';
-      return { ok: true, item: it, after: f => fwEvent(user, kind, f, kind === 'renamed' ? `Renamed ${before.name} → ${it.name}` : `${it.name}: ${changed.join(', ')} changed`, { itemId: it.id, itemName: it.name, changes: changed.map(k => ({ field: k, from: before[k] || '', to: it[k] || '' })) }) };
+      return { ok: true, item: it, after: f => fwEvent(user, kind, f, kind === 'renamed' ? `Renamed ${before.name} → ${it.name}` : `${it.name}: ${changed.join(', ')} changed`, { itemId: it.id, itemName: it.name, changes: changed.map(k => ({ field: k === 'prerequisiteIds' ? 'prerequisites' : k, from: k === 'prerequisiteIds' ? (before[k] || []).map(id => fwItem(f, id)?.name || id).join(', ') : before[k] || '', to: k === 'prerequisiteIds' ? (it[k] || []).map(id => fwItem(f, id)?.name || id).join(', ') : it[k] || '' })) }) };
     }));
   }
   // Area names of observations tagged with these items, when moving them under a different area would contradict them.
@@ -6496,7 +6507,10 @@
       { id: 'e-pd-1-1', type: 'outcome', parentId: 'e-pd-1', name: 'Uses a pincer grip to pick up small objects', code: 'PD.1.1', description: '', ageBand: '3–4 years' },
       { id: 'e-pd-1-2', type: 'outcome', parentId: 'e-pd-1', name: 'Holds a pencil with a tripod grip', code: 'PD.1.2', description: '', ageBand: '4–5 years' }
     ];
-    const meta = { provider: 'Nexora demo library', demo: true, updatedAt: '2026-06-01' };
+    // Demo prerequisites (template content for testing, like everything in these templates).
+    const pre = { 't-ma-1-y': ['t-ma-1-x'], 't-ma-2-x': ['t-ma-1-y'], 't-la-2-y': ['t-la-2-x'], 't-se-1-z': ['t-se-1-y'] };
+    [v21, v22].forEach(list => list.forEach(i => { if (pre[i.id]) i.prerequisites = pre[i.id].slice(); }));
+    const meta = { provider: 'Nexora demo library', demo: true, updatedAt: '2026-06-01', schema: 2 };
     return [
       { id: 'p15-mont-ec', templateKey: 'mont-ec', name: 'Montessori Early Childhood (demo)', version: '2.1', type: 'Montessori', description: 'Five Montessori areas with outcomes, milestones and linked classroom materials. Demo content for testing.', ageBands: bands, items: v21, ...meta },
       { id: 'p15-mont-ec-22', templateKey: 'mont-ec', name: 'Montessori Early Childhood (demo)', version: '2.2', type: 'Montessori', description: 'Version 2.2 adds botany, shape sorting and a courtesy outcome, and updates one description. Demo content for testing.', ageBands: bands, items: v22, ...meta },
@@ -6506,10 +6520,16 @@
   // The P15 read. `fail` simulates the library being unreachable.
   function platformTemplates({ fail = false } = {}) {
     if (fail) return settle({ ok: false, reason: 'unavailable' });
-    const list = seeded(PLATFORM_TEMPLATES_KEY, seedPlatformTemplates);
+    const list = platformTemplateList();
     return settle({ ok: true, library: 'P15', demo: list.every(t => t.demo), templates: list.map(t => ({ ...t, counts: { areas: t.items.filter(i => i.type === 'area').length, outcomes: t.items.filter(i => i.type === 'outcome').length, milestones: t.items.filter(i => i.type === 'milestone').length, materials: t.items.filter(i => i.type === 'material').length } })) });
   }
-  const templateById = id => seeded(PLATFORM_TEMPLATES_KEY, seedPlatformTemplates).find(t => t.id === id) || null;
+  // Demo-only libraries saved before templates carried prerequisites are refreshed; a real library is never replaced.
+  function platformTemplateList() {
+    const list = seeded(PLATFORM_TEMPLATES_KEY, seedPlatformTemplates);
+    if (list.length && list.every(t => t.demo && (t.schema || 1) < 2)) { const fresh = seedPlatformTemplates(); try { localStorage.setItem(PLATFORM_TEMPLATES_KEY, JSON.stringify(fresh)); } catch { /* in memory */ } return fresh; }
+    return list;
+  }
+  const templateById = id => platformTemplateList().find(t => t.id === id) || null;
   // Structural check of a template before anything is written.
   function templateIssues(t) {
     const out = [];
@@ -6546,7 +6566,7 @@
       const k = i.parentId || 'root';
       const order = orderOf.get(k) || 0;
       orderOf.set(k, order + 1);
-      return { id: idMap.get(i.id), type: i.type, parentId: i.parentId ? idMap.get(i.parentId) : null, order, name: i.name, code: i.code || '', description: i.description || '', ageBand: i.ageBand || '', hidden: false, materialId: i.type === 'material' ? inventoryMatch(i.name) : null, sourceId: i.id, createdAt: now, updatedAt: now };
+      return { id: idMap.get(i.id), type: i.type, parentId: i.parentId ? idMap.get(i.parentId) : null, order, name: i.name, code: i.code || '', description: i.description || '', ageBand: i.ageBand || '', hidden: false, materialId: i.type === 'material' ? inventoryMatch(i.name) : null, prerequisiteIds: (i.prerequisites || []).map(x => idMap.get(x)).filter(Boolean), sourceId: i.id, createdAt: now, updatedAt: now };
     });
     const fw = { id: newId('fw'), name: same ? `${t.name} (copy)` : t.name, version: t.version, type: t.type, description: t.description, ageBands: t.ageBands.slice(), source: { library: 'P15', templateId: t.id, templateKey: t.templateKey, templateVersion: t.version, provider: t.provider, demo: Boolean(t.demo) }, rev: 1, createdAt: now, createdBy: user.name, updatedAt: now, updatedBy: user.name, items };
     const writes = [{ key: frameworksKey(school.id), value: [...list, fw] }];
@@ -6628,6 +6648,12 @@
       newIds.set(r.tid, id);
       fw.items.push({ id, type: r.type, parentId, order: fwChildren(fw, parentId).length, name: r.name, code, description: r.description || '', ageBand: r.ageBand || '', hidden: false, materialId: r.type === 'material' ? inventoryMatch(r.name) : null, sourceId: r.tid, createdAt: now, updatedAt: now });
       summary.added.push(code && code !== r.code ? `${r.name} (code ${code})` : r.name);
+    });
+    // Prerequisites of added materials point at their matched or newly added counterparts; unresolved ones are dropped.
+    plan.rows.filter(r => r.type === 'material' && newIds.has(r.tid)).forEach(r => {
+      const ti = t.items.find(x => x.id === r.tid);
+      const it = fwItem(fw, newIds.get(r.tid));
+      it.prerequisiteIds = (ti.prerequisites || []).map(x => newIds.get(x) || plan.rows.find(y => y.tid === x)?.existingId).filter(Boolean);
     });
     fw.ageBands = [...(fw.ageBands || []), ...plan.missingBands];
     if (!summary.added.length && !summary.updated.length && !plan.missingBands.length) return settle({ ok: true, unchanged: true, summary });
@@ -6866,18 +6892,160 @@
     const fws = getFrameworks();
     const recs = getChildMilestones(childId);
     const out = new Map();
-    const add = (fw, ms, o) => { if (!out.has(ms.id)) out.set(ms.id, { itemId: ms.id, frameworkId: fw.id, frameworkVersion: fw.version, name: ms.name, code: ms.code, record: recs.find(r => r.itemId === ms.id) || null, observations: [] }); const e = out.get(ms.id); if (!e.observations.includes(o.id)) e.observations.push(o.id); };
+    const entry = (fw, ms) => { if (!out.has(ms.id)) out.set(ms.id, { itemId: ms.id, frameworkId: fw.id, frameworkVersion: fw.version, name: ms.name, code: ms.code, record: recs.find(r => r.itemId === ms.id) || null, observations: [], progress: [] }); return out.get(ms.id); };
+    const add = (fw, ms, o) => { const e = entry(fw, ms); if (!e.observations.includes(o.id)) e.observations.push(o.id); };
     obs.forEach(o => o.outcomeRefs.forEach(r => {
       const fw = fws.find(x => x.id === r.frameworkId) || fws.find(x => x.items.some(i => i.id === r.itemId));
       const it = fwItem(fw, r.itemId);
-      if (!it) { if (r.type === 'milestone') { if (!out.has(r.itemId)) out.set(r.itemId, { itemId: r.itemId, frameworkId: r.frameworkId, frameworkVersion: r.frameworkVersion, name: r.name, code: r.code, record: recs.find(x => x.itemId === r.itemId) || null, observations: [] }); out.get(r.itemId).observations.push(o.id); } return; }
+      if (!it) { if (r.type === 'milestone') { if (!out.has(r.itemId)) out.set(r.itemId, { itemId: r.itemId, frameworkId: r.frameworkId, frameworkVersion: r.frameworkVersion, name: r.name, code: r.code, record: recs.find(x => x.itemId === r.itemId) || null, observations: [], progress: [] }); out.get(r.itemId).observations.push(o.id); } return; }
       if (it.type === 'milestone') add(fw, it, o);
       else fwChildren(fw, it.parentId).filter(s => s.type === 'milestone').forEach(ms => add(fw, ms, o));
     }));
+    // Progress Tracker: materials of the same sub-area the child has been presented, is practising or has mastered.
+    getProgress().filter(p => p.childId === childId && p.state !== 'not_introduced').forEach(p => {
+      const fw = fws.find(x => x.id === p.frameworkId);
+      const m = fwItem(fw, p.materialId);
+      if (!m) return;
+      fwChildren(fw, m.parentId).filter(x => x.type === 'milestone').forEach(ms => entry(fw, ms).progress.push({ materialId: m.id, name: m.name, state: p.state, date: p.stateDate }));
+    });
     return [...out.values()];
   }
   // AI integration point. No AI service is connected, so nothing is suggested and nothing is sent anywhere.
   const observationAssist = () => settle({ ok: false, reason: 'unavailable', message: 'No AI writing service is connected to this school.' });
+
+  /* Progress tracker (tracker.js at ?page=classroom-tracker). Materials are the active framework's material items (their
+     order is the Montessori sequence; `prerequisiteIds` on a material are set in Learning Framework).
+     Current state `nexora-progress:<school>` [{ id, schoolId, childId, materialId, frameworkId, state, stateDate, updatedAt,
+       updatedBy, updatedById, lastEventId }] — one record per child + material.
+     Events `nexora-progress-events:<school>` [{ id, progressId, childId, materialId, frameworkId, frameworkVersion,
+       materialName, from, to, date, at, by, byId, note, observationId, clientId, edits: [{ at, by, note, observationId,
+       date }] }] — append-only; editing a note keeps the earlier version in `edits`.
+     States: not_introduced → presented → practising → mastered → not_introduced. A change is refused if the state the
+     person saw is no longer current (stale). Mastery is evidence only: it never records a framework milestone.
+     Readiness: a not-yet-introduced material whose configured prerequisites all exist, are visible and are mastered.
+     Device storage only; a server would need the same checks and per-record locking. */
+  const progressKey = id => `nexora-progress:${id}`;
+  const progressEventsKey = id => `nexora-progress-events:${id}`;
+  const PROGRESS_STATES = { not_introduced: 'Not introduced', presented: 'Presented', practising: 'Practising', mastered: 'Mastered' };
+  const PROGRESS_LETTER = { not_introduced: '—', presented: 'P', practising: 'Pr', mastered: 'M' };
+  const PROGRESS_NEXT = { not_introduced: 'presented', presented: 'practising', practising: 'mastered', mastered: 'not_introduced' };
+  const getProgress = () => read(progressKey(school.id), []);
+  const getProgressEvents = () => read(progressEventsKey(school.id), []);
+  const canTrack = (user, childId) => { const c = childById(childId); return can(user, 'classroom-tracker') && CLASS_STAFF.includes(user.role) && Boolean(c) && classScope(user).includes(c.cls); };
+  // Materials of one area of the active framework, in sequence (sub-area order, then material order). Hidden ones are left out.
+  function trackerMaterials(areaId = '') {
+    const fw = activeFramework();
+    if (!fw) return { framework: null, areas: [], materials: [] };
+    const areas = fwChildren(fw, null).filter(a => !a.hidden).map(a => ({ id: a.id, name: a.name, code: a.code }));
+    const area = areas.find(a => a.id === areaId) || areas[0] || null;
+    const materials = area ? fwOrdered(fw).filter(i => i.type === 'material' && !fwHiddenBy(fw, i.id) && fwPath(fw, i.id)[0]?.id === area.id).map((m, i) => {
+      const sub = fwItem(fw, m.parentId);
+      return { id: m.id, name: m.name, description: m.description, subareaId: sub?.id || null, subarea: sub?.name || '', subareaAgeBand: sub?.ageBand || '', area: area.name, areaId: area.id, position: i + 1, prerequisiteIds: m.prerequisiteIds || [], inventoryId: m.materialId || null };
+    }) : [];
+    return { framework: { id: fw.id, name: fw.name, version: fw.version }, areas, area, materials };
+  }
+  // Everything known about one material, from the framework and the S23 inventory. Nothing is filled in that isn't recorded.
+  function trackerMaterialInfo(materialId) {
+    const fw = getFrameworks().find(f => f.items.some(i => i.id === materialId));
+    const m = fwItem(fw, materialId);
+    if (!m) return null;
+    const path = fwPath(fw, m.id);
+    const sub = fwItem(fw, m.parentId);
+    const areaMats = fwOrdered(fw).filter(i => i.type === 'material' && fwPath(fw, i.id)[0]?.id === path[0]?.id && !fwHiddenBy(fw, i.id));
+    const inv = m.materialId ? getMaterials().find(x => x.id === m.materialId) : null;
+    const prereqs = (m.prerequisiteIds || []).map(id => { const p = fwItem(fw, id); return p ? { id, name: p.name, hidden: Boolean(fwHiddenBy(fw, id)) } : { id, name: 'Removed material', missing: true }; });
+    const linked = sub ? fwChildren(fw, sub.id).filter(s => ['outcome', 'milestone'].includes(s.type) && !fwHiddenBy(fw, s.id)).map(s => ({ id: s.id, type: s.type, name: s.name, code: s.code, ageBand: s.ageBand })) : [];
+    return { id: m.id, name: m.name, description: m.description, area: path[0]?.name || '', subarea: sub?.name || '', ageBand: sub?.ageBand || '', position: areaMats.findIndex(x => x.id === m.id) + 1, of: areaMats.length, prerequisites: prereqs, linked, framework: { id: fw.id, name: fw.name, version: fw.version, active: fw.id === activeFrameworkId() }, hidden: Boolean(fwHiddenBy(fw, m.id)), inventory: inv ? { id: inv.id, name: inv.name, condition: CONDITIONS[inv.condition] || inv.condition } : null };
+  }
+  const progressFor = (childId, materialId, list = getProgress()) => list.find(p => p.childId === childId && p.materialId === materialId) || null;
+  const progressHistory = (childId, materialId, events = getProgressEvents()) => events.filter(e => e.childId === childId && e.materialId === materialId).sort((a, b) => a.date.localeCompare(b.date) || a.at.localeCompare(b.at));
+
+  /* Change a child's state for a material. `from` is the state the person saw; `to` defaults to the next in the cycle.
+     `clientId` makes a retried click return the first result instead of adding a second event. */
+  let savingProgress = '';
+  function setProgressState(user, childId, materialId, { from, to = null, date = '', note = '', observationId = '', clientId = '', fail = false } = {}) {
+    if (!canTrack(user, childId)) return settle({ ok: false, reason: 'forbidden' });
+    const fw = getFrameworks().find(f => f.items.some(i => i.id === materialId && i.type === 'material'));
+    const m = fwItem(fw, materialId);
+    if (!m || m.type !== 'material') return settle({ ok: false, reason: 'missing' });
+    const events = getProgressEvents();
+    if (clientId) { const again = events.find(e => e.clientId === clientId); if (again) return settle({ ok: true, event: again, record: progressFor(childId, materialId), repeated: true }); }
+    const key = `${childId}:${materialId}`;
+    if (savingProgress === key) return settle({ ok: false, reason: 'busy' });
+    const list = getProgress();
+    const rec = progressFor(childId, materialId, list);
+    const current = rec?.state || 'not_introduced';
+    if (from && from !== current) return settle({ ok: false, reason: 'stale', state: current });
+    const next = to || PROGRESS_NEXT[current];
+    const errors = {};
+    if (!PROGRESS_STATES[next]) errors.state = 'Choose a state.';
+    else if (next === current) errors.state = 'Choose a different state, or edit the note on the latest change.';
+    const d = clean(date) || today();
+    if (!isDate(d)) errors.date = 'Enter a valid date.';
+    else if (d > today()) errors.date = 'The date can’t be in the future.';
+    else if (rec && d < (rec.stateDate || '')) errors.date = `The date can’t be before the latest change (${dLabel(rec.stateDate)}).`;
+    const obsOk = !observationId || allObservations().some(o => o.id === observationId && !o.deletedAt && o.status === 'published' && o.childIds.includes(childId));
+    if (!obsOk) errors.observationId = 'Choose a published observation of this child.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    if (fail) return settle({ ok: false, reason: 'storage', state: current });
+    savingProgress = key;
+    const now = new Date().toISOString();
+    const r = rec || { id: newId('pg'), schoolId: school.id, childId, materialId, frameworkId: fw.id };
+    const ev = { id: newId('pge'), progressId: r.id, childId, materialId, frameworkId: fw.id, frameworkVersion: fw.version, materialName: m.name, from: current, to: next, date: d, at: now, by: user.name, byId: user.id, note: clean(note).slice(0, 1000), observationId: observationId || null, clientId: clientId || newId('cl'), edits: [] };
+    Object.assign(r, { state: next, stateDate: d, updatedAt: now, updatedBy: user.name, updatedById: user.id, lastEventId: ev.id });
+    const ok = commit([{ key: progressKey(school.id), value: rec ? list : [...list, r] }, { key: progressEventsKey(school.id), value: [...events, ev] }]);
+    savingProgress = '';
+    if (!ok) return settle({ ok: false, reason: 'storage', state: current });
+    return settle({ ok: true, record: r, event: ev });
+  }
+  // Edit the latest change's note, date or observation link. The earlier values are kept in `edits`.
+  function editProgressEvent(user, eventId, { note, date, observationId } = {}) {
+    const events = getProgressEvents();
+    const ev = events.find(e => e.id === eventId);
+    if (!ev) return settle({ ok: false, reason: 'missing' });
+    if (!canTrack(user, ev.childId)) return settle({ ok: false, reason: 'forbidden' });
+    const list = getProgress();
+    const rec = progressFor(ev.childId, ev.materialId, list);
+    const errors = {};
+    const d = date === undefined ? ev.date : clean(date);
+    const prev = progressHistory(ev.childId, ev.materialId, events).filter(e => e.id !== ev.id).pop();
+    if (!isDate(d)) errors.date = 'Enter a valid date.';
+    else if (d > today()) errors.date = 'The date can’t be in the future.';
+    else if (prev && d < prev.date) errors.date = `The date can’t be before the previous change (${dLabel(prev.date)}).`;
+    if (rec?.lastEventId !== ev.id && d !== ev.date) errors.date = 'Only the latest change’s date can be corrected.';
+    const obs = observationId === undefined ? ev.observationId : observationId || null;
+    if (obs && !allObservations().some(o => o.id === obs && !o.deletedAt && o.status === 'published' && o.childIds.includes(ev.childId))) errors.observationId = 'Choose a published observation of this child.';
+    if (Object.keys(errors).length) return settle({ ok: false, reason: 'invalid', errors });
+    const n = note === undefined ? ev.note : clean(note).slice(0, 1000);
+    if (n === ev.note && d === ev.date && obs === ev.observationId) return settle({ ok: true, event: ev, unchanged: true });
+    ev.edits = [...(ev.edits || []), { at: new Date().toISOString(), by: user.name, byId: user.id, note: ev.note, date: ev.date, observationId: ev.observationId }];
+    Object.assign(ev, { note: n, date: d, observationId: obs });
+    const writes = [{ key: progressEventsKey(school.id), value: events }];
+    if (rec?.lastEventId === ev.id) { rec.stateDate = d; writes.push({ key: progressKey(school.id), value: list }); }
+    if (!commit(writes)) return settle({ ok: false, reason: 'storage' });
+    return settle({ ok: true, event: ev });
+  }
+  // Children whose configured prerequisites are all mastered and who haven't been introduced to the material yet.
+  function readyForNext(childIds, materials, list = getProgress(), events = getProgressEvents()) {
+    const fw = activeFramework();
+    const out = [];
+    const configured = materials.some(m => m.prerequisiteIds.length);
+    materials.filter(m => m.prerequisiteIds.length).forEach(m => {
+      const pre = m.prerequisiteIds.map(id => fwItem(fw, id));
+      if (pre.some(p => !p || p.type !== 'material' || fwHiddenBy(fw, p.id))) return;
+      childIds.forEach(cid => {
+        if ((progressFor(cid, m.id, list)?.state || 'not_introduced') !== 'not_introduced') return;
+        const recs = pre.map(p => progressFor(cid, p.id, list));
+        if (!recs.every(r => r?.state === 'mastered')) return;
+        const last = recs.slice().sort((a, b) => b.stateDate.localeCompare(a.stateDate))[0];
+        const ev = events.find(e => e.id === last.lastEventId);
+        out.push({ childId: cid, materialId: m.id, materialName: m.name, area: m.area, previousId: last.materialId, previousName: fwItem(fw, last.materialId)?.name || '', masteredOn: last.stateDate, observationId: ev?.observationId || null });
+      });
+    });
+    return { configured, list: out.sort((a, b) => a.masteredOn.localeCompare(b.masteredOn)) };
+  }
+  // S28: one child's progress timeline (all frameworks), newest first.
+  const childProgressTimeline = childId => getProgressEvents().filter(e => e.childId === childId).sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at)).map(e => { const fw = getFrameworks().find(f => f.id === e.frameworkId); const m = fwItem(fw, e.materialId); return { ...e, materialName: m?.name || e.materialName, frameworkName: fw?.name || '', active: fw?.id === activeFrameworkId() }; });
 
   const TERM = 'Term 2 · 2026–27';
   const FEE_BY_LEVEL = { Nursery: 15000, LKG: 16500, UKG: 18000, Montessori: 21000 };
@@ -8757,6 +8925,20 @@
     childObservations,
     milestoneEvidence,
     observationAssist,
+    PROGRESS_STATES,
+    PROGRESS_LETTER,
+    PROGRESS_NEXT,
+    canTrack,
+    trackerMaterials,
+    trackerMaterialInfo,
+    getProgress,
+    getProgressEvents,
+    progressFor,
+    progressHistory,
+    setProgressState,
+    editProgressEvent,
+    readyForNext,
+    childProgressTimeline,
     photoConsent,
     getRepairs,
     saveMaterial,
